@@ -267,7 +267,7 @@
         <table id="empTable">
           <thead>
             <tr>
-              <th>کد</th><th>نام</th><th>نوع قرارداد</th><th>سمت</th><th>واحد</th><th>محل کار</th>
+              <th>کد</th><th>نام</th><th>نوع قرارداد</th><th>سمت</th><th>مدیریت/معاونت</th><th>واحد</th><th>گروه</th><th>محل کار</th>
               <th>تاریخ استخدام</th><th>حقوق پایه</th><th>بانک</th><th>معافیت</th><th>وام</th><th>عملیات</th>
             </tr>
             <tr id="empFilterRow">
@@ -282,6 +282,8 @@
               <th><select class="emp-filter" data-col="8" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
               <th><select class="emp-filter" data-col="9" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
               <th><select class="emp-filter" data-col="10" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
+              <th><select class="emp-filter" data-col="11" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
+              <th><select class="emp-filter" data-col="12" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
               <th></th>
             </tr>
           </thead>
@@ -294,7 +296,9 @@
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">فقط مبلغ آیتم‌های سفارشی کارکنان. فیلترها را تنظیم کنید، آیتم و مبلغ را بدهید.</p>
       <div class="form-grid" style="align-items:end;">
         <div class="form-group"><label>محل کار</label><select id="bulkWorkplace"><option value="">همه</option></select></div>
+        <div class="form-group"><label>مدیریت/معاونت</label><select id="bulkManagement"><option value="">همه</option></select></div>
         <div class="form-group"><label>واحد</label><select id="bulkUnit"><option value="">همه</option></select></div>
+        <div class="form-group"><label>گروه</label><select id="bulkGroup"><option value="">همه</option></select></div>
         <div class="form-group"><label>سمت</label><select id="bulkPosition"><option value="">همه</option></select></div>
         <div class="form-group"><label>نوع قرارداد</label>
           <select id="bulkContract">
@@ -331,7 +335,7 @@
         <table>
           <thead>
             <tr>
-              <th>کد</th><th>نام</th><th>سمت</th><th>واحد</th><th>محل کار</th>
+              <th>کد</th><th>نام</th><th>سمت</th><th>مدیریت/معاونت</th><th>واحد</th><th>گروه</th><th>محل کار</th>
               <th>تاریخ استخدام</th><th>حقوق پایه</th><th>عملیات</th>
             </tr>
           </thead>
@@ -829,7 +833,7 @@
         <table>
           <thead>
             <tr>
-              <th>کد</th><th>نام</th><th>سمت</th><th>واحد</th><th>محل کار</th>
+              <th>کد</th><th>نام</th><th>سمت</th><th>مدیریت/معاونت</th><th>واحد</th><th>گروه</th><th>محل کار</th>
               <th>روز کارکرد</th><th>ناخالص</th><th>بیمه</th><th>مالیات</th><th>وام</th><th>خالص</th>
             </tr>
           </thead>
@@ -911,6 +915,7 @@
             <button class="btn btn-warning btn-sm" onclick="openDecreeSyncPicker('transfer')">انتقال انتخابی از کارکنان و مزایا</button>
             <button class="btn btn-success btn-sm" onclick="saveDecree()">ذخیره حکم</button>
           </div>
+          <div id="decreeSheetFilters" class="sheet-org-filters" style="margin-bottom:10px;"></div>
           <div id="decreeTableWrap" style="overflow-x:auto;"></div>
         </div>
         <div>
@@ -960,6 +965,7 @@
         <div style="font-weight:600;margin-bottom:6px;font-size:0.85rem;">آیتم‌های مبنای کارانه (تیک = لحاظ در جمع مبنا)</div>
         <div id="bonusItemsChecks" style="display:flex;flex-wrap:wrap;gap:8px 16px;font-size:0.82rem;"></div>
       </div>
+      <div id="bonusSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <button type="button" class="btn btn-primary" onclick="loadBonusSheet()">بارگذاری اسامی از کارکنان فعال</button>
         <button type="button" class="btn btn-success" onclick="runBonusCalculation()">محاسبه کارانه و مالیات</button>
@@ -996,6 +1002,7 @@
           <button class="btn btn-success" onclick="runEidCalculation()">محاسبه عیدی، سنوات و مرخصی</button>
         </div>
       </div>
+      <div id="eidSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
         <div class="form-group" style="min-width:220px;">
           <label>کارمند برای فیش عیدی / سنوات / مرخصی</label>
@@ -1028,8 +1035,9 @@
             <option value="10">دی</option><option value="11">بهمن</option><option value="12" selected>اسفند</option>
           </select>
         </div>
-        <div class="form-group"><label>ماه مقصد انتقال</label>
+        <div class="form-group"><label>مقصد انتقال</label>
           <select id="annualTaxTargetMonth">
+            <option value="eid">عیدی، سنوات و مرخصی (تسویه وسط سال)</option>
             <option value="12">اسفند</option>
             <option value="1">فروردین سال بعد</option>
             <option value="2">اردیبهشت</option><option value="3">خرداد</option>
@@ -1043,6 +1051,7 @@
         <button class="btn btn-success" onclick="runAnnualTaxSettlement()">محاسبه تسویه</button>
         <button class="btn btn-warning" onclick="transferAnnualTaxDiffs()">انتقال مابه‌التفاوت</button>
       </div>
+      <div id="annualTaxSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
       <div class="form-group" style="margin-bottom:10px;">
         <label>کارکنان مشمول تسویه</label>
         <div style="display:flex;gap:6px;margin-bottom:4px;">
@@ -1284,7 +1293,9 @@
         <div class="form-group"><label>نام خانوادگی *</label><input type="text" id="e_lastName" required oninput="updateEmpFullName()"></div>
         <div class="form-group"><label>نام کامل</label><input type="text" id="e_fullName" readonly style="background:#f0fdfa;"></div>
         <div class="form-group"><label>سمت</label><input type="text" id="e_position"></div>
+        <div class="form-group"><label>مدیریت / معاونت</label><input type="text" id="e_management" placeholder="مثلاً معاونت مالی"></div>
         <div class="form-group"><label>واحد</label><input type="text" id="e_unit"></div>
+        <div class="form-group"><label>گروه</label><input type="text" id="e_group" placeholder="گروه کاری"></div>
         <div class="form-group"><label>محل کار</label><input type="text" id="e_workplace"></div>
         <div class="form-group"><label>استان محل سکونت</label><input type="text" id="e_province"></div>
         <div class="form-group"><label>شهر محل سکونت</label><input type="text" id="e_city"></div>
@@ -2626,7 +2637,144 @@ function findAllowanceFlags(name) {
   const a = data.allowances.find(x => x.name === name);
   return a ? { ins: !!a.ins, tax: !!a.tax } : { ins: true, tax: true };
 }
+
 function getActiveEmployees() { return data.employees.filter(e => e.status !== 'inactive'); }
+
+/** برچسب نوع قرارداد — از روی مقدار ذخیره‌شده + موارد شناخته‌شده */
+var CONTRACT_TYPE_LABELS = {
+  normal: 'عادی',
+  daily: 'روزمزد',
+  hourly: 'ساعتی'
+};
+function contractTypeLabel(ct) {
+  ct = ct || 'normal';
+  if (CONTRACT_TYPE_LABELS[ct]) return CONTRACT_TYPE_LABELS[ct];
+  return String(ct);
+}
+/** همه انواع قرارداد موجود در کارکنان + پیش‌فرض‌ها */
+function getKnownContractTypes() {
+  var set = { normal: true, daily: true, hourly: true };
+  (data.employees || []).forEach(function(e) {
+    if (e && e.contractType) set[e.contractType] = true;
+  });
+  return Object.keys(set);
+}
+function uniqueEmpFieldValues(field) {
+  var set = {};
+  (data.employees || []).forEach(function(e) {
+    if (!e || e.status === 'inactive') return;
+    var v = (e[field] || '').trim();
+    if (v) set[v] = true;
+  });
+  return Object.keys(set).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
+}
+function fillSelectOptions(sel, values, keepEmptyLabelOrCur) {
+  if (!sel) return;
+  var cur = sel.value;
+  var keys;
+  if (Array.isArray(values)) keys = values.slice();
+  else if (values && typeof values === 'object') keys = Object.keys(values).filter(Boolean).sort(function(a,b){ return String(a).localeCompare(String(b),'fa'); });
+  else keys = [];
+  var emptyLabel = 'همه';
+  if (typeof keepEmptyLabelOrCur === 'string' && keepEmptyLabelOrCur && keys.indexOf(keepEmptyLabelOrCur) < 0 && keepEmptyLabelOrCur !== 'همه') {
+    // cur value to restore
+    cur = keepEmptyLabelOrCur;
+  } else if (typeof keepEmptyLabelOrCur === 'string' && keepEmptyLabelOrCur === 'همه') {
+    emptyLabel = 'همه';
+  }
+  var html = '<option value="">' + emptyLabel + '</option>';
+  keys.forEach(function(v) {
+    html += '<option value="' + String(v).replace(/"/g, '&quot;') + '">' + v + '</option>';
+  });
+  sel.innerHTML = html;
+  if (cur) {
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === cur) { sel.selectedIndex = i; break; }
+    }
+  }
+}
+/** ساخت نوار فیلتر سازمانی + نوع قرارداد برای شیت‌ها */
+function renderSheetOrgFilters(containerId, prefix, onChangeFn) {
+  var box = document.getElementById(containerId);
+  if (!box) return;
+  var onchange = onChangeFn || ('apply' + prefix.charAt(0).toUpperCase() + prefix.slice(1) + 'Filters()');
+  var cts = getKnownContractTypes();
+  var ctHtml = cts.map(function(ct) {
+    return '<label class="check-label" style="margin-left:10px;"><input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '" checked onchange="' + onchange + '"> ' + contractTypeLabel(ct) + '</label>';
+  }).join('');
+  box.innerHTML =
+    '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:10px 12px;background:#f8fffe;">' +
+    '<div style="font-weight:600;color:#0f766e;font-size:0.82rem;margin-bottom:8px;">فیلتر سازمانی و نوع قرارداد</div>' +
+    '<div class="form-grid" style="margin-bottom:8px;">' +
+    '<div class="form-group"><label>مدیریت/معاونت</label><select id="' + prefix + 'FilterMgmt" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
+    '<div class="form-group"><label>واحد</label><select id="' + prefix + 'FilterUnit" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
+    '<div class="form-group"><label>گروه</label><select id="' + prefix + 'FilterGroup" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
+    '<div class="form-group"><label>محل کار</label><select id="' + prefix + 'FilterWorkplace" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
+    '<div class="form-group"><label>سمت</label><select id="' + prefix + 'FilterPosition" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
+    '</div>' +
+    '<div style="font-size:0.8rem;">نوع قرارداد: ' + ctHtml +
+    ' <button type="button" class="btn btn-outline btn-sm" style="margin-right:8px;" onclick="sheetCtSelectAll(\'' + prefix + '\',true);' + onchange + '">همه</button>' +
+    ' <button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);' + onchange + '">هیچ‌کدام</button></div>' +
+    '</div>';
+  fillSelectOptions(document.getElementById(prefix + 'FilterMgmt'), uniqueEmpFieldValues('management'));
+  fillSelectOptions(document.getElementById(prefix + 'FilterUnit'), uniqueEmpFieldValues('unit'));
+  fillSelectOptions(document.getElementById(prefix + 'FilterGroup'), uniqueEmpFieldValues('group'));
+  fillSelectOptions(document.getElementById(prefix + 'FilterWorkplace'), uniqueEmpFieldValues('workplace'));
+  fillSelectOptions(document.getElementById(prefix + 'FilterPosition'), uniqueEmpFieldValues('position'));
+}
+function sheetCtSelectAll(prefix, on) {
+  document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) { cb.checked = !!on; });
+}
+function getSheetFilterState(prefix) {
+  function val(id) {
+    var el = document.getElementById(id);
+    return el ? (el.value || '').trim() : '';
+  }
+  var cts = [];
+  document.querySelectorAll('.' + prefix + '-ct-filter:checked').forEach(function(cb) { cts.push(cb.value); });
+  // اگر هیچ‌کدام تیک نبود، هیچ‌کس رد نشود با خالی بودن — صریحاً هیچ قرارداد
+  return {
+    management: val(prefix + 'FilterMgmt'),
+    unit: val(prefix + 'FilterUnit'),
+    group: val(prefix + 'FilterGroup'),
+    workplace: val(prefix + 'FilterWorkplace'),
+    position: val(prefix + 'FilterPosition'),
+    contractTypes: cts
+  };
+}
+function empMatchesSheetFilter(emp, prefixOrState) {
+  if (!emp) return false;
+  var prefix = null;
+  var st;
+  if (typeof prefixOrState === 'string') {
+    prefix = prefixOrState;
+    st = getSheetFilterState(prefix);
+  } else {
+    st = prefixOrState;
+  }
+  if (!st) return true;
+  if (st.management && (emp.management || '') !== st.management) return false;
+  if (st.unit && (emp.unit || '') !== st.unit) return false;
+  if (st.group && (emp.group || '') !== st.group) return false;
+  if (st.workplace && (emp.workplace || '') !== st.workplace) return false;
+  if (st.position && (emp.position || '') !== st.position) return false;
+  var ct = emp.contractType || 'normal';
+  var hasCtUi = prefix ? !!document.querySelector('.' + prefix + '-ct-filter') : false;
+  if (hasCtUi) {
+    if (!st.contractTypes || !st.contractTypes.length) return false;
+    if (st.contractTypes.indexOf(ct) < 0) return false;
+  }
+  return true;
+}
+function filterEmployeesBySheet(prefix, list) {
+  var src = list || getActiveEmployees();
+  // اگر فیلتر UI هنوز رندر نشده، همه را برگردان
+  if (!document.getElementById(prefix + 'FilterUnit') && !document.querySelector('.' + prefix + '-ct-filter')) {
+    return src;
+  }
+  return src.filter(function(e) { return empMatchesSheetFilter(e, prefix); });
+}
+
 function getInactiveEmployees() { return data.employees.filter(e => e.status === 'inactive'); }
 
 /**
@@ -3035,6 +3183,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (btn.dataset.tab==='customitems') { seedCustomTemplatesFromEmployees(); renderCustomTemplates(); }
     if (btn.dataset.tab==='salarygrade') { initSalaryGradePanel(); }
     if (btn.dataset.tab==='settings') loadSettingsToForm();
+    if (btn.dataset.tab==='payroll') {
+      renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()');
+    }
     if (btn.dataset.tab==='payslip') populateSlipEmployees();
     if (btn.dataset.tab==='dashboard') {
       const cy = Number(document.getElementById('payYear') && document.getElementById('payYear').value) || data.settings.currentYear || 1405;
@@ -3045,21 +3196,25 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     }
     if (btn.dataset.tab==='decree') {
       document.getElementById('decreeYear').value = data.settings.currentYear || 1405;
+      renderSheetOrgFilters('decreeSheetFilters', 'decree', 'applyDecreeFilters()');
       renderDecreeHeaders();
       renderDecreeTable();
     }
     if (btn.dataset.tab==='bonus') {
       document.getElementById('bonusYear').value = data.settings.currentYear || 1405;
+      renderSheetOrgFilters('bonusSheetFilters', 'bonus', 'applyBonusFilters()');
       if (data.bonusData && data.bonusData[getBonusKey()]) renderBonusSheet();
     }
     if (btn.dataset.tab==='eid') {
       document.getElementById('eidYear').value = data.settings.currentYear || 1405;
+      renderSheetOrgFilters('eidSheetFilters', 'eid', 'applyEidFilters()');
       if (data.eidResults && data.eidResults[document.getElementById('eidYear').value]) {
         renderEidResults(data.eidResults[document.getElementById('eidYear').value]);
       }
     }
     if (btn.dataset.tab==='annualtax') {
       document.getElementById('annualTaxYear').value = data.settings.currentYear || 1405;
+      renderSheetOrgFilters('annualTaxSheetFilters', 'annualTax', 'applyAnnualTaxFilters()');
       fillAnnualTaxEmpList();
       if (data.annualTaxResults && data.annualTaxResults[document.getElementById('annualTaxYear').value]) {
         renderAnnualTaxResults(data.annualTaxResults[document.getElementById('annualTaxYear').value]);
@@ -3181,26 +3336,21 @@ function saveAllowances() {
   alert('ذخیره شد');
 }
 
-function fillSelectOptions(sel, values, cur) {
-  if (!sel) return;
-  const keys = Object.keys(values).filter(Boolean).sort();
-  sel.innerHTML = '<option value="">همه</option>' + keys.map(function(w) {
-    return '<option value="' + String(w).replace(/"/g, '&quot;') + '">' + w + '</option>';
-  }).join('');
-  if (cur) sel.value = cur;
-}
-
 function fillBulkEditFilters() {
   const wpSel = document.getElementById('bulkWorkplace');
   const unitSel = document.getElementById('bulkUnit');
   const posSel = document.getElementById('bulkPosition');
+  const mgmtSel = document.getElementById('bulkManagement');
+  const grpSel = document.getElementById('bulkGroup');
   const itemSel = document.getElementById('bulkItemName');
   if (!itemSel) return;
-  const workplaces = {}, units = {}, positions = {}, itemNames = {};
+  const workplaces = {}, units = {}, positions = {}, managements = {}, groups = {}, itemNames = {};
   (data.employees || []).forEach(function(emp) {
     if (emp.workplace) workplaces[String(emp.workplace).trim()] = true;
     if (emp.unit) units[String(emp.unit).trim()] = true;
     if (emp.position) positions[String(emp.position).trim()] = true;
+    if (emp.management) managements[String(emp.management).trim()] = true;
+    if (emp.group) groups[String(emp.group).trim()] = true;
     (emp.customItems || []).forEach(function(ci) {
       if (ci && ci.name && !isDeductionOrArrearsItem(ci)) itemNames[String(ci.name).trim()] = true;
     });
@@ -3211,12 +3361,14 @@ function fillBulkEditFilters() {
   fillSelectOptions(wpSel, workplaces, wpSel && wpSel.value);
   fillSelectOptions(unitSel, units, unitSel && unitSel.value);
   fillSelectOptions(posSel, positions, posSel && posSel.value);
+  fillSelectOptions(mgmtSel, managements, mgmtSel && mgmtSel.value);
+  fillSelectOptions(grpSel, groups, grpSel && grpSel.value);
   const curItem = itemSel.value;
   itemSel.innerHTML = '<option value="">— انتخاب —</option>' + Object.keys(itemNames).sort().map(function(n) {
     return '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
   }).join('');
   if (curItem) itemSel.value = curItem;
-  ['bulkWorkplace','bulkUnit','bulkPosition','bulkContract','bulkMarital','bulkItemName'].forEach(function(id) {
+  ['bulkWorkplace','bulkUnit','bulkPosition','bulkManagement','bulkGroup','bulkContract','bulkMarital','bulkItemName'].forEach(function(id) {
     const el = document.getElementById(id);
     if (el) el.onchange = updateBulkPreview;
   });
@@ -3227,6 +3379,8 @@ function getBulkFilteredEmployees() {
   const wp = (document.getElementById('bulkWorkplace') && document.getElementById('bulkWorkplace').value) || '';
   const unit = (document.getElementById('bulkUnit') && document.getElementById('bulkUnit').value) || '';
   const pos = (document.getElementById('bulkPosition') && document.getElementById('bulkPosition').value) || '';
+  const mgmt = (document.getElementById('bulkManagement') && document.getElementById('bulkManagement').value) || '';
+  const grp = (document.getElementById('bulkGroup') && document.getElementById('bulkGroup').value) || '';
   const ct = (document.getElementById('bulkContract') && document.getElementById('bulkContract').value) || '';
   const marital = (document.getElementById('bulkMarital') && document.getElementById('bulkMarital').value) || '';
   return (data.employees || []).filter(function(emp) {
@@ -3234,6 +3388,8 @@ function getBulkFilteredEmployees() {
     if (wp && String(emp.workplace || '').trim() !== wp) return false;
     if (unit && String(emp.unit || '').trim() !== unit) return false;
     if (pos && String(emp.position || '').trim() !== pos) return false;
+    if (mgmt && String(emp.management || '').trim() !== mgmt) return false;
+    if (grp && String(emp.group || '').trim() !== grp) return false;
     if (ct && String(emp.contractType || 'normal') !== ct) return false;
     if (marital && String(emp.marital || '') !== marital) return false;
     return true;
@@ -3786,7 +3942,7 @@ function openEmployeeModal(editId = null) {
     document.getElementById('editEmpId').value = emp.code;
     const map = {
       code:'e_code', nationalId:'e_nationalId', firstName:'e_firstName', lastName:'e_lastName',
-      fullName:'e_fullName', position:'e_position', unit:'e_unit', workplace:'e_workplace',
+      fullName:'e_fullName', position:'e_position', management:'e_management', unit:'e_unit', group:'e_group', workplace:'e_workplace',
       province:'e_province', city:'e_city',
       hireDate:'e_hireDate', endDate:'e_endDate', endReason:'e_endReason',
       basicSalary:'e_basicSalary',
@@ -3944,7 +4100,9 @@ function saveEmployee(e) {
     lastName: document.getElementById('e_lastName').value.trim(),
     fullName: document.getElementById('e_fullName').value.trim(),
     position: document.getElementById('e_position').value.trim(),
+    management: document.getElementById('e_management') ? document.getElementById('e_management').value.trim() : '',
     unit: document.getElementById('e_unit').value.trim(),
+    group: document.getElementById('e_group') ? document.getElementById('e_group').value.trim() : '',
     workplace: document.getElementById('e_workplace').value.trim(),
     province: document.getElementById('e_province').value.trim(),
     city: document.getElementById('e_city').value.trim(),
@@ -5061,14 +5219,32 @@ function runCalculation() {
 
 function renderPayrollResult(results) {
   document.getElementById('payrollArea').style.display = 'block';
-  document.getElementById('payrollBody').innerHTML = results.map(r => `
+  var filtered = results || [];
+  if (document.getElementById('payFilterUnit') || document.querySelector('.pay-ct-filter')) {
+    filtered = filtered.filter(function(r) {
+      var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); }) || r;
+      return empMatchesSheetFilter(emp, 'pay');
+    });
+  }
+  document.getElementById('payrollBody').innerHTML = filtered.map(r => {
+    var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); }) || {};
+    return `
     <tr>
-      <td>${r.code}</td><td>${r.fullName}</td><td>${r.position||'—'}</td><td>${r.unit||'—'}</td>
-      <td>${r.workplace||'—'}</td><td>${r.workDays}</td>
+      <td>${r.code}</td><td>${r.fullName}</td><td>${r.position||emp.position||'—'}</td>
+      <td>${emp.management||r.management||'—'}</td><td>${r.unit||emp.unit||'—'}</td>
+      <td>${emp.group||r.group||'—'}</td>
+      <td>${r.workplace||emp.workplace||'—'}</td><td>${r.workDays}</td>
       <td>${formatNumber(r.gross)}</td><td>${formatNumber(r.insurance)}</td>
       <td>${formatNumber(r.tax)}</td><td>${formatNumber(r.loanDeduction)}</td><td>${formatNumber(r.net)}</td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
+}
+function applyPayFilters() {
+  var year = Number(document.getElementById('payYear') && document.getElementById('payYear').value) || 1405;
+  var month = Number(document.getElementById('payMonth') && document.getElementById('payMonth').value) || 1;
+  var key = year + '-' + month;
+  var rows = data.payrolls[key] || [];
+  if (rows.length) renderPayrollResult(rows);
 }
 
 function populateSlipEmployees() {
@@ -5766,7 +5942,15 @@ function runEidCalculation() {
     // مبلغ مرخصی از جمع حکم ÷ ۳۰ × روز قابل پرداخت (مثبت یا منفی)
     const leaveDaily = decreeSum > 0 ? (decreeSum / 30) : ((Number(emp.basicSalary) || 0) / 30);
     const leavePay = calcLeavePayAmount(decreeSum, emp.basicSalary, wl.payableLeave);
-    const totalPay = eidNet + severance + leavePay;
+    let totalPay = eidNet + severance + leavePay;
+    let annualTaxAdj = 0;
+    let annualTaxAdjTitle = '';
+    if (data.eidTaxAdjustments && data.eidTaxAdjustments[year] && data.eidTaxAdjustments[year][String(emp.code)]) {
+      const adj = data.eidTaxAdjustments[year][String(emp.code)];
+      annualTaxAdj = Number(adj.netAdj) || 0;
+      annualTaxAdjTitle = adj.title || ('اصلاح مالیات سالانه (تسویه وسط سال) ' + year);
+      totalPay = Math.round(totalPay + annualTaxAdj);
+    }
     results.push({
       code: emp.code,
       fullName: emp.fullName,
@@ -5787,6 +5971,9 @@ function runEidCalculation() {
       severance: severance,
       leavePay: leavePay,
       totalPay: totalPay,
+      totalPayBase: eidNet + severance + leavePay,
+      annualTaxAdj: annualTaxAdj,
+      annualTaxAdjTitle: annualTaxAdjTitle,
       specialStatus: isSpecialStatus(emp) ? emp.status : '',
       statusStart: emp.statusStart || '',
       statusEnd: emp.statusEnd || '',
@@ -6712,11 +6899,62 @@ function transferAnnualTaxDiffs() {
     alert('مابه‌التفاوت غیرصفر وجود ندارد.');
     return;
   }
-  const targetMonthSel = Number(document.getElementById('annualTaxTargetMonth').value) || 12;
+  const targetRaw = (document.getElementById('annualTaxTargetMonth') && document.getElementById('annualTaxTargetMonth').value) || '12';
+
+  // مقصد: عیدی / سنوات / مرخصی
+  if (targetRaw === 'eid') {
+    if (!confirm('مابه‌التفاوت ' + withDiff.length + ' نفر به فیش عیدی، سنوات و مرخصی سال ' + year + ' منتقل شود؟\n(بدون محاسبهٔ مجدد بیمه/مالیات — فقط اصلاح مالیات تسویه)')) return;
+    if (!data.eidTaxAdjustments) data.eidTaxAdjustments = {};
+    if (!data.eidTaxAdjustments[year]) data.eidTaxAdjustments[year] = {};
+    // پاک کردن قبلی همین سال
+    data.eidTaxAdjustments[year] = {};
+    if (!data.adjustmentHistory) data.adjustmentHistory = [];
+    const stamp = (typeof nowJalaliLike === 'function') ? nowJalaliLike() : new Date().toLocaleString('fa-IR');
+    withDiff.forEach(function(r) {
+      const diff = Number(r.diff) || 0;
+      // diff>0 بدهکار → کسر از پرداخت عیدی؛ diff<0 بستانکار → افزایش پرداخت
+      data.eidTaxAdjustments[year][String(r.code)] = {
+        code: r.code,
+        fullName: r.fullName,
+        fromYear: year,
+        taxDiff: diff,
+        // مبلغ اثر روی خالص عیدی = -diff
+        netAdj: -diff,
+        title: 'اصلاح مالیات سالانه (تسویه وسط سال) ' + year,
+        noTax: true,
+        noIns: true
+      };
+      // اگر نتیجه عیدی از قبل هست، همان‌جا اعمال کن
+      if (data.eidResults && data.eidResults[year]) {
+        const er = data.eidResults[year].find(function(x) { return String(x.code) === String(r.code); });
+        if (er) {
+          er.annualTaxAdj = -diff;
+          er.annualTaxAdjTitle = 'اصلاح مالیات سالانه (تسویه وسط سال) ' + year;
+          er.totalPayBase = (er.totalPayBase != null) ? er.totalPayBase : er.totalPay;
+          er.totalPay = Math.round((Number(er.totalPayBase) || 0) + (-diff));
+        }
+      }
+      data.adjustmentHistory.unshift({
+        time: stamp,
+        code: r.code,
+        fullName: r.fullName,
+        fromKey: 'سالانه-' + year,
+        targetKey: 'عیدی-سنوات-' + year,
+        oldGross: 0, newGross: 0, gross: 0, insurance: 0,
+        tax: diff, net: -diff,
+        itemDetails: [{ name: 'اصلاح مالیات سالانه (تسویه وسط سال) ' + year, amount: -diff, isAdjustment: true, noTax: true, noIns: true }]
+      });
+    });
+    addChangeLog('تسویه مالیات سالانه', String(year), 'انتقال ' + withDiff.length + ' مابه‌التفاوت → عیدی/سنوات/مرخصی');
+    saveToCache();
+    alert('منتقل شد به فیش عیدی، سنوات و مرخصی سال ' + year + '.\nدر فیش عیدی با عنوان «اصلاح مالیات سالانه (تسویه وسط سال)» نمایش داده می‌شود.');
+    return;
+  }
+
+  let targetMonthSel = Number(targetRaw) || 12;
   let targetYear = year;
   let targetMonth = targetMonthSel;
   if (targetMonthSel === 1) {
-    // فروردین سال بعد
     targetYear = year + 1;
     targetMonth = 1;
   }
@@ -6725,19 +6963,14 @@ function transferAnnualTaxDiffs() {
 
   if (!data.transferredAdjustments) data.transferredAdjustments = {};
   if (!data.transferredAdjustments[targetKey]) data.transferredAdjustments[targetKey] = [];
-
-  // حذف اصلاحات قبلی همین نوع از همین سال
   data.transferredAdjustments[targetKey] = data.transferredAdjustments[targetKey].filter(function(a) {
     return !(a.isAnnualTax && a.fromYear === year);
   });
-
   if (!data.adjustmentHistory) data.adjustmentHistory = [];
-  const stamp = (typeof nowJalaliLike === 'function') ? nowJalaliLike() : new Date().toLocaleString('fa-IR');
+  const stamp2 = (typeof nowJalaliLike === 'function') ? nowJalaliLike() : new Date().toLocaleString('fa-IR');
 
   withDiff.forEach(function(r) {
     const diff = Number(r.diff) || 0;
-    // tax در payroll نتیجه: مثبت = مالیات کسرشده بیشتر
-    // net: منفی وقتی مالیات بیشتر کم شود
     const taxDelta = diff;
     const netDelta = -diff;
     const itemDetails = [{
@@ -6766,7 +6999,7 @@ function transferAnnualTaxDiffs() {
     };
     data.transferredAdjustments[targetKey].push(adj);
     data.adjustmentHistory.unshift({
-      time: stamp,
+      time: stamp2,
       code: r.code,
       fullName: r.fullName,
       fromKey: 'سالانه-' + year,
@@ -6785,8 +7018,6 @@ function transferAnnualTaxDiffs() {
   saveToCache();
   alert('منتقل شد به ' + targetKey + '.\nپس از «اجرای محاسبه» آن ماه، مبالغ در فیش دیده می‌شود.');
 }
-
-
 
 function populateEidSlipEmployees() {
   const sel = document.getElementById('eidSlipEmployee');
@@ -6826,8 +7057,9 @@ function generateEidPayslip() {
     { key: 'eidTax', label: 'مالیات عیدی', value: formatNumber(r.eidTax), raw: r.eidTax },
     { key: 'eidNet', label: 'عیدی خالص', value: formatNumber(r.eidNet), raw: r.eidNet, highlight: true },
     { key: 'severance', label: 'سنوات', value: formatNumber(r.severance), raw: r.severance },
+    { key: 'annualTaxAdj', label: (r.annualTaxAdjTitle || 'اصلاح مالیات سالانه (تسویه وسط سال)'), value: formatNumber(r.annualTaxAdj || 0), raw: r.annualTaxAdj || 0, neg: (r.annualTaxAdj || 0) < 0, show: !!(r.annualTaxAdj) },
     { key: 'totalPay', label: 'جمع خالص پرداختی', value: formatNumber(r.totalPay), raw: r.totalPay, total: true }
-  ];
+  ].filter(function(it) { return it.show !== false; });
 
   // ذخیره انتخاب‌ها در session برای این کارمند
   if (!window._eidSlipChecks) window._eidSlipChecks = {};
@@ -6882,8 +7114,8 @@ function generateEidPayslip() {
           <thead><tr><th>شرح</th><th>مقدار / مبلغ (ریال)</th></tr></thead>
           <tbody>${bodyRows}</tbody>
         </table>
-        <div class="net-pay">خالص عیدی + سنوات + مرخصی: ${formatNumber(r.totalPay)} ریال</div>
-        <div class="footer-note">این فیش بر اساس شیت حکم و کارکرد سالانه محاسبه شده است.</div>
+        <div class="net-pay">خالص عیدی + سنوات + مرخصی${r.annualTaxAdj ? ' (با اصلاح مالیات تسویه)' : ''}: ${formatNumber(r.totalPay)} ریال</div>
+        <div class="footer-note">این فیش بر اساس شیت حکم و کارکرد سالانه محاسبه شده است.${r.annualTaxAdj ? '<br><b style="color:#0f766e;">شامل «' + (r.annualTaxAdjTitle || 'اصلاح مالیات سالانه (تسویه وسط سال)') + '»: ' + formatNumber(r.annualTaxAdj) + ' ریال (بدون محاسبه مجدد بیمه/مالیات)</b>' : ''}</div>
         <div style="margin-top:14px;text-align:center;"><button class="btn btn-outline no-print" onclick="window.print()">چاپ</button></div>
       </div>
     </div>
