@@ -1498,6 +1498,14 @@ if (!data.settings.operatorPassword) data.settings.operatorPassword = 'op1405';
 if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
 if (!data.settings.operators) data.settings.operators = [];
 if (!data.settings.operatorPermissions) data.settings.operatorPermissions = null;
+if (!data.settings.systemAccounts) data.settings.systemAccounts = {};
+if (!data.settings.systemAccounts.mainAdmin) {
+  data.settings.systemAccounts.mainAdmin = { displayName: 'ادمین اصلی سیستم', active: true };
+}
+if (!data.settings.systemAccounts.legacyOp) {
+  data.settings.systemAccounts.legacyOp = { displayName: 'اپراتور پیش‌فرض', active: true, permissions: null };
+}
+
 
 /** تعریف کامل دسترسی‌های قابل کنترل برای اپراتور */
 var OPERATOR_PERM_DEFS = [
@@ -1659,7 +1667,7 @@ function getAccountPerms(acc) {
 function getSelectedAccountIndexes() {
   var idxs = [];
   document.querySelectorAll('.op-acc-select:checked').forEach(function(cb) {
-    idxs.push(Number(cb.getAttribute('data-op-i')));
+    idxs.push(cb.getAttribute('data-op-i'));
   });
   return idxs;
 }
@@ -1673,6 +1681,29 @@ function selectAllUserAccounts(on) {
   renderPermMatrixForSelection();
 }
 
+function getSysAccounts() {
+  if (!data.settings.systemAccounts) data.settings.systemAccounts = {};
+  if (!data.settings.systemAccounts.mainAdmin) {
+    data.settings.systemAccounts.mainAdmin = { displayName: 'ادمین اصلی سیستم', active: true };
+  }
+  if (!data.settings.systemAccounts.legacyOp) {
+    data.settings.systemAccounts.legacyOp = { displayName: 'اپراتور پیش‌فرض', active: true, permissions: null };
+  }
+  return data.settings.systemAccounts;
+}
+
+function getLegacyOpPerms() {
+  var sys = getSysAccounts();
+  if (sys.legacyOp.permissions && typeof sys.legacyOp.permissions === 'object') {
+    var defs = defaultOperatorPermissions();
+    Object.keys(defs).forEach(function(k) {
+      if (sys.legacyOp.permissions[k] == null) sys.legacyOp.permissions[k] = defs[k];
+    });
+    return sys.legacyOp.permissions;
+  }
+  return ensureOperatorPermissions();
+}
+
 function renderPermMatrixForSelection() {
   var box = document.getElementById('permMatrixBox');
   var hint = document.getElementById('permTargetHint');
@@ -1680,33 +1711,51 @@ function renderPermMatrixForSelection() {
   var idxs = getSelectedAccountIndexes();
   if (!idxs.length) {
     box.innerHTML = '<p style="color:#64748b;font-size:0.85rem;">هیچ حسابی انتخاب نشده. تیک «انتخاب» را برای یک یا چند حساب بزنید.</p>';
-    if (hint) hint.textContent = 'ابتدا یک یا چند حساب را تیک بزنید، سپس دسترسی‌ها را تنظیم کنید.';
+    if (hint) hint.textContent = 'ابتدا یک یا چند حساب را تیک بزنید (از جمله ادمین اصلی / اپراتور پیش‌فرض)، سپس دسترسی‌ها را تنظیم کنید.';
     return;
   }
   var list = data.settings.operators || [];
+  var sys = getSysAccounts();
   var names = [];
-  var firstOpIdx = -1;
-  var allAdmin = true;
-  idxs.forEach(function(i) {
-    var a = list[i];
-    if (!a) return;
-    names.push((a.displayName || a.username || ('#' + i)) + (a.role === 'admin' ? ' [ادمین]' : ''));
-    if (a.role !== 'admin') {
-      allAdmin = false;
-      if (firstOpIdx < 0) firstOpIdx = i;
+  var operatorTargets = []; // { kind: 'sys_op'|'acc', i?: number }
+  var hasMainAdmin = false;
+  var hasOtherAdmin = false;
+
+  idxs.forEach(function(id) {
+    if (id === 'sys_admin') {
+      hasMainAdmin = true;
+      names.push((sys.mainAdmin.displayName || 'ادمین اصلی') + ' [ادمین]');
+    } else if (id === 'sys_op') {
+      names.push((sys.legacyOp.displayName || 'اپراتور پیش‌فرض') + ' [اپراتور]');
+      operatorTargets.push({ kind: 'sys_op' });
+    } else {
+      var i = Number(id);
+      var a = list[i];
+      if (!a) return;
+      var role = a.role === 'admin' ? 'admin' : 'operator';
+      names.push((a.displayName || a.username || ('#' + i)) + (role === 'admin' ? ' [ادمین]' : ''));
+      if (role === 'admin') hasOtherAdmin = true;
+      else operatorTargets.push({ kind: 'acc', i: i });
     }
   });
+
   if (hint) {
-    hint.innerHTML = 'اعمال روی: <b>' + names.join('، ') + '</b>' +
-      (allAdmin ? ' — حساب‌های ادمین دسترسی کامل دارند؛ ماتریس فقط برای نقش اپراتور معنی دارد.' : '');
+    hint.innerHTML = 'اعمال روی: <b>' + names.join('، ') + '</b>';
   }
-  if (allAdmin) {
-    box.innerHTML = '<p style="color:#0f766e;font-size:0.88rem;">نقش انتخاب‌شده‌ها «ادمین» است و دسترسی کامل دارند. برای محدود کردن دسترسی، نقش را به «اپراتور» تغییر دهید و ذخیره کنید.</p>';
+
+  if (!operatorTargets.length) {
+    box.innerHTML = '<p style="color:#0f766e;font-size:0.88rem;">انتخاب‌شده‌ها نقش «ادمین» دارند و دسترسی کامل سیستم را دارند. برای محدود کردن دسترسی، نقش را به «اپراتور» تغییر دهید یا حساب اپراتور انتخاب کنید.' +
+      (hasMainAdmin ? '<br><span style="color:#64748b;font-size:0.8rem;">ادمین اصلی همیشه دسترسی کامل دارد؛ می‌توانید نام نمایشی و رمز او را از جدول بالا تغییر دهید.</span>' : '') +
+      '</p>';
     return;
   }
-  // بارگذاری دسترسی از اولین اپراتور انتخاب‌شده
-  var src = list[firstOpIdx];
-  var perms = getAccountPerms(src);
+
+  // بارگذاری دسترسی از اولین هدف اپراتور
+  var first = operatorTargets[0];
+  var perms;
+  if (first.kind === 'sys_op') perms = getLegacyOpPerms();
+  else perms = getAccountPerms(list[first.i]);
+
   var html = '';
   OPERATOR_PERM_DEFS.forEach(function(g) {
     html += '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f8fffe;">';
@@ -1719,6 +1768,9 @@ function renderPermMatrixForSelection() {
     });
     html += '</div>';
   });
+  if (hasMainAdmin || hasOtherAdmin) {
+    html = '<p style="font-size:0.78rem;color:#b45309;margin-bottom:8px;">توجه: حساب‌های ادمین در این انتخاب نادیده گرفته می‌شوند و دسترسی کامل می‌مانند. ماتریس فقط روی اپراتورها اعمال می‌شود.</p>' + html;
+  }
   box.innerHTML = html;
 }
 
@@ -1729,11 +1781,16 @@ function renderPermissionsPanel() {
     return;
   }
   ensureOperatorPermissions();
-  // مهاجرت: اگر حساب بدون permissions است
+  getSysAccounts();
   (data.settings.operators || []).forEach(function(a) {
     if (!a.role) a.role = 'operator';
     getAccountPerms(a);
   });
+  // همگام‌سازی دسترسی اپراتور پیش‌فرض با قالب سراسری در صورت نبود
+  var sys = getSysAccounts();
+  if (!sys.legacyOp.permissions) {
+    sys.legacyOp.permissions = Object.assign({}, ensureOperatorPermissions());
+  }
   renderOperatorAccounts();
   renderPermMatrixForSelection();
 }
@@ -1754,7 +1811,6 @@ function resetOperatorPermsDefault() {
 
 function saveOperatorPermissions() {
   if (!requireRole(['admin'], 'فقط ادمین.')) return;
-  // ابتدا مقادیر فرم حساب‌ها را در حافظه همگام کن
   syncOperatorAccountsFromForm(false);
   var idxs = getSelectedAccountIndexes();
   if (!idxs.length) {
@@ -1764,7 +1820,7 @@ function saveOperatorPermissions() {
   var matrix = {};
   var cbs = document.querySelectorAll('.op-perm-cb');
   if (!cbs.length) {
-    alert('ماتریس دسترسی برای نقش اپراتور نمایش داده نشده. حساب‌های با نقش اپراتور را انتخاب کنید.');
+    alert('ماتریس دسترسی برای نقش اپراتور نمایش داده نشده. حساب اپراتور انتخاب کنید.');
     return;
   }
   cbs.forEach(function(cb) {
@@ -1773,20 +1829,30 @@ function saveOperatorPermissions() {
   var list = data.settings.operators || [];
   var applied = 0;
   var skippedAdmin = 0;
-  idxs.forEach(function(i) {
+  idxs.forEach(function(id) {
+    if (id === 'sys_admin') {
+      skippedAdmin++;
+      return;
+    }
+    if (id === 'sys_op') {
+      var sys = getSysAccounts();
+      sys.legacyOp.permissions = Object.assign({}, matrix);
+      data.settings.operatorPermissions = Object.assign({}, matrix);
+      applied++;
+      return;
+    }
+    var i = Number(id);
     var a = list[i];
     if (!a) return;
     if (a.role === 'admin') { skippedAdmin++; return; }
     a.permissions = Object.assign({}, matrix);
     applied++;
   });
-  // قالب سراسری هم به‌روز شود (برای حساب‌های جدید)
-  data.settings.operatorPermissions = Object.assign({}, matrix);
   saveToCache();
   addChangeLog('دسترسی کاربر', '-', 'اعمال دسترسی به ' + applied + ' حساب');
   var msg = document.getElementById('permSaveMsg');
   var t = 'ذخیره شد — ' + applied + ' حساب اپراتور به‌روز شد.';
-  if (skippedAdmin) t += ' (' + skippedAdmin + ' ادمین رد شد چون دسترسی کامل دارند)';
+  if (skippedAdmin) t += ' (' + skippedAdmin + ' ادمین رد شد — دسترسی کامل)';
   if (msg) msg.textContent = t;
   alert(t);
   renderOperatorAccounts();
@@ -1797,34 +1863,82 @@ function renderOperatorAccounts() {
   var body = document.getElementById('operatorsAccountsBody');
   if (!body) return;
   if (!data.settings.operators) data.settings.operators = [];
+  var sys = getSysAccounts();
   var list = data.settings.operators;
-  if (!list.length) {
-    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;font-size:0.8rem;">حسابی تعریف نشده — می‌توانید حساب جدید بسازید یا از رمز واحد قدیمی استفاده کنید.</td></tr>';
-    return;
-  }
-  // حفظ انتخاب‌های فعلی
+
   var prevSel = {};
   document.querySelectorAll('.op-acc-select:checked').forEach(function(cb) {
     prevSel[cb.getAttribute('data-op-i')] = true;
   });
-  body.innerHTML = list.map(function(op, i) {
-    var role = op.role === 'admin' ? 'admin' : 'operator';
-    var sel = prevSel[String(i)] ? ' checked' : '';
-    return '<tr>' +
-      '<td style="text-align:center;"><input type="checkbox" class="op-acc-select" data-op-i="' + i + '"' + sel + ' onchange="onAccountSelectChange()"></td>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="username" value="' + String(op.username || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="displayName" value="' + String(op.displayName || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="password" value="' + String(op.password || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
-      '<td><select data-op-i="' + i + '" data-op-f="role" style="width:100%;padding:4px 6px;font-size:0.8rem;" onchange="onAccountRoleChange(' + i + ', this.value)">' +
+
+  function rowHtml(id, fields) {
+    // fields: {username, displayName, password, role, active, lockedRole, lockedUser, system}
+    var sel = prevSel[String(id)] ? ' checked' : '';
+    var role = fields.role === 'admin' ? 'admin' : 'operator';
+    var roleDisabled = fields.lockedRole ? ' disabled' : '';
+    var userReadonly = fields.lockedUser ? ' readonly style="width:100%;padding:4px 6px;font-size:0.8rem;background:#f1f5f9;"' : ' style="width:100%;padding:4px 6px;font-size:0.8rem;"';
+    var badge = fields.system ? ' <span style="font-size:0.68rem;background:#ccfbf1;color:#0f766e;padding:1px 6px;border-radius:8px;">سیستمی</span>' : '';
+    var delBtn = fields.system
+      ? '<span style="font-size:0.72rem;color:#94a3b8;">—</span>'
+      : '<button type="button" class="btn btn-danger btn-sm" onclick="removeOperatorAccount(' + id + ')">حذف</button>';
+    return '<tr' + (fields.system ? ' style="background:#f0fdfa;"' : '') + '>' +
+      '<td style="text-align:center;"><input type="checkbox" class="op-acc-select" data-op-i="' + id + '"' + sel + ' onchange="onAccountSelectChange()"></td>' +
+      '<td><input type="text" data-op-i="' + id + '" data-op-f="username" value="' + String(fields.username || '').replace(/"/g, '&quot;') + '" dir="ltr"' + userReadonly + '>' + badge + '</td>' +
+      '<td><input type="text" data-op-i="' + id + '" data-op-f="displayName" value="' + String(fields.displayName || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><input type="text" data-op-i="' + id + '" data-op-f="password" value="' + String(fields.password || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><select data-op-i="' + id + '" data-op-f="role"' + roleDisabled + ' style="width:100%;padding:4px 6px;font-size:0.8rem;" onchange="onAccountRoleChange(\'' + id + '\', this.value)">' +
         '<option value="operator"' + (role === 'operator' ? ' selected' : '') + '>اپراتور</option>' +
         '<option value="admin"' + (role === 'admin' ? ' selected' : '') + '>ادمین</option>' +
       '</select></td>' +
-      '<td style="text-align:center;"><input type="checkbox" data-op-i="' + i + '" data-op-f="active" ' + (op.active !== false ? 'checked' : '') + '></td>' +
-      '<td><button type="button" class="btn btn-danger btn-sm" onclick="removeOperatorAccount(' + i + ')">حذف</button></td></tr>';
-  }).join('');
+      '<td style="text-align:center;"><input type="checkbox" data-op-i="' + id + '" data-op-f="active" ' + (fields.active !== false ? 'checked' : '') + '></td>' +
+      '<td>' + delBtn + '</td></tr>';
+  }
+
+  var html = '';
+  // ردیف‌های سیستمی
+  html += rowHtml('sys_admin', {
+    username: 'admin',
+    displayName: sys.mainAdmin.displayName || 'ادمین اصلی سیستم',
+    password: data.settings.adminPassword || '',
+    role: 'admin',
+    active: sys.mainAdmin.active !== false,
+    lockedRole: true,
+    lockedUser: true,
+    system: true
+  });
+  html += rowHtml('sys_op', {
+    username: 'operator',
+    displayName: sys.legacyOp.displayName || 'اپراتور پیش‌فرض',
+    password: data.settings.operatorPassword || '',
+    role: 'operator',
+    active: sys.legacyOp.active !== false,
+    lockedRole: true,
+    lockedUser: true,
+    system: true
+  });
+
+  list.forEach(function(op, i) {
+    html += rowHtml(String(i), {
+      username: op.username || '',
+      displayName: op.displayName || '',
+      password: op.password || '',
+      role: op.role === 'admin' ? 'admin' : 'operator',
+      active: op.active !== false,
+      lockedRole: false,
+      lockedUser: false,
+      system: false
+    });
+  });
+
+  body.innerHTML = html;
 }
 
-function onAccountRoleChange(i, role) {
+function onAccountRoleChange(id, role) {
+  if (id === 'sys_admin' || id === 'sys_op') {
+    renderPermMatrixForSelection();
+    return;
+  }
+  var i = Number(id);
   if (!data.settings.operators || !data.settings.operators[i]) return;
   data.settings.operators[i].role = role === 'admin' ? 'admin' : 'operator';
   renderPermMatrixForSelection();
@@ -1848,32 +1962,51 @@ function addOperatorAccountRow() {
 function removeOperatorAccount(i) {
   if (!requireRole(['admin'], 'فقط ادمین.')) return;
   if (!confirm('این حساب حذف شود؟')) return;
-  data.settings.operators.splice(i, 1);
+  data.settings.operators.splice(Number(i), 1);
   saveToCache();
   renderOperatorAccounts();
   renderPermMatrixForSelection();
+  populateLoginAccounts();
 }
 
-/** خواندن فرم جدول حساب‌ها به data.settings.operators بدون الزام ذخیره کامل */
+/** خواندن فرم جدول حساب‌ها */
 function syncOperatorAccountsFromForm(requireComplete) {
-  var inputs = document.querySelectorAll('#operatorsAccountsBody [data-op-i]');
+  var sys = getSysAccounts();
+  var inputs = document.querySelectorAll('#operatorsAccountsBody [data-op-i][data-op-f]');
   var byIndex = {};
   inputs.forEach(function(el) {
-    var i = Number(el.getAttribute('data-op-i'));
+    var id = el.getAttribute('data-op-i');
     var f = el.getAttribute('data-op-f');
-    if (f == null) return; // checkbox انتخاب
-    if (!byIndex[i]) byIndex[i] = { active: true, role: 'operator' };
-    if (f === 'active') byIndex[i].active = !!el.checked;
-    else byIndex[i][f] = (el.value || '').trim();
+    if (!byIndex[id]) byIndex[id] = { active: true, role: 'operator' };
+    if (f === 'active') byIndex[id].active = !!el.checked;
+    else byIndex[id][f] = (el.value || '').trim();
   });
+
+  // سیستمی: ادمین اصلی
+  if (byIndex.sys_admin) {
+    var sa = byIndex.sys_admin;
+    if (sa.password) data.settings.adminPassword = sa.password;
+    sys.mainAdmin.displayName = sa.displayName || 'ادمین اصلی سیستم';
+    sys.mainAdmin.active = sa.active !== false;
+  }
+  // سیستمی: اپراتور پیش‌فرض
+  if (byIndex.sys_op) {
+    var so = byIndex.sys_op;
+    if (so.password) data.settings.operatorPassword = so.password;
+    sys.legacyOp.displayName = so.displayName || 'اپراتور پیش‌فرض';
+    sys.legacyOp.active = so.active !== false;
+    // نقش قفل‌شده روی اپراتور می‌ماند
+  }
+
   var oldList = data.settings.operators || [];
   var rows = [];
-  Object.keys(byIndex).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(k) {
-    var o = byIndex[k];
-    var prev = oldList[Number(k)] || {};
+  Object.keys(byIndex).forEach(function(id) {
+    if (id === 'sys_admin' || id === 'sys_op') return;
+    var o = byIndex[id];
+    var prev = oldList[Number(id)] || {};
     if (!o.username && !o.password) return;
     if (requireComplete && (!o.username || !o.password)) {
-      alert('هر حساب باید نام کاربری و رمز داشته باشد.');
+      alert('هر حساب سفارشی باید نام کاربری و رمز داشته باشد.');
       throw new Error('incomplete');
     }
     rows.push({
@@ -1887,8 +2020,31 @@ function syncOperatorAccountsFromForm(requireComplete) {
         : defaultOperatorPermissions()
     });
   });
-  data.settings.operators = rows;
-  return rows;
+  // حفظ ترتیب بر اساس شماره ایندکس
+  rows.sort(function(a, b) { return 0; }); // already iteration order may be string sort - fix:
+  // rebuild in numeric key order
+  var ordered = [];
+  Object.keys(byIndex).filter(function(id) { return id !== 'sys_admin' && id !== 'sys_op'; })
+    .map(Number).filter(function(n) { return !isNaN(n); })
+    .sort(function(a, b) { return a - b; })
+    .forEach(function(n) {
+      var o = byIndex[String(n)];
+      if (!o) return;
+      var prev = oldList[n] || {};
+      if (!o.username && !o.password) return;
+      ordered.push({
+        username: o.username || prev.username || '',
+        displayName: o.displayName || o.username || prev.displayName || '',
+        password: o.password || prev.password || '',
+        active: o.active !== false,
+        role: o.role === 'admin' ? 'admin' : 'operator',
+        permissions: (prev.permissions && typeof prev.permissions === 'object')
+          ? prev.permissions
+          : defaultOperatorPermissions()
+      });
+    });
+  data.settings.operators = ordered;
+  return ordered;
 }
 
 function saveOperatorAccounts() {
@@ -1901,26 +2057,30 @@ function saveOperatorAccounts() {
   var seen = {};
   for (var j = 0; j < rows.length; j++) {
     var u = String(rows[j].username || '').toLowerCase();
+    if (u === 'admin' || u === 'operator') {
+      alert('نام کاربری «admin» و «operator» برای حساب‌های سیستمی رزرو شده‌اند.');
+      return;
+    }
     if (seen[u]) { alert('نام کاربری تکراری: ' + rows[j].username); return; }
     seen[u] = true;
   }
-  // هشدار رمز تکراری
   var passSeen = {};
-  for (var p = 0; p < rows.length; p++) {
-    var pw = rows[p].password;
+  var allPasses = [data.settings.adminPassword, data.settings.operatorPassword].concat(rows.map(function(r) { return r.password; }));
+  for (var p = 0; p < allPasses.length; p++) {
+    var pw = allPasses[p];
     if (!pw) continue;
     if (passSeen[pw]) {
-      if (!confirm('هشدار: رمز تکراری بین حساب‌ها وجود دارد. ورود با رمز ممکن است حساب اشتباه را باز کند. ادامه؟')) return;
+      if (!confirm('هشدار: رمز تکراری بین حساب‌ها وجود دارد. ادامه؟')) return;
       break;
     }
     passSeen[pw] = true;
   }
   saveToCache();
-  addChangeLog('حساب کاربر', '-', 'ذخیره ' + rows.length + ' حساب کاربری');
+  addChangeLog('حساب کاربر', '-', 'ذخیره حساب‌ها (سیستمی + ' + rows.length + ' سفارشی)');
   renderOperatorAccounts();
   renderPermMatrixForSelection();
   populateLoginAccounts();
-  alert(rows.length + ' حساب ذخیره شد.');
+  alert('حساب‌ها ذخیره شد (ادمین اصلی، اپراتور پیش‌فرض و ' + rows.length + ' حساب دیگر).');
 }
 
 /** یافتن حساب فعال با رمز (و در صورت وجود فیلتر نقش) */
@@ -2090,9 +2250,20 @@ function populateLoginAccounts() {
   if (!sel) return;
   var prev = sel.value;
   var opts = [];
-  // ادمین اصلی سیستم
-  opts.push({ value: '__main_admin__', label: 'ادمین اصلی سیستم', role: 'admin' });
-  // حساب‌های تعریف‌شده (فعال)
+  var sys = (data.settings && data.settings.systemAccounts) ? data.settings.systemAccounts : null;
+  // ادمین اصلی
+  if (!sys || !sys.mainAdmin || sys.mainAdmin.active !== false) {
+    var admName = (sys && sys.mainAdmin && sys.mainAdmin.displayName) ? sys.mainAdmin.displayName : 'ادمین اصلی سیستم';
+    opts.push({ value: '__main_admin__', label: admName + ' (ادمین)' });
+  }
+  // اپراتور پیش‌فرض
+  if (data.settings && data.settings.operatorPassword) {
+    if (!sys || !sys.legacyOp || sys.legacyOp.active !== false) {
+      var opName = (sys && sys.legacyOp && sys.legacyOp.displayName) ? sys.legacyOp.displayName : 'اپراتور پیش‌فرض';
+      opts.push({ value: '__legacy_op__', label: opName + ' (اپراتور)' });
+    }
+  }
+  // حساب‌های سفارشی
   var list = (data.settings && data.settings.operators) || [];
   list.forEach(function(op, i) {
     if (op.active === false) return;
@@ -2102,18 +2273,12 @@ function populateLoginAccounts() {
     var uname = op.username ? ' — ' + op.username : '';
     opts.push({
       value: 'acc:' + i,
-      label: name + uname + ' (' + roleFa + ')',
-      role: role
+      label: name + uname + ' (' + roleFa + ')'
     });
   });
-  // اپراتور پیش‌فرض قدیمی (اگر هنوز رمز واحد معتبر است)
-  if (data.settings && data.settings.operatorPassword) {
-    opts.push({ value: '__legacy_op__', label: 'اپراتور پیش‌فرض (رمز واحد)', role: 'operator' });
-  }
   sel.innerHTML = opts.map(function(o) {
     return '<option value="' + o.value + '">' + o.label.replace(/</g, '&lt;') + '</option>';
   }).join('');
-  // حفظ انتخاب قبلی اگر هنوز هست
   if (prev) {
     for (var j = 0; j < sel.options.length; j++) {
       if (sel.options[j].value === prev) { sel.selectedIndex = j; break; }
@@ -2137,22 +2302,32 @@ function doLogin() {
   var key = sel.value;
 
   if (key === '__main_admin__') {
+    var sysA = getSysAccounts();
+    if (sysA.mainAdmin && sysA.mainAdmin.active === false) {
+      alert('این حساب غیرفعال است.');
+      return;
+    }
     if (pass !== data.settings.adminPassword) {
       alert('رمز ادمین اشتباه است.');
       return;
     }
     currentRole = 'admin';
-    currentUserName = 'ادمین';
+    currentUserName = (sysA.mainAdmin && sysA.mainAdmin.displayName) ? sysA.mainAdmin.displayName : 'ادمین اصلی';
     currentAccountUsername = '__main_admin__';
   } else if (key === '__legacy_op__') {
+    var sysL = getSysAccounts();
+    if (sysL.legacyOp && sysL.legacyOp.active === false) {
+      alert('این حساب غیرفعال است.');
+      return;
+    }
     if (pass !== data.settings.operatorPassword) {
       alert('رمز اپراتور اشتباه است.');
       return;
     }
     currentRole = 'operator';
-    currentUserName = 'اپراتور';
+    currentUserName = (sysL.legacyOp && sysL.legacyOp.displayName) ? sysL.legacyOp.displayName : 'اپراتور پیش‌فرض';
     currentAccountUsername = '__legacy_op__';
-    currentAccountPerms = Object.assign({}, ensureOperatorPermissions());
+    currentAccountPerms = Object.assign({}, getLegacyOpPerms());
   } else if (key.indexOf('acc:') === 0) {
     var idx = Number(key.slice(4));
     var acc = (data.settings.operators || [])[idx];
