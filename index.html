@@ -1134,38 +1134,47 @@
   
   <div class="panel" id="panel-permissions">
     <div class="card">
-      <div class="section-title">مدیریت دسترسی و حساب‌های اپراتور</div>
+      <div class="section-title">مدیریت کاربران و دسترسی‌ها</div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;">
-        فقط <b>ادمین</b> این صفحه را می‌بیند. با تیک‌ها مشخص کنید اپراتور به کدام بخش‌ها و فیلدهای عددی دسترسی داشته باشد.
-        اگر دسترسی «اعمال فوری» نباشد، تغییرات اپراتور مثل قبل منتظر تأیید ادمین می‌ماند.
+        فقط <b>ادمین اصلی</b> این صفحه را می‌بیند. برای هر حساب نقش (ادمین / اپراتور) و دسترسی جداگانه تعریف کنید.
+        چند حساب را تیک بزنید تا همان ماتریس دسترسی را یکجا به آن‌ها اعمال کنید.
+        ورود: نقش متناسب را انتخاب کنید و <b>رمز همان حساب</b> را وارد کنید.
       </p>
 
-      <div class="section-title" style="font-size:0.95rem;">حساب‌های اپراتور</div>
+      <div class="section-title" style="font-size:0.95rem;">حساب‌های کاربری</div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:8px;">
-        می‌توانید چند اپراتور با نام کاربری و رمز جدا تعریف کنید. ورود با نقش «اپراتور» و وارد کردن <b>رمز همان حساب</b> انجام می‌شود.
-        اگر هیچ حسابی تعریف نشود، همان رمز واحد قدیمی (<code>operatorPassword</code>) معتبر است.
+        ستون «انتخاب» برای اعمال دسترسی گروهی است. نقش را می‌توانید هر زمان عوض کنید.
+        رمز ادمین اصلی سیستم (<code>admin1405</code> یا آنچه در تنظیمات است) جدا از این لیست همیشه معتبر است.
       </p>
       <div style="overflow-x:auto;margin-bottom:10px;">
         <table>
           <thead>
-            <tr><th>نام کاربری</th><th>نام نمایشی</th><th>رمز عبور</th><th>فعال</th><th></th></tr>
+            <tr>
+              <th style="width:40px;">انتخاب</th>
+              <th>نام کاربری</th><th>نام نمایشی</th><th>رمز عبور</th>
+              <th>نقش</th><th>فعال</th><th></th>
+            </tr>
           </thead>
           <tbody id="operatorsAccountsBody"></tbody>
         </table>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
-        <button type="button" class="btn btn-outline btn-sm" onclick="addOperatorAccountRow()">+ اپراتور جدید</button>
-        <button type="button" class="btn btn-primary btn-sm" onclick="saveOperatorAccounts()">ذخیره حساب‌های اپراتور</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addOperatorAccountRow()">+ حساب جدید</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="selectAllUserAccounts(true)">انتخاب همه</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="selectAllUserAccounts(false)">لغو انتخاب</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveOperatorAccounts()">ذخیره حساب‌ها</button>
       </div>
 
-      <div class="section-title" style="font-size:0.95rem;">ماتریس دسترسی اپراتور</div>
-      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">تیک = مجاز برای همه اپراتورها. بدون تیک = فقط ادمین.</p>
+      <div class="section-title" style="font-size:0.95rem;">ماتریس دسترسی (برای حساب‌های انتخاب‌شده)</div>
+      <p id="permTargetHint" style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
+        ابتدا یک یا چند حساب با نقش «اپراتور» را تیک بزنید، سپس تیک دسترسی‌ها را تنظیم و ذخیره کنید.
+      </p>
       <div id="permMatrixBox" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
-        <button type="button" class="btn btn-success" onclick="saveOperatorPermissions()">ذخیره دسترسی‌ها</button>
+        <button type="button" class="btn btn-success" onclick="saveOperatorPermissions()">اعمال دسترسی به انتخاب‌شده‌ها</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="setAllOperatorPerms(true)">همه تیک</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="setAllOperatorPerms(false)">هیچ‌کدام</button>
-        <button type="button" class="btn btn-outline btn-sm" onclick="resetOperatorPermsDefault()">بازگشت به پیش‌فرض</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="resetOperatorPermsDefault()">پیش‌فرض روی فرم</button>
       </div>
       <div id="permSaveMsg" style="margin-top:8px;font-size:0.82rem;color:#0f766e;"></div>
     </div>
@@ -1618,7 +1627,8 @@ function ensureOperatorPermissions() {
 function hasPerm(key) {
   if (currentRole === 'admin') return true;
   if (currentRole !== 'operator') return false;
-  var p = ensureOperatorPermissions();
+  var p = currentAccountPerms;
+  if (!p || typeof p !== 'object') p = ensureOperatorPermissions();
   return !!p[key];
 }
 
@@ -1636,16 +1646,70 @@ function requirePerm(key, msg) {
   return true;
 }
 
-function renderPermissionsPanel() {
-  if (!isAdmin()) {
-    var box = document.getElementById('permMatrixBox');
-    if (box) box.innerHTML = '<p style="color:#dc2626;">فقط ادمین.</p>';
+function getAccountPerms(acc) {
+  if (!acc) return defaultOperatorPermissions();
+  if (!acc.permissions || typeof acc.permissions !== 'object') {
+    acc.permissions = defaultOperatorPermissions();
+  } else {
+    var defs = defaultOperatorPermissions();
+    Object.keys(defs).forEach(function(k) {
+      if (acc.permissions[k] == null) acc.permissions[k] = defs[k];
+    });
+  }
+  return acc.permissions;
+}
+
+function getSelectedAccountIndexes() {
+  var idxs = [];
+  document.querySelectorAll('.op-acc-select:checked').forEach(function(cb) {
+    idxs.push(Number(cb.getAttribute('data-op-i')));
+  });
+  return idxs;
+}
+
+function onAccountSelectChange() {
+  renderPermMatrixForSelection();
+}
+
+function selectAllUserAccounts(on) {
+  document.querySelectorAll('.op-acc-select').forEach(function(cb) { cb.checked = !!on; });
+  renderPermMatrixForSelection();
+}
+
+function renderPermMatrixForSelection() {
+  var box = document.getElementById('permMatrixBox');
+  var hint = document.getElementById('permTargetHint');
+  if (!box) return;
+  var idxs = getSelectedAccountIndexes();
+  if (!idxs.length) {
+    box.innerHTML = '<p style="color:#64748b;font-size:0.85rem;">هیچ حسابی انتخاب نشده. تیک «انتخاب» را برای یک یا چند حساب بزنید.</p>';
+    if (hint) hint.textContent = 'ابتدا یک یا چند حساب را تیک بزنید، سپس دسترسی‌ها را تنظیم کنید.';
     return;
   }
-  ensureOperatorPermissions();
-  var perms = data.settings.operatorPermissions;
-  var box = document.getElementById('permMatrixBox');
-  if (!box) return;
+  var list = data.settings.operators || [];
+  var names = [];
+  var firstOpIdx = -1;
+  var allAdmin = true;
+  idxs.forEach(function(i) {
+    var a = list[i];
+    if (!a) return;
+    names.push((a.displayName || a.username || ('#' + i)) + (a.role === 'admin' ? ' [ادمین]' : ''));
+    if (a.role !== 'admin') {
+      allAdmin = false;
+      if (firstOpIdx < 0) firstOpIdx = i;
+    }
+  });
+  if (hint) {
+    hint.innerHTML = 'اعمال روی: <b>' + names.join('، ') + '</b>' +
+      (allAdmin ? ' — حساب‌های ادمین دسترسی کامل دارند؛ ماتریس فقط برای نقش اپراتور معنی دارد.' : '');
+  }
+  if (allAdmin) {
+    box.innerHTML = '<p style="color:#0f766e;font-size:0.88rem;">نقش انتخاب‌شده‌ها «ادمین» است و دسترسی کامل دارند. برای محدود کردن دسترسی، نقش را به «اپراتور» تغییر دهید و ذخیره کنید.</p>';
+    return;
+  }
+  // بارگذاری دسترسی از اولین اپراتور انتخاب‌شده
+  var src = list[firstOpIdx];
+  var perms = getAccountPerms(src);
   var html = '';
   OPERATOR_PERM_DEFS.forEach(function(g) {
     html += '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f8fffe;">';
@@ -1659,7 +1723,22 @@ function renderPermissionsPanel() {
     html += '</div>';
   });
   box.innerHTML = html;
+}
+
+function renderPermissionsPanel() {
+  if (!isAdmin()) {
+    var box = document.getElementById('permMatrixBox');
+    if (box) box.innerHTML = '<p style="color:#dc2626;">فقط ادمین.</p>';
+    return;
+  }
+  ensureOperatorPermissions();
+  // مهاجرت: اگر حساب بدون permissions است
+  (data.settings.operators || []).forEach(function(a) {
+    if (!a.role) a.role = 'operator';
+    getAccountPerms(a);
+  });
   renderOperatorAccounts();
+  renderPermMatrixForSelection();
 }
 
 function setAllOperatorPerms(on) {
@@ -1667,21 +1746,54 @@ function setAllOperatorPerms(on) {
 }
 
 function resetOperatorPermsDefault() {
-  data.settings.operatorPermissions = defaultOperatorPermissions();
-  renderPermissionsPanel();
+  var defs = defaultOperatorPermissions();
+  document.querySelectorAll('.op-perm-cb').forEach(function(cb) {
+    var k = cb.getAttribute('data-perm');
+    cb.checked = !!defs[k];
+  });
+  var msg = document.getElementById('permSaveMsg');
+  if (msg) msg.textContent = 'فرم به پیش‌فرض برگشت — هنوز ذخیره نشده. «اعمال دسترسی» را بزنید.';
 }
 
 function saveOperatorPermissions() {
   if (!requireRole(['admin'], 'فقط ادمین.')) return;
-  ensureOperatorPermissions();
-  document.querySelectorAll('.op-perm-cb').forEach(function(cb) {
-    data.settings.operatorPermissions[cb.getAttribute('data-perm')] = !!cb.checked;
+  // ابتدا مقادیر فرم حساب‌ها را در حافظه همگام کن
+  syncOperatorAccountsFromForm(false);
+  var idxs = getSelectedAccountIndexes();
+  if (!idxs.length) {
+    alert('حداقل یک حساب را انتخاب کنید.');
+    return;
+  }
+  var matrix = {};
+  var cbs = document.querySelectorAll('.op-perm-cb');
+  if (!cbs.length) {
+    alert('ماتریس دسترسی برای نقش اپراتور نمایش داده نشده. حساب‌های با نقش اپراتور را انتخاب کنید.');
+    return;
+  }
+  cbs.forEach(function(cb) {
+    matrix[cb.getAttribute('data-perm')] = !!cb.checked;
   });
+  var list = data.settings.operators || [];
+  var applied = 0;
+  var skippedAdmin = 0;
+  idxs.forEach(function(i) {
+    var a = list[i];
+    if (!a) return;
+    if (a.role === 'admin') { skippedAdmin++; return; }
+    a.permissions = Object.assign({}, matrix);
+    applied++;
+  });
+  // قالب سراسری هم به‌روز شود (برای حساب‌های جدید)
+  data.settings.operatorPermissions = Object.assign({}, matrix);
   saveToCache();
-  addChangeLog('دسترسی اپراتور', '-', 'به‌روزرسانی ماتریس دسترسی');
+  addChangeLog('دسترسی کاربر', '-', 'اعمال دسترسی به ' + applied + ' حساب');
   var msg = document.getElementById('permSaveMsg');
-  if (msg) msg.textContent = 'دسترسی‌ها ذخیره شد.';
-  alert('دسترسی‌های اپراتور ذخیره شد.');
+  var t = 'ذخیره شد — ' + applied + ' حساب اپراتور به‌روز شد.';
+  if (skippedAdmin) t += ' (' + skippedAdmin + ' ادمین رد شد چون دسترسی کامل دارند)';
+  if (msg) msg.textContent = t;
+  alert(t);
+  renderOperatorAccounts();
+  renderPermMatrixForSelection();
 }
 
 function renderOperatorAccounts() {
@@ -1690,82 +1802,144 @@ function renderOperatorAccounts() {
   if (!data.settings.operators) data.settings.operators = [];
   var list = data.settings.operators;
   if (!list.length) {
-    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748b;font-size:0.8rem;">حسابی تعریف نشده — رمز واحد قدیمی («رمز اپراتور» در تنظیمات) معتبر است.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;font-size:0.8rem;">حسابی تعریف نشده — می‌توانید حساب جدید بسازید یا از رمز واحد قدیمی استفاده کنید.</td></tr>';
     return;
   }
+  // حفظ انتخاب‌های فعلی
+  var prevSel = {};
+  document.querySelectorAll('.op-acc-select:checked').forEach(function(cb) {
+    prevSel[cb.getAttribute('data-op-i')] = true;
+  });
   body.innerHTML = list.map(function(op, i) {
+    var role = op.role === 'admin' ? 'admin' : 'operator';
+    var sel = prevSel[String(i)] ? ' checked' : '';
     return '<tr>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="username" value="' + (op.username || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="displayName" value="' + (op.displayName || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
-      '<td><input type="text" data-op-i="' + i + '" data-op-f="password" value="' + (op.password || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td style="text-align:center;"><input type="checkbox" class="op-acc-select" data-op-i="' + i + '"' + sel + ' onchange="onAccountSelectChange()"></td>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="username" value="' + String(op.username || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="displayName" value="' + String(op.displayName || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="password" value="' + String(op.password || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><select data-op-i="' + i + '" data-op-f="role" style="width:100%;padding:4px 6px;font-size:0.8rem;" onchange="onAccountRoleChange(' + i + ', this.value)">' +
+        '<option value="operator"' + (role === 'operator' ? ' selected' : '') + '>اپراتور</option>' +
+        '<option value="admin"' + (role === 'admin' ? ' selected' : '') + '>ادمین</option>' +
+      '</select></td>' +
       '<td style="text-align:center;"><input type="checkbox" data-op-i="' + i + '" data-op-f="active" ' + (op.active !== false ? 'checked' : '') + '></td>' +
       '<td><button type="button" class="btn btn-danger btn-sm" onclick="removeOperatorAccount(' + i + ')">حذف</button></td></tr>';
   }).join('');
 }
 
+function onAccountRoleChange(i, role) {
+  if (!data.settings.operators || !data.settings.operators[i]) return;
+  data.settings.operators[i].role = role === 'admin' ? 'admin' : 'operator';
+  renderPermMatrixForSelection();
+}
+
 function addOperatorAccountRow() {
   if (!requireRole(['admin'], 'فقط ادمین.')) return;
   if (!data.settings.operators) data.settings.operators = [];
-  data.settings.operators.push({ username: '', displayName: '', password: '', active: true });
+  data.settings.operators.push({
+    username: '',
+    displayName: '',
+    password: '',
+    active: true,
+    role: 'operator',
+    permissions: defaultOperatorPermissions()
+  });
   renderOperatorAccounts();
+  renderPermMatrixForSelection();
 }
 
 function removeOperatorAccount(i) {
   if (!requireRole(['admin'], 'فقط ادمین.')) return;
-  if (!confirm('این حساب اپراتور حذف شود؟')) return;
+  if (!confirm('این حساب حذف شود؟')) return;
   data.settings.operators.splice(i, 1);
-  renderOperatorAccounts();
   saveToCache();
+  renderOperatorAccounts();
+  renderPermMatrixForSelection();
 }
 
-function saveOperatorAccounts() {
-  if (!requireRole(['admin'], 'فقط ادمین.')) return;
-  var rows = [];
+/** خواندن فرم جدول حساب‌ها به data.settings.operators بدون الزام ذخیره کامل */
+function syncOperatorAccountsFromForm(requireComplete) {
   var inputs = document.querySelectorAll('#operatorsAccountsBody [data-op-i]');
   var byIndex = {};
   inputs.forEach(function(el) {
     var i = Number(el.getAttribute('data-op-i'));
     var f = el.getAttribute('data-op-f');
-    if (!byIndex[i]) byIndex[i] = { active: true };
+    if (f == null) return; // checkbox انتخاب
+    if (!byIndex[i]) byIndex[i] = { active: true, role: 'operator' };
     if (f === 'active') byIndex[i].active = !!el.checked;
     else byIndex[i][f] = (el.value || '').trim();
   });
-  Object.keys(byIndex).sort(function(a,b){return Number(a)-Number(b);}).forEach(function(k) {
+  var oldList = data.settings.operators || [];
+  var rows = [];
+  Object.keys(byIndex).sort(function(a,b){ return Number(a)-Number(b); }).forEach(function(k) {
     var o = byIndex[k];
+    var prev = oldList[Number(k)] || {};
     if (!o.username && !o.password) return;
-    if (!o.username || !o.password) {
+    if (requireComplete && (!o.username || !o.password)) {
       alert('هر حساب باید نام کاربری و رمز داشته باشد.');
       throw new Error('incomplete');
     }
     rows.push({
-      username: o.username,
-      displayName: o.displayName || o.username,
-      password: o.password,
-      active: o.active !== false
+      username: o.username || prev.username || '',
+      displayName: o.displayName || o.username || prev.displayName || '',
+      password: o.password || prev.password || '',
+      active: o.active !== false,
+      role: o.role === 'admin' ? 'admin' : 'operator',
+      permissions: (prev.permissions && typeof prev.permissions === 'object')
+        ? prev.permissions
+        : defaultOperatorPermissions()
     });
   });
-  // یکتایی نام کاربری
+  data.settings.operators = rows;
+  return rows;
+}
+
+function saveOperatorAccounts() {
+  if (!requireRole(['admin'], 'فقط ادمین.')) return;
+  try {
+    var rows = syncOperatorAccountsFromForm(true);
+  } catch (e) {
+    return;
+  }
   var seen = {};
   for (var j = 0; j < rows.length; j++) {
-    var u = rows[j].username.toLowerCase();
+    var u = String(rows[j].username || '').toLowerCase();
     if (seen[u]) { alert('نام کاربری تکراری: ' + rows[j].username); return; }
     seen[u] = true;
   }
-  data.settings.operators = rows;
+  // هشدار رمز تکراری
+  var passSeen = {};
+  for (var p = 0; p < rows.length; p++) {
+    var pw = rows[p].password;
+    if (!pw) continue;
+    if (passSeen[pw]) {
+      if (!confirm('هشدار: رمز تکراری بین حساب‌ها وجود دارد. ورود با رمز ممکن است حساب اشتباه را باز کند. ادامه؟')) return;
+      break;
+    }
+    passSeen[pw] = true;
+  }
   saveToCache();
-  addChangeLog('حساب اپراتور', '-', 'ذخیره ' + rows.length + ' حساب اپراتور');
+  addChangeLog('حساب کاربر', '-', 'ذخیره ' + rows.length + ' حساب کاربری');
   renderOperatorAccounts();
-  alert(rows.length + ' حساب اپراتور ذخیره شد.');
+  renderPermMatrixForSelection();
+  alert(rows.length + ' حساب ذخیره شد.');
 }
 
-function findOperatorByPassword(pass) {
+/** یافتن حساب فعال با رمز (و در صورت وجود فیلتر نقش) */
+function findAccountByPassword(pass, roleFilter) {
   var list = data.settings.operators || [];
   for (var i = 0; i < list.length; i++) {
     var op = list[i];
     if (op.active === false) continue;
-    if (op.password === pass) return op;
+    if (op.password !== pass) continue;
+    var r = op.role === 'admin' ? 'admin' : 'operator';
+    if (roleFilter && r !== roleFilter) continue;
+    return op;
   }
   return null;
+}
+function findOperatorByPassword(pass) {
+  return findAccountByPassword(pass, 'operator') || findAccountByPassword(pass, null);
 }
 
 if (!data.settings.monthDays) {
@@ -1784,6 +1958,8 @@ if (data.settings.defaultFunctionalDays == null) data.settings.defaultFunctional
 
 let currentRole = null; // 'admin' | 'operator' | null
 let currentUserName = '';
+let currentAccountPerms = null; // دسترسی اختصاصی حساب واردشده
+let currentAccountUsername = '';
 // مهاجرت نام قدیمی حق اولاد
 (data.allowances || []).forEach(function(a) {
   if (a && a.name && a.name.indexOf('حق اولاد') === 0) a.name = 'حق اولاد';
@@ -1914,20 +2090,47 @@ function isOperator() { return currentRole === 'operator'; }
 function doLogin() {
   const role = document.getElementById('loginRole').value;
   const pass = document.getElementById('loginPassword').value;
+  currentAccountPerms = null;
+  currentAccountUsername = '';
+
   if (role === 'admin') {
-    if (pass !== data.settings.adminPassword) { alert('رمز ادمین اشتباه است.'); return; }
-    currentRole = 'admin';
-    currentUserName = 'ادمین';
+    // 1) ادمین اصلی سیستم
+    if (pass === data.settings.adminPassword) {
+      currentRole = 'admin';
+      currentUserName = 'ادمین';
+      currentAccountUsername = '__main_admin__';
+    } else {
+      // 2) حساب تعریف‌شده با نقش ادمین
+      var admAcc = findAccountByPassword(pass, 'admin');
+      if (admAcc) {
+        currentRole = 'admin';
+        currentUserName = admAcc.displayName || admAcc.username || 'ادمین';
+        currentAccountUsername = admAcc.username || '';
+      } else {
+        alert('رمز ادمین اشتباه است.');
+        return;
+      }
+    }
   } else {
-    // ابتدا حساب‌های تعریف‌شده، سپس رمز واحد قدیمی
-    var opAcc = findOperatorByPassword(pass);
+    // اپراتور: حساب با نقش اپراتور، سپس رمز واحد قدیمی
+    var opAcc = findAccountByPassword(pass, 'operator');
     if (opAcc) {
       currentRole = 'operator';
       currentUserName = opAcc.displayName || opAcc.username || 'اپراتور';
+      currentAccountUsername = opAcc.username || '';
+      currentAccountPerms = Object.assign({}, getAccountPerms(opAcc));
     } else if (pass === data.settings.operatorPassword) {
       currentRole = 'operator';
       currentUserName = 'اپراتور';
+      currentAccountUsername = '__legacy_op__';
+      currentAccountPerms = Object.assign({}, ensureOperatorPermissions());
     } else {
+      // اگر حساب با نقش ادمین است ولی نقش ورود اپراتور انتخاب شده
+      var maybeAdmin = findAccountByPassword(pass, 'admin');
+      if (maybeAdmin) {
+        alert('این حساب نقش «ادمین» دارد. در ورود، نقش ادمین را انتخاب کنید.');
+        return;
+      }
       alert('رمز اپراتور اشتباه است.');
       return;
     }
@@ -1935,7 +2138,7 @@ function doLogin() {
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('loginPassword').value = '';
   updateRoleUI();
-  addChangeLog('ورود', '-', 'ورود به سیستم با نقش ' + currentUserName);
+  addChangeLog('ورود', '-', 'ورود: ' + currentUserName + ' (' + currentRole + ')');
   setTimeout(function() {
     showWelcomeToast(currentUserName);
     setTimeout(checkStatusEndAlerts, 2800);
@@ -1962,6 +2165,8 @@ function logoutUser() {
   if (currentRole) addChangeLog('خروج', '-', 'خروج از سیستم — نقش: ' + (currentUserName || currentRole));
   currentRole = null;
   currentUserName = '';
+  currentAccountPerms = null;
+  currentAccountUsername = '';
   showLogin();
   updateRoleUI();
 }
