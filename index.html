@@ -362,18 +362,55 @@
 
   <div class="panel" id="panel-customitems">
     <div class="card">
-      <div class="section-title">آیتم‌های سفارشی (مرجع همه کارکنان)</div>
+      <div class="section-title">آیتم‌های سفارشی (مرجع)</div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
-        فقط <b>نام و تنظیمات</b> آیتم (بدون مبلغ). مبلغ فقط در کارت کارمند یا ویرایش گروهی کارکنان وارد می‌شود.
-        تغییر نام اینجا در همه کارکنان و شیت‌های مرتبط اعمال می‌شود.
-        با «ذخیره و اعمال»، نام‌های جدید با مبلغ صفر به کارکنان اضافه می‌شوند.
+        فقط <b>نام و تنظیمات</b> آیتم (بدون مبلغ). مبلغ در کارت کارمند یا ویرایش گروهی کارکنان وارد می‌شود.
+        تغییر نام اینجا در کارکنان انتخاب‌شده و شیت‌های مرتبط اعمال می‌شود.
+        با ذخیره، نام‌های جدید با مبلغ صفر به نفرات انتخاب‌شده اضافه می‌شوند.
       </p>
       <div style="font-weight:600;display:grid;grid-template-columns:1.6fr 0.8fr 0.5fr 0.5fr 0.8fr 36px;gap:6px;margin-bottom:5px;font-size:0.78rem;">
         <span>نام آیتم</span><span>نحوه ورود</span><span>ثابت</span><span>فعال</span><span>مدت</span><span></span>
       </div>
       <div id="customTemplatesList"></div>
       <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="addCustomTemplateRow()">+ افزودن آیتم سفارشی</button>
-      <button class="btn btn-primary btn-sm" style="margin-top:10px;margin-right:7px;" onclick="saveCustomTemplates()">ذخیره و اعمال به همه کارکنان</button>
+
+      <div class="section-title" style="margin-top:18px;font-size:0.95rem;">اعمال به کارکنان — فیلتر و انتخاب نفرات</div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
+        فیلترها مثل ویرایش گروهی مبلغ هستند (بدون فیلد مبلغ). پس از فیلتر، نفرات را با تیک انتخاب کنید؛ پیش‌فرض همه نفرات فیلترشده تیک‌خورده‌اند.
+      </p>
+      <div class="form-grid" style="align-items:end;margin-bottom:10px;">
+        <div class="form-group"><label>محل کار</label><select id="ctApplyWorkplace" onchange="refreshCtApplyEmpList()"><option value="">همه</option></select></div>
+        <div class="form-group"><label>مدیریت/معاونت</label><select id="ctApplyManagement" onchange="refreshCtApplyEmpList()"><option value="">همه</option></select></div>
+        <div class="form-group"><label>واحد</label><select id="ctApplyUnit" onchange="refreshCtApplyEmpList()"><option value="">همه</option></select></div>
+        <div class="form-group"><label>گروه</label><select id="ctApplyGroup" onchange="refreshCtApplyEmpList()"><option value="">همه</option></select></div>
+        <div class="form-group"><label>سمت</label><select id="ctApplyPosition" onchange="refreshCtApplyEmpList()"><option value="">همه</option></select></div>
+        <div class="form-group"><label>نوع قرارداد</label>
+          <select id="ctApplyContract" onchange="refreshCtApplyEmpList()">
+            <option value="">همه</option>
+            <option value="normal">عادی</option>
+            <option value="daily">روزمزد</option>
+            <option value="hourly">ساعتی</option>
+          </select>
+        </div>
+        <div class="form-group"><label>وضعیت تأهل</label>
+          <select id="ctApplyMarital" onchange="refreshCtApplyEmpList()">
+            <option value="">همه</option>
+            <option value="single">مجرد</option>
+            <option value="married">متأهل</option>
+            <option value="provider">معیل</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="ctApplySelectEmps(true)">انتخاب همه نفرات فیلترشده</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="ctApplySelectEmps(false)">لغو همه</button>
+        <span id="ctApplyPreview" style="font-size:0.78rem;color:#0f766e;"></span>
+      </div>
+      <div id="ctApplyEmpList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:12px;background:#f8fffe;"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="saveCustomTemplates(false)">ذخیره و اعمال به انتخاب‌شده‌ها</button>
+        <button class="btn btn-success btn-sm" onclick="saveCustomTemplates(true)">ذخیره و اعمال به همه کارکنان</button>
+      </div>
     </div>
   </div>
 
@@ -2829,12 +2866,115 @@ function applyCustomTemplatesToEmployee(emp) {
     });
   });
 }
-/** اعمال فهرست مرجع به همه کارکنان */
-function applyCustomTemplatesToAllEmployees() {
-  (data.employees || []).forEach(function(emp) {
+/** اعمال فهرست مرجع به لیست کارکنان (یا همه) */
+function applyCustomTemplatesToAllEmployees(empList) {
+  var list = empList || (data.employees || []);
+  list.forEach(function(emp) {
     applyCustomTemplatesToEmployee(emp);
   });
 }
+
+function fillCtApplyFilters() {
+  var map = {
+    ctApplyWorkplace: 'workplace',
+    ctApplyManagement: 'management',
+    ctApplyUnit: 'unit',
+    ctApplyGroup: 'group',
+    ctApplyPosition: 'position'
+  };
+  Object.keys(map).forEach(function(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    fillSelectOptions(sel, uniqueEmpFieldValues(map[id]), sel.value);
+  });
+  // نوع قرارداد: مقادیر موجود + پیش‌فرض
+  var ctSel = document.getElementById('ctApplyContract');
+  if (ctSel) {
+    var cur = ctSel.value;
+    var htmlCt = '<option value="">همه</option>';
+    getKnownContractTypes().forEach(function(ct) {
+      htmlCt += '<option value="' + ct + '">' + contractTypeLabel(ct) + '</option>';
+    });
+    ctSel.innerHTML = htmlCt;
+    if (cur) ctSel.value = cur;
+  }
+}
+
+function getCtApplyFilteredEmployees() {
+  var wp = (document.getElementById('ctApplyWorkplace') && document.getElementById('ctApplyWorkplace').value) || '';
+  var unit = (document.getElementById('ctApplyUnit') && document.getElementById('ctApplyUnit').value) || '';
+  var pos = (document.getElementById('ctApplyPosition') && document.getElementById('ctApplyPosition').value) || '';
+  var mgmt = (document.getElementById('ctApplyManagement') && document.getElementById('ctApplyManagement').value) || '';
+  var grp = (document.getElementById('ctApplyGroup') && document.getElementById('ctApplyGroup').value) || '';
+  var ct = (document.getElementById('ctApplyContract') && document.getElementById('ctApplyContract').value) || '';
+  var marital = (document.getElementById('ctApplyMarital') && document.getElementById('ctApplyMarital').value) || '';
+  return (data.employees || []).filter(function(emp) {
+    if (emp.status === 'inactive') return false;
+    if (wp && String(emp.workplace || '').trim() !== wp) return false;
+    if (unit && String(emp.unit || '').trim() !== unit) return false;
+    if (pos && String(emp.position || '').trim() !== pos) return false;
+    if (mgmt && String(emp.management || '').trim() !== mgmt) return false;
+    if (grp && String(emp.group || '').trim() !== grp) return false;
+    if (ct && String(emp.contractType || 'normal') !== ct) return false;
+    if (marital && String(emp.marital || '') !== marital) return false;
+    return true;
+  });
+}
+
+function refreshCtApplyEmpList() {
+  var box = document.getElementById('ctApplyEmpList');
+  var prev = document.getElementById('ctApplyPreview');
+  if (!box) return;
+  // حفظ تیک‌های قبلی
+  var prevChecked = {};
+  document.querySelectorAll('.ct-apply-emp:checked').forEach(function(cb) {
+    prevChecked[cb.value] = true;
+  });
+  var hadAnyCheckbox = document.querySelectorAll('.ct-apply-emp').length > 0;
+  var emps = getCtApplyFilteredEmployees();
+  if (!emps.length) {
+    box.innerHTML = '<div class="empty" style="padding:12px;">با این فیلتر کارمند فعالی نیست.</div>';
+    if (prev) prev.textContent = '۰ نفر';
+    return;
+  }
+  box.innerHTML = emps.map(function(emp) {
+    var checked = (!hadAnyCheckbox || prevChecked[String(emp.code)]) ? ' checked' : '';
+    // بار اول همه تیک
+    if (!hadAnyCheckbox) checked = ' checked';
+    var ct = contractTypeLabel(emp.contractType || 'normal');
+    var meta = [emp.management, emp.unit, emp.group, emp.workplace].filter(Boolean).join(' / ');
+    return '<label class="check-label" style="display:flex;gap:8px;padding:5px 4px;border-bottom:1px solid #e2e8f0;cursor:pointer;align-items:flex-start;">' +
+      '<input type="checkbox" class="ct-apply-emp" value="' + String(emp.code).replace(/"/g, '') + '"' + checked + ' onchange="updateCtApplyPreview()">' +
+      '<span style="font-size:0.8rem;line-height:1.4;"><b>' + (emp.fullName || emp.code) + '</b> (' + emp.code + ') — ' + ct +
+      (meta ? '<br><span style="color:#64748b;font-size:0.72rem;">' + meta + '</span>' : '') +
+      '</span></label>';
+  }).join('');
+  updateCtApplyPreview();
+}
+
+function updateCtApplyPreview() {
+  var prev = document.getElementById('ctApplyPreview');
+  if (!prev) return;
+  var total = document.querySelectorAll('.ct-apply-emp').length;
+  var n = document.querySelectorAll('.ct-apply-emp:checked').length;
+  prev.textContent = 'انتخاب‌شده: ' + n + ' از ' + total + ' نفر فیلترشده';
+}
+
+function ctApplySelectEmps(on) {
+  document.querySelectorAll('.ct-apply-emp').forEach(function(cb) { cb.checked = !!on; });
+  updateCtApplyPreview();
+}
+
+function getCtApplySelectedEmployees() {
+  var codes = {};
+  document.querySelectorAll('.ct-apply-emp:checked').forEach(function(cb) {
+    codes[String(cb.value)] = true;
+  });
+  return (data.employees || []).filter(function(e) {
+    return codes[String(e.code)];
+  });
+}
+
 /** اگر فهرست مرجع خالی بود، از آیتم‌های غیرکسر کارکنان پر شود (یک‌بار مهاجرت) */
 function seedCustomTemplatesFromEmployees() {
   if ((data.customItemTemplates || []).length) return;
@@ -2949,7 +3089,7 @@ function removeCustomTemplateRow(idx) {
   data.customItemTemplates.splice(idx, 1);
   renderCustomTemplates();
 }
-function saveCustomTemplates() {
+function saveCustomTemplates(applyToAll) {
   if (!requirePerm('custom_templates', 'شما اجازه مدیریت آیتم‌های سفارشی را ندارید.')) return;
   // پاک‌سازی نام‌های خالی
   data.customItemTemplates = (data.customItemTemplates || []).filter(function(t) {
@@ -2970,12 +3110,32 @@ function saveCustomTemplates() {
     alert('درخواست ذخیره ثبت شد و منتظر تأیید ادمین است.');
     return;
   }
-  applyCustomTemplatesToAllEmployees();
+  var targets;
+  var msg;
+  if (applyToAll === true) {
+    targets = (data.employees || []).filter(function(e) { return e.status !== 'inactive'; });
+    msg = 'همه کارکنان فعال (' + targets.length + ' نفر)';
+  } else {
+    // اگر لیست تیک هنوز ساخته نشده، فیلترشده‌ها را بگیر
+    if (!document.querySelector('.ct-apply-emp')) {
+      fillCtApplyFilters();
+      refreshCtApplyEmpList();
+    }
+    targets = getCtApplySelectedEmployees();
+    if (!targets.length) {
+      alert('هیچ کارمندی انتخاب نشده است. فیلتر را تنظیم کنید یا «انتخاب همه» را بزنید.');
+      return;
+    }
+    msg = targets.length + ' نفر انتخاب‌شده';
+  }
+  if (!confirm('آیتم‌های مرجع ذخیره و به ' + msg + ' اعمال شود؟\n(نام‌های جدید با مبلغ صفر اضافه می‌شوند؛ مبالغ قبلی حفظ می‌گردد)')) return;
+  applyCustomTemplatesToAllEmployees(targets);
   syncEmployeeCustomsToAllowances();
-  addChangeLog('آیتم سفارشی', '-', 'ذخیره فهرست مرجع و اعمال به همه کارکنان');
+  addChangeLog('آیتم سفارشی', '-', 'ذخیره مرجع و اعمال به ' + msg);
   saveToCache();
   renderCustomTemplates();
-  alert('آیتم‌های سفارشی ذخیره و به همه کارکنان اعمال شد.');
+  refreshCtApplyEmpList();
+  alert('ذخیره شد و به ' + msg + ' اعمال گردید.');
 }
 
 function defaultSalaryGrade() {
@@ -3180,7 +3340,12 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     }
     if (btn.dataset.tab==='inactive') renderInactive();
     if (btn.dataset.tab==='allowances') { syncEmployeeCustomsToAllowances(); renderAllowances(); }
-    if (btn.dataset.tab==='customitems') { seedCustomTemplatesFromEmployees(); renderCustomTemplates(); }
+    if (btn.dataset.tab==='customitems') {
+      seedCustomTemplatesFromEmployees();
+      renderCustomTemplates();
+      fillCtApplyFilters();
+      refreshCtApplyEmpList();
+    }
     if (btn.dataset.tab==='salarygrade') { initSalaryGradePanel(); }
     if (btn.dataset.tab==='settings') loadSettingsToForm();
     if (btn.dataset.tab==='payroll') {
