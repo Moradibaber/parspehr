@@ -1200,23 +1200,20 @@
     </div>
   </div>
   <div id="loginOverlay" style="display:flex;position:fixed;inset:0;background:rgba(15,118,110,0.92);z-index:2000;align-items:center;justify-content:center;padding:16px;">
-  <div style="background:#fff;border-radius:12px;padding:28px;max-width:380px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
+  <div style="background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
     <h2 style="color:#0f766e;margin-bottom:8px;font-size:1.15rem;text-align:center;">ورود به سیستم حقوق</h2>
     <p style="font-size:0.88rem;color:#0f766e;text-align:center;margin-bottom:6px;font-weight:600;">به نرم‌افزار حقوق و دستمزد پارسپهر خوش آمدید</p>
-    <p style="font-size:0.8rem;color:#64748b;text-align:center;margin-bottom:16px;">ادمین یا اپراتور را انتخاب و رمز را وارد کنید</p>
+    <p style="font-size:0.8rem;color:#64748b;text-align:center;margin-bottom:16px;">حساب خود را انتخاب و رمز را وارد کنید</p>
     <div class="form-group" style="margin-bottom:10px;">
-      <label>نقش</label>
-      <select id="loginRole">
-        <option value="admin">ادمین</option>
-        <option value="operator">اپراتور</option>
-      </select>
+      <label>کاربر</label>
+      <select id="loginAccount" style="width:100%;"></select>
     </div>
     <div class="form-group" style="margin-bottom:14px;">
       <label>رمز عبور</label>
       <input type="password" id="loginPassword" placeholder="رمز را وارد کنید" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn btn-primary" style="width:100%;" onclick="doLogin()">ورود</button>
-    <p style="font-size:0.72rem;color:#94a3b8;margin-top:12px;text-align:center;">برای ورود، نقش و رمز را وارد کنید. اپراتورها می‌توانند با رمز حساب تعریف‌شده توسط ادمین وارد شوند.</p>
+    <p style="font-size:0.72rem;color:#94a3b8;margin-top:12px;text-align:center;">لیست کاربران فعال سیستم — حساب‌های جدید در بخش «دسترسی اپراتور» توسط ادمین تعریف می‌شوند.</p>
   </div>
 </div>
 
@@ -1922,6 +1919,7 @@ function saveOperatorAccounts() {
   addChangeLog('حساب کاربر', '-', 'ذخیره ' + rows.length + ' حساب کاربری');
   renderOperatorAccounts();
   renderPermMatrixForSelection();
+  populateLoginAccounts();
   alert(rows.length + ' حساب ذخیره شد.');
 }
 
@@ -2087,54 +2085,98 @@ function requireRole(roles, msg) {
 function isAdmin() { return currentRole === 'admin'; }
 function isOperator() { return currentRole === 'operator'; }
 
+function populateLoginAccounts() {
+  var sel = document.getElementById('loginAccount');
+  if (!sel) return;
+  var prev = sel.value;
+  var opts = [];
+  // ادمین اصلی سیستم
+  opts.push({ value: '__main_admin__', label: 'ادمین اصلی سیستم', role: 'admin' });
+  // حساب‌های تعریف‌شده (فعال)
+  var list = (data.settings && data.settings.operators) || [];
+  list.forEach(function(op, i) {
+    if (op.active === false) return;
+    var role = op.role === 'admin' ? 'admin' : 'operator';
+    var roleFa = role === 'admin' ? 'ادمین' : 'اپراتور';
+    var name = op.displayName || op.username || ('کاربر ' + (i + 1));
+    var uname = op.username ? ' — ' + op.username : '';
+    opts.push({
+      value: 'acc:' + i,
+      label: name + uname + ' (' + roleFa + ')',
+      role: role
+    });
+  });
+  // اپراتور پیش‌فرض قدیمی (اگر هنوز رمز واحد معتبر است)
+  if (data.settings && data.settings.operatorPassword) {
+    opts.push({ value: '__legacy_op__', label: 'اپراتور پیش‌فرض (رمز واحد)', role: 'operator' });
+  }
+  sel.innerHTML = opts.map(function(o) {
+    return '<option value="' + o.value + '">' + o.label.replace(/</g, '&lt;') + '</option>';
+  }).join('');
+  // حفظ انتخاب قبلی اگر هنوز هست
+  if (prev) {
+    for (var j = 0; j < sel.options.length; j++) {
+      if (sel.options[j].value === prev) { sel.selectedIndex = j; break; }
+    }
+  }
+}
+
 function doLogin() {
-  const role = document.getElementById('loginRole').value;
-  const pass = document.getElementById('loginPassword').value;
+  var sel = document.getElementById('loginAccount');
+  var pass = document.getElementById('loginPassword').value;
+  if (!sel || !sel.value) {
+    alert('حساب کاربری را انتخاب کنید.');
+    return;
+  }
+  if (!pass) {
+    alert('رمز عبور را وارد کنید.');
+    return;
+  }
   currentAccountPerms = null;
   currentAccountUsername = '';
+  var key = sel.value;
 
-  if (role === 'admin') {
-    // 1) ادمین اصلی سیستم
-    if (pass === data.settings.adminPassword) {
-      currentRole = 'admin';
-      currentUserName = 'ادمین';
-      currentAccountUsername = '__main_admin__';
-    } else {
-      // 2) حساب تعریف‌شده با نقش ادمین
-      var admAcc = findAccountByPassword(pass, 'admin');
-      if (admAcc) {
-        currentRole = 'admin';
-        currentUserName = admAcc.displayName || admAcc.username || 'ادمین';
-        currentAccountUsername = admAcc.username || '';
-      } else {
-        alert('رمز ادمین اشتباه است.');
-        return;
-      }
+  if (key === '__main_admin__') {
+    if (pass !== data.settings.adminPassword) {
+      alert('رمز ادمین اشتباه است.');
+      return;
     }
-  } else {
-    // اپراتور: حساب با نقش اپراتور، سپس رمز واحد قدیمی
-    var opAcc = findAccountByPassword(pass, 'operator');
-    if (opAcc) {
-      currentRole = 'operator';
-      currentUserName = opAcc.displayName || opAcc.username || 'اپراتور';
-      currentAccountUsername = opAcc.username || '';
-      currentAccountPerms = Object.assign({}, getAccountPerms(opAcc));
-    } else if (pass === data.settings.operatorPassword) {
-      currentRole = 'operator';
-      currentUserName = 'اپراتور';
-      currentAccountUsername = '__legacy_op__';
-      currentAccountPerms = Object.assign({}, ensureOperatorPermissions());
-    } else {
-      // اگر حساب با نقش ادمین است ولی نقش ورود اپراتور انتخاب شده
-      var maybeAdmin = findAccountByPassword(pass, 'admin');
-      if (maybeAdmin) {
-        alert('این حساب نقش «ادمین» دارد. در ورود، نقش ادمین را انتخاب کنید.');
-        return;
-      }
+    currentRole = 'admin';
+    currentUserName = 'ادمین';
+    currentAccountUsername = '__main_admin__';
+  } else if (key === '__legacy_op__') {
+    if (pass !== data.settings.operatorPassword) {
       alert('رمز اپراتور اشتباه است.');
       return;
     }
+    currentRole = 'operator';
+    currentUserName = 'اپراتور';
+    currentAccountUsername = '__legacy_op__';
+    currentAccountPerms = Object.assign({}, ensureOperatorPermissions());
+  } else if (key.indexOf('acc:') === 0) {
+    var idx = Number(key.slice(4));
+    var acc = (data.settings.operators || [])[idx];
+    if (!acc || acc.active === false) {
+      alert('این حساب یافت نشد یا غیرفعال است.');
+      populateLoginAccounts();
+      return;
+    }
+    if (pass !== acc.password) {
+      alert('رمز عبور اشتباه است.');
+      return;
+    }
+    var role = acc.role === 'admin' ? 'admin' : 'operator';
+    currentRole = role;
+    currentUserName = acc.displayName || acc.username || (role === 'admin' ? 'ادمین' : 'اپراتور');
+    currentAccountUsername = acc.username || '';
+    if (role === 'operator') {
+      currentAccountPerms = Object.assign({}, getAccountPerms(acc));
+    }
+  } else {
+    alert('حساب نامعتبر است.');
+    return;
   }
+
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('loginPassword').value = '';
   updateRoleUI();
@@ -2171,7 +2213,10 @@ function logoutUser() {
   updateRoleUI();
 }
 function showLogin() {
+  populateLoginAccounts();
   document.getElementById('loginOverlay').style.display = 'flex';
+  var pw = document.getElementById('loginPassword');
+  if (pw) pw.value = '';
 }
 function updateRoleUI() {
   const lbl = document.getElementById('currentRoleLabel');
