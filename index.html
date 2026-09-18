@@ -3822,8 +3822,8 @@ function downloadEmployeeTemplate() {
 }
 
 function importEmployeesFromExcel(event) {
-  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) return;
-    event.target.value = '';
+  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) {
+    if (event && event.target) event.target.value = '';
     return;
   }
   const file = event.target.files[0];
