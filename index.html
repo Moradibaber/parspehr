@@ -247,6 +247,7 @@
     <button class="tab-btn" data-tab="salarygrade">تعیین حقوق</button>
     <button class="tab-btn" data-tab="adjhistory">تاریخچه اصلاحات</button>
     <button class="tab-btn" data-tab="changelog">لاگ تغییرات</button>
+    <button class="tab-btn" data-tab="permissions" id="tabPermissionsBtn">دسترسی اپراتور</button>
     <button class="tab-btn" data-tab="pending" id="tabPendingBtn">تایید تغییرات</button>
   </div>
 
@@ -1130,7 +1131,48 @@
     </div>
   </div>
 
+  
+  <div class="panel" id="panel-permissions">
+    <div class="card">
+      <div class="section-title">مدیریت دسترسی و حساب‌های اپراتور</div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;">
+        فقط <b>ادمین</b> این صفحه را می‌بیند. با تیک‌ها مشخص کنید اپراتور به کدام بخش‌ها و فیلدهای عددی دسترسی داشته باشد.
+        اگر دسترسی «اعمال فوری» نباشد، تغییرات اپراتور مثل قبل منتظر تأیید ادمین می‌ماند.
+      </p>
+
+      <div class="section-title" style="font-size:0.95rem;">حساب‌های اپراتور</div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:8px;">
+        می‌توانید چند اپراتور با نام کاربری و رمز جدا تعریف کنید. ورود با نقش «اپراتور» و وارد کردن <b>رمز همان حساب</b> انجام می‌شود.
+        اگر هیچ حسابی تعریف نشود، همان رمز واحد قدیمی (<code>operatorPassword</code>) معتبر است.
+      </p>
+      <div style="overflow-x:auto;margin-bottom:10px;">
+        <table>
+          <thead>
+            <tr><th>نام کاربری</th><th>نام نمایشی</th><th>رمز عبور</th><th>فعال</th><th></th></tr>
+          </thead>
+          <tbody id="operatorsAccountsBody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addOperatorAccountRow()">+ اپراتور جدید</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveOperatorAccounts()">ذخیره حساب‌های اپراتور</button>
+      </div>
+
+      <div class="section-title" style="font-size:0.95rem;">ماتریس دسترسی اپراتور</div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">تیک = مجاز برای همه اپراتورها. بدون تیک = فقط ادمین.</p>
+      <div id="permMatrixBox" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
+        <button type="button" class="btn btn-success" onclick="saveOperatorPermissions()">ذخیره دسترسی‌ها</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setAllOperatorPerms(true)">همه تیک</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setAllOperatorPerms(false)">هیچ‌کدام</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="resetOperatorPermsDefault()">بازگشت به پیش‌فرض</button>
+      </div>
+      <div id="permSaveMsg" style="margin-top:8px;font-size:0.82rem;color:#0f766e;"></div>
+    </div>
+  </div>
+
   <div class="panel" id="panel-pending">
+
     <div class="card">
       <div class="section-title">تایید تغییرات اپراتور (فقط ادمین)</div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">تغییرات ذخیره‌شده توسط اپراتور تا تأیید ادمین اعمال نمی‌شوند.</p>
@@ -1165,7 +1207,7 @@
       <input type="password" id="loginPassword" placeholder="رمز را وارد کنید" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <button class="btn btn-primary" style="width:100%;" onclick="doLogin()">ورود</button>
-    <p style="font-size:0.72rem;color:#94a3b8;margin-top:12px;text-align:center;">برای ورود، نقش و رمز خود را وارد کنید.</p>
+    <p style="font-size:0.72rem;color:#94a3b8;margin-top:12px;text-align:center;">برای ورود، نقش و رمز را وارد کنید. اپراتورها می‌توانند با رمز حساب تعریف‌شده توسط ادمین وارد شوند.</p>
   </div>
 </div>
 
@@ -1446,7 +1488,286 @@ if (typeof isBasicSalaryAllowanceName === 'function') {
 }
 if (!data.settings.adminPassword) data.settings.adminPassword = 'admin1405';
 if (!data.settings.operatorPassword) data.settings.operatorPassword = 'op1405';
+
 if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
+if (!data.settings.operators) data.settings.operators = [];
+if (!data.settings.operatorPermissions) data.settings.operatorPermissions = null;
+
+/** تعریف کامل دسترسی‌های قابل کنترل برای اپراتور */
+var OPERATOR_PERM_DEFS = [
+  { group: 'کارکنان', items: [
+    { key: 'emp_view', label: 'مشاهده لیست کارکنان فعال/غیرفعال' },
+    { key: 'emp_add', label: 'افزودن کارمند جدید' },
+    { key: 'emp_edit', label: 'ویرایش کارمند' },
+    { key: 'emp_basic_salary', label: 'ویرایش حقوق پایه / مزد روزانه / ساعتی' },
+    { key: 'emp_loan', label: 'ویرایش مبلغ و اقساط وام' },
+    { key: 'emp_exemption', label: 'ویرایش معافیت بیمه/مالیات و درصد مالیات' },
+    { key: 'emp_status', label: 'تغییر وضعیت (فعال/غیرفعال/استعلاجی/تعلیق)' },
+    { key: 'emp_custom_items', label: 'ویرایش آیتم‌های سفارشی کارمند و مبالغ' },
+    { key: 'emp_import', label: 'بارگذاری اکسل کارکنان / به‌روزرسانی فیلدی' },
+    { key: 'emp_apply_immediate', label: 'اعمال فوری تغییرات کارمند (بدون تأیید ادمین)' }
+  ]},
+  { group: 'آیتم‌ها و مزایا', items: [
+    { key: 'allowances_view', label: 'مشاهده آیتم‌های حقوق و مزایا' },
+    { key: 'allowances_edit', label: 'ویرایش مبلغ آیتم‌های ثابت (مسکن، بن، تأهل، …)' },
+    { key: 'custom_templates', label: 'مدیریت قالب آیتم‌های سفارشی' }
+  ]},
+  { group: 'تنظیمات عددی (بیمه، مالیات، ضرایب)', items: [
+    { key: 'settings_view', label: 'مشاهده نرخ بیمه و مالیات' },
+    { key: 'settings_ins_rates', label: 'ویرایش درصد بیمه کارمند/کارفرما' },
+    { key: 'settings_ot_factors', label: 'ویرایش ضریب اضافه‌کاری / شب‌کاری / نوبت‌کاری' },
+    { key: 'settings_tax_brackets', label: 'ویرایش جدول پله‌های مالیات' },
+    { key: 'settings_ins_ceilings', label: 'ویرایش سقف بیمه تأمین اجتماعی' },
+    { key: 'settings_month_days', label: 'ویرایش تعداد روزهای ماه' },
+    { key: 'settings_year', label: 'تغییر سال جاری سیستم' },
+    { key: 'settings_save', label: 'ذخیره تنظیمات نرخ‌ها' }
+  ]},
+  { group: 'ورود داده و محاسبه', items: [
+    { key: 'data_entry', label: 'ورود و ذخیره داده‌های ماهانه (کارکرد، اضافه‌کار، …)' },
+    { key: 'data_import', label: 'بارگذاری اکسل ورود داده' },
+    { key: 'payroll_run', label: 'اجرای محاسبه حقوق ماهانه' },
+    { key: 'payroll_lock', label: 'قفل مبنای پرداخت‌شده' },
+    { key: 'payroll_adjust', label: 'محاسبه مغایرت / اصلاح' }
+  ]},
+  { group: 'فیش و گزارش‌ها', items: [
+    { key: 'payslip', label: 'نمایش و چاپ فیش حقوقی' },
+    { key: 'dashboard', label: 'داشبورد هزینه‌ها' },
+    { key: 'export_excel', label: 'خروجی اکسل ماه جاری' },
+    { key: 'export_json', label: 'ذخیره / دانلود JSON' },
+    { key: 'import_json', label: 'بارگذاری JSON' }
+  ]},
+  { group: 'حکم، عیدی، پاداش، مالیات سالانه', items: [
+    { key: 'decree', label: 'شیت حکم (ویرایش هدر و مبالغ)' },
+    { key: 'eid', label: 'محاسبه عیدی، سنوات و مرخصی' },
+    { key: 'bonus', label: 'پاداش و کارانه' },
+    { key: 'annual_tax', label: 'تسویه مالیات سالانه' },
+    { key: 'annual_tax_transfer', label: 'انتقال مابه‌التفاوت مالیات سالانه' }
+  ]},
+  { group: 'خروجی بیمه، مالیات، بانک و شرکت', items: [
+    { key: 'insurance_tax_export', label: 'خروجی فایل بیمه / مالیات / دیسکت بانک' },
+    { key: 'company_edit', label: 'ویرایش مشخصات شرکت' },
+    { key: 'salary_grade', label: 'تعیین حقوق بر اساس امتیاز' },
+    { key: 'cloud', label: 'اتصال ابری Supabase' }
+  ]},
+  { group: 'لاگ و تاریخچه', items: [
+    { key: 'adj_history', label: 'مشاهده تاریخچه اصلاحات' },
+    { key: 'changelog', label: 'مشاهده لاگ تغییرات' }
+  ]}
+];
+
+function defaultOperatorPermissions() {
+  return {
+    emp_view: true,
+    emp_add: true,
+    emp_edit: true,
+    emp_basic_salary: false,
+    emp_loan: true,
+    emp_exemption: true,
+    emp_status: true,
+    emp_custom_items: true,
+    emp_import: true,
+    emp_apply_immediate: false,
+    allowances_view: true,
+    allowances_edit: false,
+    custom_templates: false,
+    settings_view: true,
+    settings_ins_rates: false,
+    settings_ot_factors: false,
+    settings_tax_brackets: false,
+    settings_ins_ceilings: false,
+    settings_month_days: false,
+    settings_year: false,
+    settings_save: false,
+    data_entry: true,
+    data_import: true,
+    payroll_run: true,
+    payroll_lock: false,
+    payroll_adjust: false,
+    payslip: true,
+    dashboard: true,
+    export_excel: true,
+    export_json: true,
+    import_json: false,
+    decree: true,
+    eid: true,
+    bonus: true,
+    annual_tax: true,
+    annual_tax_transfer: false,
+    insurance_tax_export: true,
+    company_edit: true,
+    salary_grade: true,
+    cloud: false,
+    adj_history: true,
+    changelog: false
+  };
+}
+
+function ensureOperatorPermissions() {
+  if (!data.settings.operatorPermissions || typeof data.settings.operatorPermissions !== 'object') {
+    data.settings.operatorPermissions = defaultOperatorPermissions();
+  } else {
+    var defs = defaultOperatorPermissions();
+    Object.keys(defs).forEach(function(k) {
+      if (data.settings.operatorPermissions[k] == null) data.settings.operatorPermissions[k] = defs[k];
+    });
+  }
+  return data.settings.operatorPermissions;
+}
+
+/** آیا کاربر فعلی این دسترسی را دارد؟ ادمین همیشه true */
+function hasPerm(key) {
+  if (currentRole === 'admin') return true;
+  if (currentRole !== 'operator') return false;
+  var p = ensureOperatorPermissions();
+  return !!p[key];
+}
+
+function requirePerm(key, msg) {
+  if (!currentRole) {
+    alert('ابتدا وارد سیستم شوید.');
+    showLogin();
+    return false;
+  }
+  if (currentRole === 'admin') return true;
+  if (!hasPerm(key)) {
+    alert(msg || 'شما به این بخش دسترسی ندارید. با ادمین هماهنگ کنید.');
+    return false;
+  }
+  return true;
+}
+
+function renderPermissionsPanel() {
+  if (!isAdmin()) {
+    var box = document.getElementById('permMatrixBox');
+    if (box) box.innerHTML = '<p style="color:#dc2626;">فقط ادمین.</p>';
+    return;
+  }
+  ensureOperatorPermissions();
+  var perms = data.settings.operatorPermissions;
+  var box = document.getElementById('permMatrixBox');
+  if (!box) return;
+  var html = '';
+  OPERATOR_PERM_DEFS.forEach(function(g) {
+    html += '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f8fffe;">';
+    html += '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;font-size:0.88rem;">' + g.group + '</div>';
+    g.items.forEach(function(it) {
+      var checked = perms[it.key] ? ' checked' : '';
+      html += '<label class="check-label" style="display:flex;gap:8px;padding:4px 0;cursor:pointer;align-items:flex-start;">';
+      html += '<input type="checkbox" class="op-perm-cb" data-perm="' + it.key + '"' + checked + ' style="margin-top:3px;">';
+      html += '<span style="font-size:0.8rem;line-height:1.35;">' + it.label + '</span></label>';
+    });
+    html += '</div>';
+  });
+  box.innerHTML = html;
+  renderOperatorAccounts();
+}
+
+function setAllOperatorPerms(on) {
+  document.querySelectorAll('.op-perm-cb').forEach(function(cb) { cb.checked = !!on; });
+}
+
+function resetOperatorPermsDefault() {
+  data.settings.operatorPermissions = defaultOperatorPermissions();
+  renderPermissionsPanel();
+}
+
+function saveOperatorPermissions() {
+  if (!requireRole(['admin'], 'فقط ادمین.')) return;
+  ensureOperatorPermissions();
+  document.querySelectorAll('.op-perm-cb').forEach(function(cb) {
+    data.settings.operatorPermissions[cb.getAttribute('data-perm')] = !!cb.checked;
+  });
+  saveToCache();
+  addChangeLog('دسترسی اپراتور', '-', 'به‌روزرسانی ماتریس دسترسی');
+  var msg = document.getElementById('permSaveMsg');
+  if (msg) msg.textContent = 'دسترسی‌ها ذخیره شد.';
+  alert('دسترسی‌های اپراتور ذخیره شد.');
+}
+
+function renderOperatorAccounts() {
+  var body = document.getElementById('operatorsAccountsBody');
+  if (!body) return;
+  if (!data.settings.operators) data.settings.operators = [];
+  var list = data.settings.operators;
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#64748b;font-size:0.8rem;">حسابی تعریف نشده — رمز واحد قدیمی («رمز اپراتور» در تنظیمات) معتبر است.</td></tr>';
+    return;
+  }
+  body.innerHTML = list.map(function(op, i) {
+    return '<tr>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="username" value="' + (op.username || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="displayName" value="' + (op.displayName || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td><input type="text" data-op-i="' + i + '" data-op-f="password" value="' + (op.password || '').replace(/"/g, '&quot;') + '" dir="ltr" style="width:100%;padding:4px 6px;font-size:0.8rem;"></td>' +
+      '<td style="text-align:center;"><input type="checkbox" data-op-i="' + i + '" data-op-f="active" ' + (op.active !== false ? 'checked' : '') + '></td>' +
+      '<td><button type="button" class="btn btn-danger btn-sm" onclick="removeOperatorAccount(' + i + ')">حذف</button></td></tr>';
+  }).join('');
+}
+
+function addOperatorAccountRow() {
+  if (!requireRole(['admin'], 'فقط ادمین.')) return;
+  if (!data.settings.operators) data.settings.operators = [];
+  data.settings.operators.push({ username: '', displayName: '', password: '', active: true });
+  renderOperatorAccounts();
+}
+
+function removeOperatorAccount(i) {
+  if (!requireRole(['admin'], 'فقط ادمین.')) return;
+  if (!confirm('این حساب اپراتور حذف شود؟')) return;
+  data.settings.operators.splice(i, 1);
+  renderOperatorAccounts();
+  saveToCache();
+}
+
+function saveOperatorAccounts() {
+  if (!requireRole(['admin'], 'فقط ادمین.')) return;
+  var rows = [];
+  var inputs = document.querySelectorAll('#operatorsAccountsBody [data-op-i]');
+  var byIndex = {};
+  inputs.forEach(function(el) {
+    var i = Number(el.getAttribute('data-op-i'));
+    var f = el.getAttribute('data-op-f');
+    if (!byIndex[i]) byIndex[i] = { active: true };
+    if (f === 'active') byIndex[i].active = !!el.checked;
+    else byIndex[i][f] = (el.value || '').trim();
+  });
+  Object.keys(byIndex).sort(function(a,b){return Number(a)-Number(b);}).forEach(function(k) {
+    var o = byIndex[k];
+    if (!o.username && !o.password) return;
+    if (!o.username || !o.password) {
+      alert('هر حساب باید نام کاربری و رمز داشته باشد.');
+      throw new Error('incomplete');
+    }
+    rows.push({
+      username: o.username,
+      displayName: o.displayName || o.username,
+      password: o.password,
+      active: o.active !== false
+    });
+  });
+  // یکتایی نام کاربری
+  var seen = {};
+  for (var j = 0; j < rows.length; j++) {
+    var u = rows[j].username.toLowerCase();
+    if (seen[u]) { alert('نام کاربری تکراری: ' + rows[j].username); return; }
+    seen[u] = true;
+  }
+  data.settings.operators = rows;
+  saveToCache();
+  addChangeLog('حساب اپراتور', '-', 'ذخیره ' + rows.length + ' حساب اپراتور');
+  renderOperatorAccounts();
+  alert(rows.length + ' حساب اپراتور ذخیره شد.');
+}
+
+function findOperatorByPassword(pass) {
+  var list = data.settings.operators || [];
+  for (var i = 0; i < list.length; i++) {
+    var op = list[i];
+    if (op.active === false) continue;
+    if (op.password === pass) return op;
+  }
+  return null;
+}
+
 if (!data.settings.monthDays) {
   data.settings.monthDays = {1:31,2:31,3:31,4:31,5:31,6:31,7:30,8:30,9:30,10:30,11:30,12:29};
 }
@@ -1598,9 +1919,18 @@ function doLogin() {
     currentRole = 'admin';
     currentUserName = 'ادمین';
   } else {
-    if (pass !== data.settings.operatorPassword) { alert('رمز اپراتور اشتباه است.'); return; }
-    currentRole = 'operator';
-    currentUserName = 'اپراتور';
+    // ابتدا حساب‌های تعریف‌شده، سپس رمز واحد قدیمی
+    var opAcc = findOperatorByPassword(pass);
+    if (opAcc) {
+      currentRole = 'operator';
+      currentUserName = opAcc.displayName || opAcc.username || 'اپراتور';
+    } else if (pass === data.settings.operatorPassword) {
+      currentRole = 'operator';
+      currentUserName = 'اپراتور';
+    } else {
+      alert('رمز اپراتور اشتباه است.');
+      return;
+    }
   }
   document.getElementById('loginOverlay').style.display = 'none';
   document.getElementById('loginPassword').value = '';
@@ -1640,17 +1970,66 @@ function showLogin() {
 }
 function updateRoleUI() {
   const lbl = document.getElementById('currentRoleLabel');
-  if (lbl) lbl.textContent = currentRole ? (currentRole === 'admin' ? 'ادمین' : 'اپراتور') : '—';
+  if (lbl) {
+    if (!currentRole) lbl.textContent = '—';
+    else if (currentRole === 'admin') lbl.textContent = 'ادمین';
+    else lbl.textContent = currentUserName ? ('اپراتور — ' + currentUserName) : 'اپراتور';
+  }
   // تب‌های فقط‌ادمین
   const tabPending = document.getElementById('tabPendingBtn');
   if (tabPending) tabPending.style.display = isAdmin() ? '' : 'none';
-  // اگر اپراتور روی تب لاگ/pending است، برگردان
+  const tabPerm = document.getElementById('tabPermissionsBtn');
+  if (tabPerm) tabPerm.style.display = isAdmin() ? '' : 'none';
+  // اگر اپراتور روی تب‌های ممنوع است، برگردان
   if (!isAdmin()) {
     const activeTab = document.querySelector('.tab-btn.active');
-    if (activeTab && (activeTab.dataset.tab === 'changelog' || activeTab.dataset.tab === 'pending')) {
-      document.querySelector('.tab-btn[data-tab="employees"]').click();
+    if (activeTab) {
+      const t = activeTab.dataset.tab;
+      if (t === 'changelog' || t === 'pending' || t === 'permissions') {
+        document.querySelector('.tab-btn[data-tab="employees"]').click();
+      }
     }
   }
+  // مخفی‌سازی تب‌ها بر اساس دسترسی اپراتور
+  applyTabVisibilityByPerm();
+}
+
+function applyTabVisibilityByPerm() {
+  var map = {
+    employees: 'emp_view',
+    inactive: 'emp_view',
+    allowances: 'allowances_view',
+    customitems: 'custom_templates',
+    settings: 'settings_view',
+    dataentry: 'data_entry',
+    payroll: 'payroll_run',
+    payslip: 'payslip',
+    dashboard: 'dashboard',
+    decree: 'decree',
+    eid: 'eid',
+    bonus: 'bonus',
+    annualtax: 'annual_tax',
+    cloud: 'cloud',
+    company: 'company_edit',
+    insurancetax: 'insurance_tax_export',
+    salarygrade: 'salary_grade',
+    adjhistory: 'adj_history',
+    changelog: 'changelog'
+  };
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn) {
+    var tab = btn.dataset.tab;
+    if (tab === 'pending' || tab === 'permissions') {
+      btn.style.display = isAdmin() ? '' : 'none';
+      return;
+    }
+    if (isAdmin() || !currentRole) {
+      if (tab !== 'pending' && tab !== 'permissions') btn.style.display = '';
+      return;
+    }
+    var perm = map[tab];
+    if (!perm) { btn.style.display = ''; return; }
+    btn.style.display = hasPerm(perm) ? '' : 'none';
+  });
 }
 
 function pushPending(type, summary, payload) {
@@ -1998,7 +2377,7 @@ function removeCustomTemplateRow(idx) {
   renderCustomTemplates();
 }
 function saveCustomTemplates() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('custom_templates', 'شما اجازه مدیریت آیتم‌های سفارشی را ندارید.')) return;
   // پاک‌سازی نام‌های خالی
   data.customItemTemplates = (data.customItemTemplates || []).filter(function(t) {
     return t && String(t.name || '').trim();
@@ -2283,6 +2662,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       if (!isAdmin()) { alert('فقط ادمین به تأیید تغییرات دسترسی دارد.'); document.querySelector('.tab-btn[data-tab="employees"]').click(); return; }
       renderPending();
     }
+    if (btn.dataset.tab==='permissions') {
+      if (!isAdmin()) { alert('فقط ادمین به مدیریت دسترسی دسترسی دارد.'); document.querySelector('.tab-btn[data-tab="employees"]').click(); return; }
+      renderPermissionsPanel();
+    }
   });
 });
 
@@ -2361,7 +2744,7 @@ function deleteAllowance(idx) {
   saveToCache();
 }
 function saveAllowances() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('allowances_edit', 'شما اجازه ویرایش آیتم‌های مزایا را ندارید.')) return;
   stripBasicSalaryFromAllowances();
   if (isOperator()) {
     pushPending('allowances', 'ذخیره آیتم‌های حقوق و مزایا', { allowances: JSON.parse(JSON.stringify(data.allowances)) });
@@ -2664,9 +3047,27 @@ function loadSettingsToForm() {
   renderInsuranceCeilingsForm();
   const passSec = document.getElementById('adminPasswordsSection');
   if (passSec) passSec.style.display = (currentRole === 'admin') ? '' : 'none';
+  // قفل فیلدهای عددی تنظیمات بر اساس دسترسی اپراتور
+  function lock(id, can) {
+    var el = document.getElementById(id);
+    if (el) el.disabled = !can;
+  }
+  var canIns = hasPerm('settings_ins_rates');
+  lock('insEmployee', canIns); lock('insEmployer', canIns);
+  var canOt = hasPerm('settings_ot_factors');
+  lock('overtimeFactor', canOt); lock('nightFactor', canOt);
+  lock('shiftMorningEvening', canOt); lock('shiftWithNight', canOt); lock('shiftAllThree', canOt);
+  lock('currentYear', hasPerm('settings_year'));
+  lock('taxMode', hasPerm('settings_tax_brackets'));
+  for (var mi = 1; mi <= 12; mi++) lock('md_' + mi, hasPerm('settings_month_days'));
+  // پله‌های مالیات و سقف بیمه: اگر فرم رندر شده، ورودی‌ها را قفل کن
+  var canTax = hasPerm('settings_tax_brackets');
+  document.querySelectorAll('#taxBracketsBody input').forEach(function(inp) { inp.disabled = !canTax; });
+  var canCeil = hasPerm('settings_ins_ceilings');
+  document.querySelectorAll('#insCeilingsBody input').forEach(function(inp) { inp.disabled = !canCeil; });
 }
 function saveSettings() {
-  if (!requireRole(['admin'], 'فقط ادمین می‌تواند تنظیمات را ذخیره کند.')) return;
+  if (!requirePerm('settings_save', 'شما اجازه ذخیره تنظیمات را ندارید.')) return;
   const currentPass = document.getElementById('adminPassword').value;
   const newPass = document.getElementById('newAdminPassword').value.trim();
   const newOp = document.getElementById('newOperatorPassword').value.trim();
@@ -2903,6 +3304,8 @@ function promptUnlockLoan() {
 
 function openEmployeeModal(editId = null) {
   if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!editId && !hasPerm('emp_add')) { alert('شما اجازه افزودن کارمند جدید ندارید.'); return; }
+  if (editId && !hasPerm('emp_edit')) { alert('شما اجازه ویرایش کارمند ندارید.'); return; }
   document.getElementById('empModal').style.display = 'flex';
   document.getElementById('empForm').reset();
   document.getElementById('editEmpId').value = '';
@@ -2926,8 +3329,29 @@ function openEmployeeModal(editId = null) {
   ['e_loanAmount','e_loanInstallments','e_loanRemaining'].forEach(id => {
     document.getElementById(id).disabled = false;
   });
-  // حقوق پایه فقط ادمین
-  document.getElementById('e_basicSalary').disabled = !isAdmin();
+  // حقوق پایه / نرخ‌ها بر اساس دسترسی
+  var canSalary = hasPerm('emp_basic_salary');
+  document.getElementById('e_basicSalary').disabled = !canSalary;
+  var dr = document.getElementById('e_dailyRate');
+  var hr = document.getElementById('e_hourlyRate');
+  if (dr) dr.disabled = !canSalary;
+  if (hr) hr.disabled = !canSalary;
+  // وام
+  var canLoan = hasPerm('emp_loan');
+  ['e_loanAmount','e_loanInstallments','e_loanRemaining'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.disabled = !canLoan;
+  });
+  // معافیت و درصد مالیات
+  var canEx = hasPerm('emp_exemption');
+  var ex = document.getElementById('e_exemption');
+  var tp = document.getElementById('e_taxPercent');
+  if (ex) ex.disabled = !canEx;
+  if (tp) tp.disabled = !canEx;
+  // وضعیت
+  var canSt = hasPerm('emp_status');
+  var st = document.getElementById('e_status');
+  if (st) st.disabled = !canSt;
   onContractTypeChange();
 
   if (editId) {
@@ -3161,11 +3585,46 @@ function saveEmployee(e) {
   }
 
   if (isOperator()) {
-    // تغییرات اپراتور منتظر تأیید ادمین
-    pushPending('employee_save', (editId ? 'ویرایش ' : 'افزودن ') + emp.fullName + ' — ' + changeSummary, emp);
-    closeEmployeeModal();
-    alert('تغییرات ثبت شد و منتظر تأیید ادمین است.');
-    return;
+    if (!editId && !hasPerm('emp_add')) {
+      alert('شما اجازه افزودن کارمند جدید ندارید.');
+      return;
+    }
+    if (editId && !hasPerm('emp_edit')) {
+      alert('شما اجازه ویرایش کارمند ندارید.');
+      return;
+    }
+    // اگر حقوق پایه تغییر کرده و دسترسی ندارد — از مقدار قبلی نگه دار
+    if (!hasPerm('emp_basic_salary') && old) {
+      emp.basicSalary = old.basicSalary;
+      emp.dailyRate = old.dailyRate;
+      emp.hourlyRate = old.hourlyRate;
+    }
+    if (!hasPerm('emp_loan') && old) {
+      emp.loanAmount = old.loanAmount;
+      emp.loanInstallments = old.loanInstallments;
+      emp.loanRemaining = old.loanRemaining;
+      emp.loanLocked = old.loanLocked;
+    }
+    if (!hasPerm('emp_exemption') && old) {
+      emp.exemption = old.exemption;
+      emp.taxPercent = old.taxPercent;
+    }
+    if (!hasPerm('emp_status') && old) {
+      emp.status = old.status;
+      emp.statusStart = old.statusStart;
+      emp.statusEnd = old.statusEnd;
+    }
+    if (!hasPerm('emp_custom_items') && old) {
+      emp.customItems = old.customItems ? JSON.parse(JSON.stringify(old.customItems)) : [];
+    }
+    if (hasPerm('emp_apply_immediate')) {
+      // اعمال فوری مثل ادمین
+    } else {
+      pushPending('employee_save', (editId ? 'ویرایش ' : 'افزودن ') + emp.fullName + ' — ' + changeSummary, emp);
+      closeEmployeeModal();
+      alert('تغییرات ثبت شد و منتظر تأیید ادمین است.');
+      return;
+    }
   }
 
   // ادمین: اعمال فوری — بدون پخش خودکار آیتم‌های مرجع (فقط با دکمه «اعمال به همه» در شیت سفارشی)
@@ -3363,7 +3822,7 @@ function downloadEmployeeTemplate() {
 }
 
 function importEmployeesFromExcel(event) {
-  if (!requireRole(['admin'], 'بارگذاری اکسل کارکنان فقط توسط ادمین مجاز است.')) {
+  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) return;
     event.target.value = '';
     return;
   }
@@ -3741,7 +4200,7 @@ function updateFunctionalDays() {
   data.monthlyData[key]._meta.functionalDays = Number(document.getElementById('dataFunctionalDays').value) || 22;
 }
 function saveDataEntry() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('data_entry', 'شما اجازه ورود داده ماهانه را ندارید.')) return;
   const key = getDataKey();
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key]._meta) data.monthlyData[key]._meta = {};
@@ -3780,6 +4239,7 @@ function downloadDataTemplate() {
 }
 
 function importDataFromExcel(event) {
+  if (!requirePerm('data_import', 'دسترسی مجاز نیست.')) return;
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -3853,7 +4313,7 @@ function importDataFromExcel(event) {
 }
 
 function runCalculation() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('payroll_run', 'شما اجازه اجرای محاسبه حقوق را ندارید.')) return;
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
@@ -4191,6 +4651,7 @@ function populateSlipEmployees() {
     getActiveEmployees().map(e => '<option value="' + e.code + '">' + e.fullName + '</option>').join('');
 }
 function generatePayslip() {
+  if (!requirePerm('payslip', 'دسترسی مجاز نیست.')) return;
   const code = document.getElementById('slipEmployee').value;
   const key = document.getElementById('slipYear').value + '-' + document.getElementById('slipMonth').value;
   const emp = data.employees.find(e => e.code === code);
@@ -4255,6 +4716,7 @@ function generatePayslip() {
 }
 
 function saveAndDownload() {
+  if (!requirePerm('export_json', 'شما اجازه دانلود JSON را ندارید.')) return;
   saveToCache();
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
@@ -4264,7 +4726,7 @@ function saveAndDownload() {
   alert('دانلود شد');
 }
 function loadFromFile(ev) {
-  if (!requireRole(['admin'], 'فقط ادمین می‌تواند فایل JSON بارگذاری کند.')) {
+  if (!requirePerm('import_json', 'شما اجازه بارگذاری JSON را ندارید.')) {
     ev.target.value = '';
     return;
   }
@@ -4293,6 +4755,7 @@ function loadFromFile(ev) {
 }
 
 function exportExcel() {
+  if (!requirePerm('export_excel', 'شما اجازه خروجی اکسل را ندارید.')) return;
   const key = document.getElementById('payYear').value + '-' + document.getElementById('payMonth').value;
   const rows = data.payrolls[key];
   if (!rows || !rows.length) return alert('ابتدا محاسبه کنید');
@@ -4816,7 +5279,7 @@ function calcLeavePayAmount(decreeSum, basicSalary, payableLeaveDays) {
 }
 
 function runEidCalculation() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('eid', 'دسترسی مجاز نیست.')) return;
   const year = Number(document.getElementById('eidYear').value) || 1405;
   const minDaily = Number(document.getElementById('eidMinDaily').value) || 5541850;
   const leaveCeilingEl = document.getElementById('eidPayableLeaveDays');
@@ -5169,7 +5632,7 @@ function requireAdminPassword(msg) {
 }
 
 function lockPayrollBaseline() {
-  if (!requireRole(['admin'], 'فقط ادمین می‌تواند مبنا را قفل کند.')) return;
+  if (!requirePerm('payroll_lock', 'شما اجازه قفل مبنای پرداخت را ندارید.')) return;
   if (!requireAdminPassword('قفل مبنای پرداخت — رمز ادمین:')) return;
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
@@ -5187,7 +5650,7 @@ function lockPayrollBaseline() {
 }
 
 function openAdjustmentWizard() {
-  if (!requireRole(['admin'], 'فقط ادمین می‌تواند مغایرت بگیرد.')) return;
+  if (!requirePerm('payroll_adjust', 'شما اجازه محاسبه مغایرت را ندارید.')) return;
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
@@ -5675,7 +6138,7 @@ function getAnnualTaxSelectedCodes() {
 }
 
 function runAnnualTaxSettlement() {
-  if (!requireRole(['admin', 'operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('annual_tax', 'دسترسی مجاز نیست.')) return;
   const year = Number(document.getElementById('annualTaxYear').value) || data.settings.currentYear || 1405;
   const until = Number(document.getElementById('annualTaxUntilMonth').value) || 12;
   let selected = getAnnualTaxSelectedCodes();
@@ -5809,7 +6272,7 @@ function renderAnnualTaxResults(rows) {
  * diff < 0 → بازگشت/کاهش مالیات (به نفع کارمند)
  */
 function transferAnnualTaxDiffs() {
-  if (!requireRole(['admin'], 'فقط ادمین می‌تواند مابه‌التفاوت را منتقل کند.')) return;
+  if (!requirePerm('annual_tax_transfer', 'شما اجازه انتقال مابه‌التفاوت مالیات را ندارید.')) return;
   if (typeof requireAdminPassword === 'function') {
     if (!requireAdminPassword('انتقال مابه‌التفاوت مالیات سالانه — رمز ادمین:')) return;
   }
@@ -6063,7 +6526,7 @@ function loadCompanyProfile() {
 }
 
 function saveCompanyProfile() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('company_edit', 'شما اجازه ویرایش مشخصات شرکت را ندارید.')) return;
   const c = getCompany();
   COMPANY_FIELDS.forEach(function(f) {
     const el = document.getElementById('co_' + f);
@@ -6211,7 +6674,7 @@ function applyBonusDefaultPct() {
 }
 
 function runBonusCalculation() {
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('bonus', 'دسترسی مجاز نیست.')) return;
   const key = getBonusKey();
   if (!data.bonusData || !data.bonusData[key] || !Object.keys(data.bonusData[key].rows).length) {
     loadBonusSheet();
@@ -6390,7 +6853,7 @@ function downloadEmpFieldUpdateTemplate() {
 function importEmpFieldUpdates(ev) {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
-  if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) { ev.target.value=''; return; }
+  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) return;
   const reader = new FileReader();
   reader.onload = function(e) {
     const text = e.target.result || '';
@@ -6554,6 +7017,7 @@ async function ensureSbAuth() {
 }
 
 async function pushAllToSupabase() {
+  if (!requirePerm('cloud', 'دسترسی مجاز نیست.')) return;
   var session = await ensureSbAuth();
   if (!session) return;
   setSbStatus('در حال ارسال داده...');
@@ -6647,6 +7111,7 @@ async function pushAllToSupabase() {
 }
 
 async function pullAllFromSupabase() {
+  if (!requirePerm('cloud', 'دسترسی مجاز نیست.')) return;
   var session = await ensureSbAuth();
   if (!session) return;
   setSbStatus('در حال دریافت از ابر...');
@@ -6783,7 +7248,7 @@ function downloadTextFile(filename, text, mime) {
 }
 
 function exportInsuranceFiles() {
-  if (!requireRole(['admin', 'operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('insurance_tax_export', 'شما اجازه خروجی بیمه را ندارید.')) return;
   saveWorkshopInfo();
   const key = getInsuranceTaxKey();
   const year = Number(document.getElementById('itYear').value) || 1405;
@@ -6972,7 +7437,7 @@ function exportInsuranceFiles() {
 }
 
 function exportTaxFiles() {
-  if (!requireRole(['admin', 'operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('insurance_tax_export', 'شما اجازه خروجی مالیات را ندارید.')) return;
   saveWorkshopInfo();
   const key = getInsuranceTaxKey();
   const year = Number(document.getElementById('itYear').value) || 1405;
@@ -7114,7 +7579,7 @@ function exportTaxFiles() {
 }
 
 function exportBankPaymentFile() {
-  if (!requireRole(['admin', 'operator'], 'ابتدا وارد شوید.')) return;
+  if (!requirePerm('insurance_tax_export', 'شما اجازه خروجی بانک را ندارید.')) return;
   saveWorkshopInfo();
   const key = getInsuranceTaxKey();
   const year = Number(document.getElementById('itYear').value) || 1405;
