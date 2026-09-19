@@ -1,5 +1,6 @@
-// parspehr gate: a personal login for every person + a hidden per-person watermark.
-const OWNER = 'Mohammad MoradiBabersad'; // <-- put your own name here (English letters)
+// parspehr gate: a personal login for every person + a hidden per-person watermark + the payroll calculation API.
+import { makeEngine } from './engine.js';
+const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -79,6 +80,63 @@ async function stamp(html, user, env) {
   return out;
 }
 
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+function jsonResponse(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+  });
+}
+
+function isPlainObject(x) {
+  return x !== null && typeof x === 'object' && !Array.isArray(x);
+}
+
+// The payroll calculation. Runs only here on the server; the browser just sends the inputs and shows the answer.
+async function handlePayroll(request, user) {
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY_BYTES) {
+    return jsonResponse({ ok: false, error: 'too_large' }, 413);
+  }
+  let body;
+  try {
+    const text = await request.text();
+    if (text.length > MAX_BODY_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
+    body = JSON.parse(text);
+  } catch (e) {
+    return jsonResponse({ ok: false, error: 'bad_json' }, 400);
+  }
+  const year = Number(body && body.year);
+  const month = Number(body && body.month);
+  if (!isPlainObject(body) || !Number.isInteger(year) || year < 1300 || year > 1600 ||
+      !Number.isInteger(month) || month < 1 || month > 12 ||
+      !isPlainObject(body.settings) || !Array.isArray(body.employees) || !Array.isArray(body.allowances) ||
+      !isPlainObject(body.monthlyData) || !isPlainObject(body.payrolls)) {
+    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  }
+  const data = {
+    settings: body.settings,
+    allowances: body.allowances,
+    employees: body.employees,
+    monthlyData: body.monthlyData,
+    payrolls: body.payrolls,
+    loanDeductedMonths: isPlainObject(body.loanDeductedMonths) ? body.loanDeductedMonths : {},
+    transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
+  };
+  let out;
+  try {
+    out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
+  } catch (e) {
+    console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
+    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+  }
+  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length }));
+  return jsonResponse(out, out.ok ? 200 : 400);
+}
+
 export default {
   async fetch(request, env) {
     let users;
@@ -100,6 +158,10 @@ export default {
           'Cache-Control': 'no-store'
         }
       });
+    }
+
+    if (new URL(request.url).pathname === '/api/payroll') {
+      return handlePayroll(request, user);
     }
 
     const h = new Headers(request.headers);
