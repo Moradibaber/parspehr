@@ -8096,6 +8096,53 @@ function sbMergeLocalSecrets(remote, local) {
   return r;
 }
 
+/* ---- Fix: employee table column filters (these two functions were missing) ---- */
+function rebuildEmpFilterOptions() {
+  var body = document.getElementById('empTableBody');
+  if (!body) return;
+  var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
+  document.querySelectorAll('#empFilterRow select.emp-filter').forEach(function(sel) {
+    var col = Number(sel.getAttribute('data-col'));
+    var prev = sel.value;
+    var first = sel.options[0] ? sel.options[0].cloneNode(true) : null;
+    var seen = {};
+    rows.forEach(function(tr) {
+      var td = tr.children[col];
+      if (!td) return;
+      var t = (td.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) seen[t] = true;
+    });
+    var vals = Object.keys(seen).sort(function(a, b) {
+      return a.localeCompare(b, 'fa', { numeric: true });
+    });
+    sel.innerHTML = '';
+    if (first) sel.appendChild(first);
+    vals.forEach(function(v) {
+      var o = document.createElement('option');
+      o.value = v;
+      o.textContent = v;
+      sel.appendChild(o);
+    });
+    if (prev && seen[prev]) sel.value = prev;
+  });
+}
+function filterEmployeesTable() {
+  var body = document.getElementById('empTableBody');
+  if (!body) return;
+  var filters = [];
+  document.querySelectorAll('#empFilterRow select.emp-filter').forEach(function(sel) {
+    if (sel.value) filters.push({ col: Number(sel.getAttribute('data-col')), val: sel.value });
+  });
+  body.querySelectorAll('tr').forEach(function(tr) {
+    var show = filters.every(function(f) {
+      var td = tr.children[f.col];
+      var t = td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      return t === f.val;
+    });
+    tr.style.display = show ? '' : 'none';
+  });
+}
+
 async function pushAllToSupabase() {
   if (!requirePerm('cloud', 'دسترسی مجاز نیست.')) return;
   var session = await ensureSbAuth();
