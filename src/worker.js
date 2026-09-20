@@ -1,6 +1,6 @@
 // parspehr gate: a personal login for every person + a hidden per-person watermark + the payroll calculation API.
 import { makeEngine } from './engine.js';
-const OWNER = 'YOUR NAME OR COMPANY'; // <-- put your own name here (English letters)
+const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
