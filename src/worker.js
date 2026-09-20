@@ -1,6 +1,6 @@
 // parspehr gate: a personal login for every person + a hidden per-person watermark + the payroll calculation API.
 import { makeEngine } from './engine.js';
-const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
+const OWNER = 'YOUR NAME OR COMPANY'; // <-- put your own name here (English letters)
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -31,15 +31,20 @@ function zwEncode(text) {
 }
 
 function parseUsers(env) {
-  const users = {};
+  const users = {}; // name -> { password, role }
   if (env.SITE_USERS) {
     const parsed = JSON.parse(env.SITE_USERS);
     for (const name of Object.keys(parsed)) {
-      if (typeof parsed[name] === 'string' && parsed[name]) users[name] = parsed[name];
+      const v = parsed[name];
+      if (typeof v === 'string' && v) {
+        users[name] = { password: v, role: 'operator' };
+      } else if (v && typeof v === 'object' && typeof v.password === 'string' && v.password) {
+        users[name] = { password: v.password, role: v.role === 'admin' ? 'admin' : 'operator' };
+      }
     }
   }
-  // Old shared login. Delete SITE_USER and SITE_PASSWORD in Cloudflare when everyone has a personal login.
-  if (env.SITE_USER && env.SITE_PASSWORD) users[env.SITE_USER] = env.SITE_PASSWORD;
+  // Old shared login (treated as admin). Delete SITE_USER and SITE_PASSWORD in Cloudflare when everyone has a personal login.
+  if (env.SITE_USER && env.SITE_PASSWORD) users[env.SITE_USER] = { password: env.SITE_PASSWORD, role: 'admin' };
   return users;
 }
 
@@ -55,8 +60,8 @@ async function authenticate(request, users) {
   let found = null;
   for (const name of Object.keys(users)) {
     const userOk = sameBytes(userHash, await sha256(name));
-    const passOk = sameBytes(passHash, await sha256(users[name]));
-    if (userOk && passOk && found === null) found = name;
+    const passOk = sameBytes(passHash, await sha256(users[name].password));
+    if (userOk && passOk && found === null) found = { name: name, role: users[name].role };
   }
   return found;
 }
@@ -209,6 +214,106 @@ async function handleCalc(request, user) {
   return jsonResponse(result);
 }
 
+// ---------- Central master copy (stored in Supabase; browsers never talk to Supabase) ----------
+const STATE_DOCS = ['settings', 'data', 'log'];
+const MAX_DOC_BYTES = 8 * 1024 * 1024;
+
+function storeConfig(env) {
+  const url = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = String(env.SUPABASE_SERVICE_KEY || '').trim();
+  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(url) || !key) return null;
+  return { url: url, key: key };
+}
+
+function storeHeaders(cfg, extra) {
+  // Older "service_role" keys are JWTs (start with eyJ) and are also sent as a Bearer token; newer "secret" keys go in apikey only.
+  const h = { apikey: cfg.key };
+  if (/^eyJ/.test(cfg.key)) h.Authorization = 'Bearer ' + cfg.key;
+  return Object.assign(h, extra || {});
+}
+
+async function storeVersions(cfg) {
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?select=name,version', { headers: storeHeaders(cfg) });
+  if (!r.ok) return null;
+  const rows = await r.json();
+  const v = { settings: 0, data: 0, log: 0 };
+  rows.forEach(function (x) { if (x && STATE_DOCS.indexOf(x.name) >= 0) v[x.name] = Number(x.version) || 0; });
+  return v;
+}
+
+function handleWhoami(request, who, adminConfigured, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  return jsonResponse({ ok: true, user: who.name, role: who.role, adminConfigured: adminConfigured, syncConfigured: !!storeConfig(env) });
+}
+
+async function handleState(request, who, env, path) {
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const rest = path.slice('/api/state/'.length);
+  const url = new URL(request.url);
+  try {
+    if (rest === 'version') {
+      if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+      const versions = await storeVersions(cfg);
+      if (!versions) return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      return jsonResponse({ ok: true, versions: versions });
+    }
+    if (STATE_DOCS.indexOf(rest) < 0) return jsonResponse({ ok: false, error: 'unknown_document' }, 404);
+
+    if (request.method === 'GET') {
+      const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.' + rest + '&select=version,updated_by,updated_at,data',
+        { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+      if (r.status === 406) return jsonResponse({ ok: true, version: 0, data: null });
+      if (!r.ok) return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      const text = (await r.text()).trim();
+      if (text.charAt(0) !== '{') return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      return new Response('{"ok":true,' + text.slice(1), {
+        status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
+    }
+
+    if (request.method === 'PUT') {
+      if (rest === 'settings' && who.role !== 'admin') return jsonResponse({ ok: false, error: 'admin_only' }, 403);
+      const baseRaw = url.searchParams.get('base');
+      const base = Number(baseRaw);
+      if (baseRaw === null || baseRaw === '' || !Number.isInteger(base) || base < 0) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+      if (Number(request.headers.get('Content-Length') || 0) > MAX_DOC_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
+      const text = (await request.text()).trim();
+      if (text.length > MAX_DOC_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
+      if (text.charAt(0) !== '{' || text.charAt(text.length - 1) !== '}') return jsonResponse({ ok: false, error: 'bad_body' }, 400);
+      if (base === 0) {
+        await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+          method: 'POST',
+          headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
+          body: JSON.stringify([{ name: rest, version: 0 }])
+        });
+      }
+      // The document is stored as text (JSON-encoded), so nothing inside it can ever change other columns.
+      const payload = '{"version":' + (base + 1) + ',"updated_by":' + JSON.stringify(who.name) +
+        ',"updated_at":' + JSON.stringify(new Date().toISOString()) + ',"data":' + JSON.stringify(text) + '}';
+      const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.' + rest + '&version=eq.' + base + '&select=version', {
+        method: 'PATCH',
+        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+        body: payload
+      });
+      if (!r.ok) return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      const rows = await r.json();
+      if (Array.isArray(rows) && rows.length === 1) {
+        console.log(JSON.stringify({ event: 'state_put', user: who.name, doc: rest, version: base + 1, bytes: text.length }));
+        return jsonResponse({ ok: true, version: base + 1 });
+      }
+      const vs = await storeVersions(cfg);
+      return jsonResponse({ ok: false, error: 'conflict', currentVersion: vs ? vs[rest] : null }, 409);
+    }
+    return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  } catch (e) {
+    console.log(JSON.stringify({ event: 'state_error', user: who.name, message: String(e && e.message) }));
+    return jsonResponse({ ok: false, error: 'store_unreachable' }, 502);
+  }
+}
+
 export default {
   async fetch(request, env) {
     let users;
@@ -221,7 +326,8 @@ export default {
       return new Response('Site is not configured yet.', { status: 500 });
     }
 
-    const user = await authenticate(request, users);
+    const found = await authenticate(request, users);
+    const user = found === null ? null : found.name;
     if (user === null) {
       return new Response('Login required', {
         status: 401,
@@ -232,7 +338,16 @@ export default {
       });
     }
 
+    // If nobody is marked as admin yet, everybody is treated as admin (so nobody is locked out). Mark one admin in SITE_USERS.
+    const adminConfigured = Object.keys(users).some(function (n) { return users[n].role === 'admin'; });
+    const who = { name: user, role: adminConfigured ? found.role : 'admin' };
     const path = new URL(request.url).pathname;
+    if (path === '/api/whoami') {
+      return handleWhoami(request, who, adminConfigured, env);
+    }
+    if (path.indexOf('/api/state/') === 0) {
+      return handleState(request, who, env, path);
+    }
     if (path === '/api/payroll') {
       return handlePayroll(request, user);
     }
