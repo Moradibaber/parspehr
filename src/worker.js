@@ -1,6 +1,6 @@
 // parspehr gate: a personal login for every person + a hidden per-person watermark + the payroll calculation API.
 import { makeEngine } from './engine.js';
-const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
+const OWNER = 'YOUR NAME OR COMPANY'; // <-- put your own name here (English letters)
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -232,13 +232,27 @@ function storeHeaders(cfg, extra) {
   return Object.assign(h, extra || {});
 }
 
+// Explain WHY the database refused, so the screen can tell the person what to fix.
+async function storeFail(r) {
+  let code = '';
+  try { code = String(JSON.parse((await r.text()).slice(0, 2000)).code || ''); } catch (e) {}
+  let reason = 'store_error';
+  if (r.status === 404 || code === 'PGRST205' || code === '42P01') reason = 'table_missing';
+  else if (r.status === 401 || r.status === 403 || code === '42501') reason = 'bad_key';
+  return { reason: reason, status: r.status };
+}
+
+function storeFailResponse(f) {
+  return jsonResponse({ ok: false, error: 'store_error', reason: f.reason, upstream: f.status }, 502);
+}
+
 async function storeVersions(cfg) {
   const r = await fetch(cfg.url + '/rest/v1/app_docs?select=name,version', { headers: storeHeaders(cfg) });
-  if (!r.ok) return null;
+  if (!r.ok) return { fail: await storeFail(r) };
   const rows = await r.json();
   const v = { settings: 0, data: 0, log: 0 };
   rows.forEach(function (x) { if (x && STATE_DOCS.indexOf(x.name) >= 0) v[x.name] = Number(x.version) || 0; });
-  return v;
+  return { versions: v };
 }
 
 function handleWhoami(request, who, adminConfigured, env) {
@@ -247,18 +261,19 @@ function handleWhoami(request, who, adminConfigured, env) {
 }
 
 async function handleState(request, who, env, path) {
+  // Requests must come from the app itself. Typing an address in the browser ("none") is allowed for reading only.
   const site = request.headers.get('Sec-Fetch-Site');
-  if (site && site !== 'same-origin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  if (site && site !== 'same-origin' && !(site === 'none' && request.method === 'GET')) return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured', reason: 'not_configured' }, 503);
   const rest = path.slice('/api/state/'.length);
   const url = new URL(request.url);
   try {
     if (rest === 'version') {
       if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
-      const versions = await storeVersions(cfg);
-      if (!versions) return jsonResponse({ ok: false, error: 'store_error' }, 502);
-      return jsonResponse({ ok: true, versions: versions });
+      const vr = await storeVersions(cfg);
+      if (vr.fail) return storeFailResponse(vr.fail);
+      return jsonResponse({ ok: true, versions: vr.versions });
     }
     if (STATE_DOCS.indexOf(rest) < 0) return jsonResponse({ ok: false, error: 'unknown_document' }, 404);
 
@@ -266,7 +281,7 @@ async function handleState(request, who, env, path) {
       const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.' + rest + '&select=version,updated_by,updated_at,data',
         { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
       if (r.status === 406) return jsonResponse({ ok: true, version: 0, data: null });
-      if (!r.ok) return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      if (!r.ok) return storeFailResponse(await storeFail(r));
       const text = (await r.text()).trim();
       if (text.charAt(0) !== '{') return jsonResponse({ ok: false, error: 'store_error' }, 502);
       return new Response('{"ok":true,' + text.slice(1), {
@@ -298,19 +313,19 @@ async function handleState(request, who, env, path) {
         headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
         body: payload
       });
-      if (!r.ok) return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      if (!r.ok) return storeFailResponse(await storeFail(r));
       const rows = await r.json();
       if (Array.isArray(rows) && rows.length === 1) {
         console.log(JSON.stringify({ event: 'state_put', user: who.name, doc: rest, version: base + 1, bytes: text.length }));
         return jsonResponse({ ok: true, version: base + 1 });
       }
       const vs = await storeVersions(cfg);
-      return jsonResponse({ ok: false, error: 'conflict', currentVersion: vs ? vs[rest] : null }, 409);
+      return jsonResponse({ ok: false, error: 'conflict', currentVersion: vs.versions ? vs.versions[rest] : null }, 409);
     }
     return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   } catch (e) {
     console.log(JSON.stringify({ event: 'state_error', user: who.name, message: String(e && e.message) }));
-    return jsonResponse({ ok: false, error: 'store_unreachable' }, 502);
+    return jsonResponse({ ok: false, error: 'store_unreachable', reason: 'unreachable' }, 502);
   }
 }
 
