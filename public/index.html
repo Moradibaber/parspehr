@@ -8547,7 +8547,9 @@ function syncHasContent(name, obj) {
     return !!((obj.employees && obj.employees.length) || Object.keys(obj.monthlyData || {}).length || Object.keys(obj.payrolls || {}).length);
   }
   if (name === 'log') return !!(obj.changeLog && obj.changeLog.length);
-  return true;
+  // settings count as "real" only when someone filled in company details or defined operator accounts
+  var c = obj.company || {};
+  return !!(Object.keys(c).some(function(k) { return c[k]; }) || (obj.operators && obj.operators.length));
 }
 
 function syncIsEditing() {
@@ -8657,9 +8659,10 @@ async function syncDoc(name, remoteV, editing) {
 
   if (!base) {
     if (remoteV === 0) {
-      // an empty server is filled only from the admin computer
+      // an empty server is filled only from the admin computer, and only if that computer really holds something
       if (!isAdmin) return;
-      if (syncHasContent(name, cur)) { await syncPush(name, 0, cur); return; }
+      var seedable = name === 'settings' ? (syncHasContent('settings', cur) || syncHasContent('data', syncDocsNow().data)) : syncHasContent(name, cur);
+      if (seedable) { await syncPush(name, 0, cur); return; }
       syncSetBase(name, 0, cur);
       return;
     }
@@ -8675,9 +8678,10 @@ async function syncDoc(name, remoteV, editing) {
       if (syncCanon(syncDocsNow().log) !== syncCanon(rd.obj)) await syncPush('log', rd.version, syncDocsNow().log);
       return;
     }
-    if (name === 'data' && isAdmin && syncHasContent('data', cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
-      var useServer = confirm('روی این کامپیوتر داده‌ای هست که با داده سرور فرق دارد.\n\nOK = داده سرور (اصلی) گرفته شود — داده این کامپیوتر جایگزین می‌شود (یک نسخه پشتیبان نگه داشته می‌شود)\nCancel = داده این کامپیوتر به سرور فرستاده شود — داده سرور جایگزین می‌شود');
-      if (!useServer) { await syncPush('data', rd.version, cur); return; }
+    if ((name === 'data' || name === 'settings') && isAdmin && syncHasContent(name, cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
+      var what = name === 'data' ? 'داده‌ای' : 'تنظیماتی (اطلاعات شرکت، حساب‌ها، نرخ‌ها)';
+      var useServer = confirm('روی این کامپیوتر ' + what + ' هست که با نسخه سرور فرق دارد.\n\nOK = نسخه سرور (اصلی) گرفته شود — مقدار این کامپیوتر جایگزین می‌شود (یک نسخه پشتیبان نگه داشته می‌شود)\nCancel = مقدار این کامپیوتر به سرور فرستاده شود — نسخه سرور جایگزین می‌شود');
+      if (!useServer) { await syncPush(name, rd.version, cur); return; }
     }
     syncBackupLocal();
     syncApply(name, rd.obj);
