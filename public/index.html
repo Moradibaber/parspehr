@@ -2305,7 +2305,10 @@ function formatDecimal(n, digits) {
   const d = digits != null ? digits : 1;
   return Number(n).toLocaleString('fa-IR', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
-function saveToCache() { localStorage.setItem('payroll_iran_v12', JSON.stringify(data)); }
+function saveToCache() {
+  localStorage.setItem('payroll_iran_v12', JSON.stringify(data));
+  if (typeof syncNoteChange === 'function') syncNoteChange();
+}
 
 function requireRole(roles, msg) {
   if (!currentRole) {
@@ -2496,6 +2499,10 @@ function showWelcomeToast(roleName) {
 
 
 function logoutUser() {
+  if (ssoActive) {
+    alert('ورود شما با نام کاربری سایت انجام شده است.\nبرای تعویض کاربر، همه پنجره‌های مرورگر را ببندید و دوباره وارد شوید.');
+    return;
+  }
   if (currentRole) addChangeLog('خروج', '-', 'خروج از سیستم — نقش: ' + (currentUserName || currentRole));
   currentRole = null;
   currentUserName = '';
@@ -2700,13 +2707,7 @@ function parseJalali(str) {
   if (p.length < 3) return null;
   return { y:p[0], m:p[1], d:p[2] };
 }
-function yearsOfService(hireStr, payYear, payMonth) {
-  const h = parseJalali(hireStr);
-  if (!h) return 0;
-  let years = payYear - h.y;
-  if (payMonth < h.m || (payMonth === h.m && 1 < h.d)) years--;
-  return Math.max(0, years);
-}
+
 /**
  * حداکثر روز کارکرد مجاز برای یک کارمند در ماه مشخص
  * بر اساس تاریخ استخدام و تاریخ پایان همکاری
@@ -2738,10 +2739,6 @@ function maxWorkDaysForEmployee(emp, year, month) {
   }
   if (endDay < startDay) return 0;
   return endDay - startDay + 1;
-}
-function findAllowanceFlags(name) {
-  const a = data.allowances.find(x => x.name === name);
-  return a ? { ins: !!a.ins, tax: !!a.tax } : { ins: true, tax: true };
 }
 
 function getActiveEmployees() { return data.employees.filter(e => e.status !== 'inactive'); }
@@ -2898,11 +2895,7 @@ function isNameDeductionItem(name) {
   if (!n) return false;
   return /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n);
 }
-function isNameArrearsItem(name) {
-  const n = String(name || '').trim();
-  if (!n) return false;
-  return /^معوقه(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n);
-}
+
 /** برای عدم پخش به همه کارکنان / شیت مرجع */
 function isDeductionOrArrearsItem(ci) {
   if (!ci) return true;
@@ -3483,7 +3476,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
-function isActiveAllowance(a) { return a && a.name && !a.name.startsWith('آیتم جدید'); }
 
 function isBasicSalaryAllowanceName(name) {
   const n = String(name || '').trim();
@@ -3707,54 +3699,7 @@ function ensureTaxBrackets() {
  * مثل اکسل: سقف‌های معاف/پله از جدول تنظیمات؛ اختلاف نرخ نسبت به پله قبل.
  * مثال ۱٬۱۱۰٬۰۰۰٬۰۰۰ ریال → ۹۲٬۰۰۰٬۰۰۰
  */
-function calcIncomeTax(taxable) {
-  const amount = Math.max(0, Number(taxable) || 0);
-  if (amount <= 0) return 0;
-  const brackets = ensureTaxBrackets().slice().sort(function(a, b) {
-    const au = (a.upTo == null || a.upTo === '') ? Infinity : Number(a.upTo);
-    const bu = (b.upTo == null || b.upTo === '') ? Infinity : Number(b.upTo);
-    return au - bu;
-  });
-  // آستانه‌ها و اختلاف نرخ‌ها (مثل ستون F و G اکسل)
-  // پله نرخ ۰ با سقف ۴۰۰م → آستانه اول ۴۰۰م با دلتای نرخ پله بعدی (۱۰٪)
-  const thresholds = [];
-  const deltas = [];
-  let prevRate = 0;
-  for (let i = 0; i < brackets.length; i++) {
-    const ratePct = Number(brackets[i].rate) || 0;
-    const delta = ratePct - prevRate;
-    if (i === 0 && ratePct === 0) {
-      // معافیت: آستانه در SUMPRODUCT همان سقف این پله است، دلتا از پله بعد می‌آید
-      prevRate = 0;
-      continue;
-    }
-    // آستانه شروع این نرخ = سقف پله قبلی (اگر پله اول غیرصفر باشد، آستانه ۰)
-    let thr = 0;
-    if (i > 0) {
-      const pu = brackets[i - 1].upTo;
-      thr = (pu == null || pu === '') ? 0 : Number(pu);
-    }
-    if (delta !== 0) {
-      thresholds.push(thr);
-      deltas.push(delta / 100);
-    }
-    prevRate = ratePct;
-  }
-  // اگر پله اول نرخ ۰ بود و سقف داشت، اولین آستانه باید سقف پله ۰ باشد
-  if (brackets.length && (Number(brackets[0].rate) || 0) === 0) {
-    const firstCap = brackets[0].upTo;
-    if (firstCap != null && firstCap !== '' && thresholds.length) {
-      thresholds[0] = Number(firstCap);
-    }
-  }
-  let tax = 0;
-  for (let i = 0; i < thresholds.length; i++) {
-    if (amount > thresholds[i]) {
-      tax += (amount - thresholds[i]) * deltas[i];
-    }
-  }
-  return Math.round(tax);
-}
+
 function renderTaxBracketsForm() {
   const body = document.getElementById('taxBracketsBody');
   if (!body) return;
@@ -3796,39 +3741,14 @@ function ensureInsuranceCeilings() {
   return data.settings.insuranceCeilings;
 }
 /** سقف بیمه برای ماه با N روز (اگر 29/30/31 نبود از نزدیک‌ترین یا تناسب با 30 استفاده می‌شود) */
-function getInsuranceCeilingRow(monthDays) {
-  const map = ensureInsuranceCeilings();
-  const md = Number(monthDays) || 30;
-  if (map[md]) return map[md];
-  // تناسب از ماه ۳۰ روزه
-  const base = map[30] || defaultInsuranceCeilings()[30];
-  const f = md / 30;
-  return {
-    maxBase: Math.round(base.maxBase * f),
-    employee7: Math.round(base.employee7 * f),
-    employer23: Math.round(base.employer23 * f)
-  };
-}
+
 /**
  * بیمه سهم کارمند با سقف:
  * سقف‌دوره = سقف‌ماه‌کامل × (روزکارکرد / روزماه)
  * پایهٔ مشمول = min(insBase, سقف‌دوره)
  * بیمه = min(پایه×نرخ، سقف۷٪×نسبت)
  */
-function calcEmployeeInsurance(insBase, workDays, monthDays, ratePct) {
-  const rate = (ratePct != null ? ratePct : (data.settings.insEmployee || 7)) / 100;
-  const md = Number(monthDays) || 30;
-  const wd = Math.max(0, Number(workDays) || 0);
-  const ratio = md > 0 ? Math.min(1, wd / md) : 1;
-  const row = getInsuranceCeilingRow(md);
-  const maxBasePeriod = row.maxBase * ratio;
-  const maxEmpPeriod = row.employee7 * ratio;
-  const cappedBase = Math.min(Math.max(0, Number(insBase) || 0), maxBasePeriod);
-  let ins = Math.round(cappedBase * rate);
-  const empCap = Math.round(maxEmpPeriod);
-  if (empCap > 0) ins = Math.min(ins, empCap);
-  return ins;
-}
+
 function renderInsuranceCeilingsForm() {
   const body = document.getElementById('insCeilingsBody');
   if (!body) return;
@@ -4011,11 +3931,7 @@ function isCustomItemInDuration(ci, year, month) {
   return diff < n;
 }
 /** در محاسبه: باید هم در مدت باشد و هم enabled نباشد false */
-function isCustomItemActive(ci, year, month) {
-  if (!ci) return false;
-  if (ci.enabled === false) return false; // غیرفعال: حتی با مبلغ در محاسبه نمی‌آید
-  return isCustomItemInDuration(ci, year, month);
-}
+
 /** حذف آیتم‌های منقضی از کارکنان، مزایا و ورود داده‌های ماهانه */
 function pruneExpiredCustomItems(refYear, refMonth) {
   const y = Number(refYear) || Number(data.settings.currentYear) || 1405;
@@ -5108,7 +5024,129 @@ function importDataFromExcel(event) {
   event.target.value = '';
 }
 
-function runCalculation() {
+/* ---- Payroll calculation runs on the server (POST /api/payroll). The rules are no longer in this file. ---- */
+const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
+
+function buildPayrollRequest(year, month, skipLoanSE) {
+  const key = year + '-' + month;
+  const s = data.settings || {};
+  const settings = {};
+  PAYROLL_SETTINGS_KEYS.forEach(function(k) { if (s[k] !== undefined) settings[k] = s[k]; });
+  const payrolls = {};
+  for (let m = 1; m <= month; m++) {
+    const k = year + '-' + m;
+    const rows = data.payrolls[k];
+    if (!rows) continue;
+    payrolls[k] = rows.map(function(r) {
+      return { code: r.code, tax: r.tax, taxable: r.taxable, taxBase: r.taxBase, insurance: r.insurance, gross: r.gross, loanDeduction: r.loanDeduction };
+    });
+  }
+  const loanDeductedMonths = {};
+  Object.keys(data.loanDeductedMonths || {}).forEach(function(k) {
+    if (k.slice(-(key.length + 1)) === '-' + key) loanDeductedMonths[k] = data.loanDeductedMonths[k];
+  });
+  const transferredAdjustments = {};
+  if (data.transferredAdjustments && data.transferredAdjustments[key]) transferredAdjustments[key] = data.transferredAdjustments[key];
+  const monthlyData = {};
+  monthlyData[key] = data.monthlyData[key];
+  return {
+    year: year, month: month, skipLoanSE: !!skipLoanSE,
+    settings: settings, allowances: data.allowances || [], employees: data.employees || [],
+    monthlyData: monthlyData, payrolls: payrolls,
+    loanDeductedMonths: loanDeductedMonths, transferredAdjustments: transferredAdjustments
+  };
+}
+
+async function callPayrollServer(year, month, skipLoanSE) {
+  let res;
+  try {
+    res = await fetch('/api/payroll', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildPayrollRequest(year, month, skipLoanSE))
+    });
+  } catch (e) {
+    alert('ارتباط با سرور محاسبه برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+    return null;
+  }
+  let out = null;
+  try { out = await res.json(); } catch (e) {}
+  if (!res.ok || !out || !out.ok) {
+    alert('خطا در محاسبه روی سرور' + (out && out.error ? ': ' + out.error : ' (' + res.status + ')'));
+    return null;
+  }
+  return out;
+}
+
+function applyPayrollResponse(key, out) {
+  (out.loanUpdates || []).forEach(function(u) {
+    const emp = data.employees.find(function(e) { return e.code === u.code; });
+    if (!emp) return;
+    emp.loanRemaining = u.loanRemaining;
+    emp.loanLocked = u.loanLocked;
+    data.loanDeductedMonths[u.loanKey] = true;
+  });
+  Object.keys(out.workDayCaps || {}).forEach(function(c) {
+    if (data.monthlyData[key] && data.monthlyData[key][c]) data.monthlyData[key][c].workDays = out.workDayCaps[c];
+  });
+  data.payrolls[key] = out.results;
+}
+
+/* ---- Eid, annual tax, bonus and decree calculations run on the server (POST /api/calc). ---- */
+async function callCalcServer(op, payload) {
+  let res;
+  try {
+    res = await fetch('/api/calc', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ op: op }, payload))
+    });
+  } catch (e) {
+    alert('ارتباط با سرور محاسبه برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
+    return null;
+  }
+  let out = null;
+  try { out = await res.json(); } catch (e) {}
+  if (!res.ok || !out || !out.ok) {
+    alert('خطا در محاسبه روی سرور' + (out && out.error ? ': ' + out.error : ' (' + res.status + ')'));
+    return null;
+  }
+  return out;
+}
+
+function pickPayrollSettings() {
+  const s = data.settings || {};
+  const picked = {};
+  PAYROLL_SETTINGS_KEYS.forEach(function(k) { if (s[k] !== undefined) picked[k] = s[k]; });
+  return picked;
+}
+
+async function bonusBasesFromServer(emps, baseType) {
+  if (baseType !== 'basic' && emps.length) ensureDecreeHeaders();
+  const out = await callCalcServer('bonusBases', {
+    employees: emps, baseType: baseType, names: getSelectedBonusItemNames(),
+    allowances: data.allowances || [], decreeHeaders: data.decreeHeaders, decreeValues: data.decreeValues
+  });
+  return out ? out.bases : null;
+}
+
+async function bonusRowsByCode(store, codes) {
+  if (!codes.length) return {};
+  const out = await callCalcServer('bonusRows', {
+    settings: { taxBrackets: data.settings.taxBrackets },
+    rows: codes.map(function(code) {
+      const rr = store.rows[code];
+      return { code: code, eligible: !!rr.eligible, base: rr.base, pct: rr.pct };
+    })
+  });
+  if (!out) return null;
+  if (out.filledTaxBrackets) ensureTaxBrackets();
+  const by = {};
+  out.rows.forEach(function(c) { by[c.code] = c; });
+  return by;
+}
+
+async function runCalculation() {
   if (!requirePerm('payroll_run', 'شما اجازه اجرای محاسبه حقوق را ندارید.')) return;
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
@@ -5132,295 +5170,13 @@ function runCalculation() {
   } else if (!window.__calcSilent) {
     addChangeLog('محاسبه', key, 'اجرای محاسبه توسط ' + (currentUserName || currentRole));
   }
-  const s = data.settings;
-  const meta = data.monthlyData[key]._meta || {};
-  let functionalDays = Number(meta.functionalDays) || Number(s.defaultFunctionalDays) || 22;
-  if (functionalDays < 1) functionalDays = 22;
-  // حذف آیتم‌های مدت‌دار منقضی نسبت به ماه محاسبه
   pruneExpiredCustomItems(year, month);
-  const results = [];
-  getActiveEmployees().forEach(emp => {
-    const d = data.monthlyData[key][emp.code] || { workDays: 30, leaveDays: 0, otHours: 0, nightHours: 0, shiftType: 'none', shiftDays: 0, vars: {}, qty: {} };
-    const contractType = emp.contractType || 'normal';
-    // سقف کارکرد با کسر روزهای استعلاجی/تعلیق همان ماه
-    const specialDaysMonth = countSpecialDaysInMonth(emp, year, month);
-    if (specialDaysMonth > 0 && d.workDays != null) {
-      const cap = maxWorkDaysWithSpecial(emp, year, month);
-      if (Number(d.workDays) > cap) d.workDays = cap;
-    }
-
-
-    // —— قرارداد روزمزد / ساعتی (جدا از عادی) ——
-    if (contractType === 'daily' || contractType === 'hourly') {
-      const units = Number(d.workDays) || 0; // تعداد روز یا ساعت از شیت ورود داده
-      const isDaily = contractType === 'daily';
-      const divisor = isDaily ? 30 : 192; // روزمزد ÷۳۰ | ساعتی ÷۱۹۲
-      const rate = isDaily ? (Number(emp.dailyRate) || 0) : (Number(emp.hourlyRate) || 0);
-
-      // مزایای ثابت از شیت مزایا (ماهانه) → سهم واحد (روز یا ساعت)
-      function monthlyAllow(id, namePart) {
-        const a = (data.allowances || []).find(x => x && (x.id === id || (x.name && x.name.indexOf(namePart) >= 0)));
-        return a ? (Number(a.amount) || 0) : 0;
-      }
-      let housingM = monthlyAllow('housing', 'مسکن');
-      let foodM = monthlyAllow('food', 'خواربار');
-      let childM = monthlyAllow('child', 'اولاد') * (Number(emp.children) || 0);
-      let maritalM = (emp.marital === 'married' || emp.marital === 'provider') ? monthlyAllow('marital', 'تأهل') : 0;
-      let seniorityM = 0;
-      if (yearsOfService(emp.hireDate, year, month) >= 1) {
-        seniorityM = monthlyAllow('seniority', 'سنوات');
-      }
-
-      const unitHousing = housingM / divisor;
-      const unitFood = foodM / divisor;
-      const unitChild = childM / divisor;
-      const unitMarital = maritalM / divisor;
-      const unitSeniority = seniorityM / divisor;
-      const unitBenefits = unitHousing + unitFood + unitChild + unitMarital + unitSeniority;
-
-      // پایه واحد = نرخ یک روز/ساعت منهای جمع سهم مزایا
-      const unitBasic = rate - unitBenefits;
-
-      const basicAmount = Math.round(unitBasic * units);
-      const amtHousing = Math.round(unitHousing * units);
-      const amtFood = Math.round(unitFood * units);
-      const amtChild = Math.round(unitChild * units);
-      const amtMarital = Math.round(unitMarital * units);
-      const amtSeniority = Math.round(unitSeniority * units);
-      const rateTotal = Math.round(rate * units); // مزد روز/ساعت × تعداد
-
-      // فیش: حقوق پایه = (نرخ − سهم روزانه/ساعتی مزایا) × تعداد
-      // هر مزایا = (مبلغ ماهانه ÷ ۳۰ یا ۱۹۲) × تعداد
-      // جمع ناخالص = نرخ × تعداد  (بدون اضافه‌کار و شب‌کاری)
-      const itemDetails = [];
-      if (amtHousing) itemDetails.push({ name: 'حق مسکن', amount: amtHousing });
-      if (amtFood) itemDetails.push({ name: 'بن خواربار', amount: amtFood });
-      if (amtChild) itemDetails.push({ name: 'حق اولاد', amount: amtChild });
-      if (amtMarital) itemDetails.push({ name: 'حق تأهل', amount: amtMarital });
-      if (amtSeniority) itemDetails.push({ name: 'پایه سنوات', amount: amtSeniority });
-
-      const gross = rateTotal;
-      const totalAllow = amtHousing + amtFood + amtChild + amtMarital + amtSeniority;
-
-      let insurance = 0, tax = 0;
-      if (emp.optInsNormal) {
-        // روزمزد: units=روز؛ ساعتی: نسبت به ۱۹۲ ساعت ماه
-        const wdForIns = contractType === 'hourly' ? (units / 192) * monthDays : units;
-        insurance = calcEmployeeInsurance(gross, wdForIns, monthDays, s.insEmployee);
-      }
-      if (emp.optTax10) tax = Math.round(gross * 0.10);
-
-      const loanKey = emp.code + '-' + key;
-      let loanDeduction = 0;
-      const alreadyDeducted = data.loanDeductedMonths[loanKey];
-      const hasActiveLoan = (Number(emp.loanRemaining) > 0 && Number(emp.monthlyLoan) > 0);
-      if (hasActiveLoan) {
-        if (!alreadyDeducted) loanDeduction = Math.min(emp.monthlyLoan, emp.loanRemaining);
-        else {
-          const prev = (data.payrolls[key] || []).find(r => r.code === emp.code);
-          loanDeduction = prev ? (prev.loanDeduction || 0) : Math.min(emp.monthlyLoan, emp.loanRemaining);
-        }
-      }
-      const net = gross - insurance - tax - loanDeduction;
-      const remainingLoanAfter = alreadyDeducted ? (emp.loanRemaining || 0) : Math.max(0, (emp.loanRemaining || 0) - loanDeduction);
-      results.push({
-        code: emp.code, fullName: emp.fullName, position: emp.position||'', unit: emp.unit||'',
-        workplace: emp.workplace||'', workDays: units, leaveDays: d.leaveDays||0,
-        basicAmount, otAmount: 0, nightAmount: 0, totalAllow, totalDeductions: 0, itemDetails,
-        gross, insurance, tax, loanDeduction, remainingLoan: remainingLoanAfter, net,
-        bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: emp.insuranceNo||'',
-        contractType: contractType, hideOtNight: true
-      });
-      return;
-    }
-
-    // —— قرارداد عادی ——
-    const maxAllowed = maxWorkDaysForEmployee(emp, year, month);
-    const workDays = Math.min(Number(d.workDays)||0, maxAllowed, monthDays);
-    // حقوق پایه و پایه سنوات: مبنا ۳۰ روز
-    const ratioBase = workDays / 30;
-    const ratioFunc = functionalDays > 0 ? (workDays / functionalDays) : 0;
-    const basicAmount = Math.round(emp.basicSalary * ratioBase);
-    const daily = emp.basicSalary / 30;
-    const otAmount = Math.round((daily / 7.33) * (d.otHours||0) * s.overtimeFactor);
-    const nightAmount = Math.round((daily / 7.33) * (d.nightHours||0) * (s.nightFactor||1.35));
-    // نوبت‌کاری: مزد روزانه × روزهای نوبت × درصد
-    // فرمول رایج: تعداد روزهای نوبت × (درصد × مزد روزانه)
-    let shiftAmount = 0;
-    const st = d.shiftType || 'none';
-    let shiftPct = 0;
-    if (st === 'me') shiftPct = Number(s.shiftMorningEvening) || 10;
-    else if (st === 'mn') shiftPct = Number(s.shiftWithNight) || 22.5;
-    else if (st === 'all') shiftPct = Number(s.shiftAllThree) || 15;
-    let shiftDays = Number(d.shiftDays) || 0;
-    // اگر نوع نوبت انتخاب شده ولی روز وارد نشده، پیش‌فرض = روز کارکرد
-    if (shiftPct > 0 && shiftDays <= 0 && workDays > 0) shiftDays = workDays;
-    if (shiftPct > 0 && shiftDays > 0) {
-      shiftAmount = Math.round(daily * shiftDays * (shiftPct / 100));
-    }
-    let totalAllow = 0, totalDeductions = 0;
-    let insBase = basicAmount, taxBase = basicAmount + otAmount + nightAmount + shiftAmount;
-    const itemDetails = [];
-
-    data.allowances.filter(a => isActiveAllowance(a) && !a.fromEmployee).forEach(a => {
-      let raw = Number(a.amount)||0;
-      if (raw === 0) return;
-      if (a.id === 'seniority' || a.name.includes('سنوات')) {
-        // پایه سنوات: مثل حقوق پایه — مبنا ۳۰ روز
-        if (yearsOfService(emp.hireDate, year, month) < 1) return;
-        const val = Math.round(raw * ratioBase);
-        if (val === 0) return;
-        totalAllow += val;
-        itemDetails.push({ name: a.name, amount: val });
-        if (a.ins) insBase += val;
-        if (a.tax) taxBase += val;
-        return;
-      }
-      // حق تأهل، حق مسکن، بن خواربار، حق اولاد و سایر مزایای ثابت: مبلغ کامل بدون تناسب
-      if (a.id === 'child') raw = (emp.children||0) * raw;
-      if (a.id === 'marital') raw = (emp.marital === 'married' || emp.marital === 'provider') ? raw : 0;
-      const val = Math.round(raw);
-      if (val === 0) return;
-      totalAllow += val;
-      itemDetails.push({ name: a.name, amount: val });
-      if (a.ins) insBase += val;
-      if (a.tax) taxBase += val;
-    });
-
-    (emp.customItems || []).forEach(ci => {
-      if (!ci.name) return;
-      // مدت آیتم: همیشه / یک ماه / … — خارج از بازه محاسبه نشود
-      if (!isCustomItemActive(ci, year, month)) return;
-      const flags = findAllowanceFlags(ci.name);
-      const asDeduction = !!ci.isDeduction || isNameDeductionItem(ci.name);
-      const asArrears = isNameArrearsItem(ci.name);
-      let val = 0;
-      let qtyUsed = null;
-      const amt = Number(ci.amount) || 0;
-      if (ci.entryType === 'quantity') {
-        const qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
-        qtyUsed = qty;
-        if (qty > 0) {
-          val = Math.round(qty * amt);
-        } else if ((asDeduction || asArrears) && amt > 0) {
-          // کسر/کسورات/معوقه: اگر تعداد وارد نشده، خود مبلغ آیتم ملاک است
-          val = Math.round(amt);
-          qtyUsed = null;
-        }
-      } else if (ci.entryType === 'qty_flat') {
-        const qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
-        qtyUsed = qty;
-        if (functionalDays > 0 && amt > 0 && qty > 0) {
-          const effectiveQty = Math.min(qty, functionalDays);
-          val = Math.round(amt * (effectiveQty / functionalDays));
-        } else if ((asDeduction || asArrears) && amt > 0) {
-          val = Math.round(amt);
-          qtyUsed = null;
-        } else {
-          val = 0;
-        }
-      } else {
-        // بر اساس کارکرد
-        if (ci.isFixed || asDeduction || asArrears) {
-          // ثابت / کسر / معوقه: مبلغ کامل
-          val = Math.round(amt);
-        } else {
-          val = Math.round(amt * ratioBase);
-        }
-      }
-      if (val <= 0) return;
-      if (asDeduction) {
-        totalDeductions += val;
-        itemDetails.push({ name: ci.name, amount: val, isDeduction: true, qty: qtyUsed });
-      } else {
-        totalAllow += val;
-        itemDetails.push({ name: ci.name, amount: val, qty: qtyUsed });
-        if (flags.ins) insBase += val;
-        if (flags.tax) taxBase += val;
-      }
-    });
-
-    if (shiftAmount > 0) {
-      const shiftLabels = { me: 'نوبت‌کاری صبح و عصر', mn: 'نوبت‌کاری صبح/عصر و شب', all: 'نوبت‌کاری سه‌نوبته' };
-      itemDetails.push({ name: shiftLabels[st] || 'نوبت‌کاری', amount: shiftAmount });
-      // نوبت‌کاری معمولاً مشمول بیمه و مالیات است
-      insBase += shiftAmount;
-    }
-    const gross = basicAmount + otAmount + nightAmount + shiftAmount + totalAllow;
-    let insurance = 0, tax = 0;
-    const exempt = emp.exemption || 'none';
-    if (exempt !== 'insurance' && exempt !== 'both') {
-      insurance = calcEmployeeInsurance(insBase, workDays, monthDays, s.insEmployee);
-    }
-    let taxable = 0;
-    if (exempt !== 'tax' && exempt !== 'both') {
-      taxable = Math.max(0, taxBase - insurance);
-      const tp = Number(emp.taxPercent);
-      const taxMode = (data.settings.taxMode === 'monthly') ? 'monthly' : 'cumulative';
-      if (taxMode === 'cumulative') {
-        // تجمعی: مالیات متعلقه تا این ماه − جمع مالیات ماه‌های قبل
-        const prev = getYtdTaxInfo(emp.code, year, month);
-        const ytdTaxable = prev.taxable + taxable;
-        const monthsCount = Math.max(1, prev.monthCount + 1);
-        const annualized = ytdTaxable * (12 / monthsCount);
-        let taxYtdDue = calcIncomeTaxAnnual(annualized);
-        taxYtdDue = Math.round(taxYtdDue * (monthsCount / 12));
-        if (tp === 50) taxYtdDue = Math.round(taxYtdDue * 0.5);
-        tax = Math.max(0, taxYtdDue - prev.withheld);
-      } else {
-        tax = calcIncomeTax(taxable);
-        if (tp === 50) tax = Math.round(tax * 0.5);
-      }
-    }
-
-    const loanKey = emp.code + '-' + key;
-    let loanDeduction = 0;
-    const alreadyDeducted = data.loanDeductedMonths[loanKey];
-    const hasActiveLoan = (Number(emp.loanRemaining) > 0 && Number(emp.monthlyLoan) > 0);
-    if (hasActiveLoan) {
-      if (!alreadyDeducted) {
-        loanDeduction = Math.min(emp.monthlyLoan, emp.loanRemaining);
-      } else {
-        // همین ماه قبلاً کسر شده — همان مبلغ را نمایش بده بدون کسر دوباره از مانده
-        const prev = (data.payrolls[key] || []).find(r => r.code === emp.code);
-        loanDeduction = prev ? (prev.loanDeduction || 0) : Math.min(emp.monthlyLoan, emp.loanRemaining);
-      }
-    } else {
-      // وام حذف یا صفر شده — هیچ کسری اعمال نشود (حتی اگر قبلاً محاسبه شده بود)
-      loanDeduction = 0;
-    }
-
-    const net = gross - insurance - tax - loanDeduction - totalDeductions;
-    const remainingLoanAfter = alreadyDeducted
-      ? (emp.loanRemaining || 0)
-      : Math.max(0, (emp.loanRemaining || 0) - loanDeduction);
-
-    results.push({
-      code: emp.code, fullName: emp.fullName, position: emp.position||'', unit: emp.unit||'',
-      workplace: emp.workplace||'', workDays, leaveDays: d.leaveDays||0,
-      basicAmount, otAmount, nightAmount, shiftAmount, shiftType: st, shiftDays: shiftDays, totalAllow, totalDeductions, itemDetails,
-      gross, insurance, tax, taxable, taxBase, loanDeduction, remainingLoan: remainingLoanAfter, net,
-      bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: emp.insuranceNo||'',
-      taxPercent: Number(emp.taxPercent) || 100, exemption: exempt
-    });
-  });
-
-  if (!window.__skipLoanSE) {
-    results.forEach(r => {
-      const emp = data.employees.find(e => e.code === r.code);
-      if (!emp) return;
-      const loanKey = emp.code + '-' + key;
-      if (!data.loanDeductedMonths[loanKey] && r.loanDeduction > 0) {
-        emp.loanRemaining = Math.max(0, (emp.loanRemaining||0) - r.loanDeduction);
-        emp.loanLocked = true;
-        data.loanDeductedMonths[loanKey] = true;
-      }
-    });
-  }
-
-  // اعمال اصلاحات منتقل‌شده از ماه‌های قبل به این ماه
-  applyTransferredAdjustmentsToResults(key, results);
-  data.payrolls[key] = results;
+  ensureTaxBrackets();
+  ensureInsuranceCeilings();
+  const out = await callPayrollServer(year, month, !!window.__skipLoanSE);
+  if (!out) return false;
+  applyPayrollResponse(key, out);
+  const results = out.results;
   saveToCache();
   renderPayrollResult(results);
   if (!window.__calcSilent) {
@@ -5428,6 +5184,7 @@ function runCalculation() {
     const hasAdj = results.some(function(r) { return r.hasTransferredAdjustment; });
     alert('محاسبه انجام شد' + (hasAdj ? '\n(اصلاحات منتقل‌شده از ماه‌های قبل در نتیجه لحاظ شد)' : ''));
   }
+  return true;
 }
 
 function renderPayrollResult(results) {
@@ -5880,7 +5637,7 @@ function getDecreeSyncSelectedNames() {
   });
   return names;
 }
-function confirmDecreeSync() {
+async function confirmDecreeSync() {
   const selected = getDecreeSyncSelectedNames();
   if (!selected.length) {
     alert('حداقل یک آیتم را تیک بزنید.');
@@ -5889,7 +5646,7 @@ function confirmDecreeSync() {
   if (_decreeSyncMode === 'headers') {
     applyDecreeHeadersSelected(selected);
   } else {
-    applyDecreeTransferSelected(selected);
+    await applyDecreeTransferSelected(selected);
   }
   closeDecreeSyncPicker();
 }
@@ -5914,7 +5671,7 @@ function applyDecreeHeadersSelected(names) {
   alert(added ? (added + ' هدر جدید اضافه شد.') : 'هدرهای انتخاب‌شده از قبل وجود داشتند.');
 }
 
-function applyDecreeTransferSelected(selectedNames) {
+async function applyDecreeTransferSelected(selectedNames) {
   ensureDecreeHeaders();
   const ensureHeader = function(name) {
     let h = findDecreeHeaderByName(name);
@@ -5937,44 +5694,15 @@ function applyDecreeTransferSelected(selectedNames) {
 
   getActiveEmployees().forEach(function(emp) {
     if (!data.decreeValues[emp.code]) data.decreeValues[emp.code] = {};
-    const row = data.decreeValues[emp.code];
-
-    if (selectedSet['حقوق پایه']) {
-      const hBase = ensureHeader('حقوق پایه');
-      row[hBase.id] = Number(emp.basicSalary) || 0;
-      filled++;
-    }
-
-    (data.allowances || []).forEach(function(a) {
-      if (!a || !a.name) return;
-      const n = String(a.name).trim();
-      if (!selectedSet[n]) return;
-      if (isDeductionOrArrearsItem({ name: n })) return;
-      let amt = Number(a.amount) || 0;
-      if (a.id === 'child' || n.indexOf('اولاد') >= 0) {
-        amt = (Number(emp.children) || 0) * (Number(a.amount) || 0);
-      }
-      if (a.id === 'marital' || n.indexOf('تأهل') >= 0 || n.indexOf('تاهل') >= 0) {
-        amt = (emp.marital === 'married' || emp.marital === 'provider') ? (Number(a.amount) || 0) : 0;
-      }
-      if (a.id === 'seniority' || n.indexOf('سنوات') >= 0) {
-        if (yearsOfService(emp.hireDate, year, month) < 1) amt = 0;
-        else amt = Number(a.amount) || 0;
-      }
-      const h = ensureHeader(n);
-      row[h.id] = amt;
-      filled++;
-    });
-
-    (emp.customItems || []).forEach(function(ci) {
-      if (!ci || !ci.name) return;
-      if (isDeductionOrArrearsItem(ci)) return;
-      const n = String(ci.name).trim();
-      if (!selectedSet[n]) return;
-      const h = ensureHeader(n);
-      row[h.id] = Number(ci.amount) || 0;
-      filled++;
-    });
+  });
+  const out = await callCalcServer('decreeAmounts', {
+    year: year, selectedNames: selectedNames, employees: getActiveEmployees(), allowances: data.allowances || []
+  });
+  if (!out) return;
+  out.entries.forEach(function(en) {
+    const h = ensureHeader(en.name);
+    data.decreeValues[en.code][h.id] = en.amount;
+    filled++;
   });
 
   renderDecreeHeaders();
@@ -6098,37 +5826,6 @@ function saveDecree() {
  * جمع روز کارکرد و مرخصی استفاده‌شده از monthlyData
  * مرخصی قابل پرداخت = (کارکرد ÷ ۳۶۵) × ۳۰ − مرخصی استفاده‌شده
  */
-function getYearWorkAndLeave(emp, year, leaveCeiling) {
-  let workDays = 0, leaveUsed = 0, hourlyLeave = 0;
-  for (let m = 1; m <= 12; m++) {
-    const key = year + '-' + m;
-    const row = (data.monthlyData[key] && data.monthlyData[key][emp.code]) || null;
-    if (!row) continue;
-    workDays += Number(row.workDays) || 0;
-    leaveUsed += Number(row.leaveDays) || 0;
-    hourlyLeave += Number(row.hourlyLeave) || 0;
-  }
-  // مرخصی ساعتی ≈ روز (۷.۳۳ ساعت = ۱ روز)
-  leaveUsed += hourlyLeave / 7.33;
-  const ceiling = (leaveCeiling != null && !isNaN(Number(leaveCeiling)) && Number(leaveCeiling) >= 0)
-    ? Number(leaveCeiling)
-    : 30;
-  // استحقاقی = تناسب خالص کارکرد (۳۰ روز به ازای ۳۶۵) — سقف دخالت ندارد
-  const entitledLeave = (workDays / 365) * 30;
-  // مانده = استحقاقی − استفاده‌شده (می‌تواند منفی باشد؛ سقف دخالت ندارد)
-  const remaining = entitledLeave - leaveUsed;
-  // قابل پرداخت = حداقل(مانده، سقف) — اگر مانده منفی باشد، قابل پرداخت هم منفی می‌شود
-  const payableLeave = Math.min(remaining, ceiling);
-  return {
-    workDays: workDays,
-    leaveUsed: leaveUsed,
-    entitledLeave: entitledLeave,
-    remainingLeave: remaining,
-    payableLeave: payableLeave,
-    leaveCeiling: ceiling,
-    effectiveDays: workDays
-  };
-}
 
 /**
  * مزد روزانه برای عیدی/سنوات:
@@ -6136,58 +5833,28 @@ function getYearWorkAndLeave(emp, year, leaveCeiling) {
  * (نه جمع حکم)
  * اگر صفر بود → حقوق پایه ÷ ۳۰
  */
-function getDailyWageForEid(emp, year) {
-  const tots = getDecreeEmpTotals(emp.code);
-  // فقط eidSum = جمع مشمول عیدی/سنوات
-  if (tots.eidSum > 0) return tots.eidSum / 30;
-  return (Number(emp.basicSalary) || 0) / 30;
-}
 
 /**
  * عیدی قانونی:
  * پایه = مزد روزانه × ۶۰ × (روز کارکرد / ۳۶۵)
  * سقف = حداقل‌مزد‌روزانه_قانون × ۹۰ × (روز / ۳۶۵)
  */
-function calcEidAmount(dailyWage, effectiveDays, minDailyLegal) {
-  const ratio = Math.min(1, Math.max(0, effectiveDays / 365));
-  let eid = dailyWage * 60 * ratio;
-  const legalMax = (minDailyLegal || 5541850) * 90 * ratio;
-  const legalMin = (minDailyLegal || 5541850) * 60 * ratio;
-  if (dailyWage < (minDailyLegal || 5541850)) {
-    eid = legalMin;
-  }
-  if (eid > legalMax) eid = legalMax;
-  return Math.round(eid);
-}
 
 /**
  * سنوات = مزد روزانه × ۳۰ × (روز کارکرد / ۳۶۵)
  */
-function calcSeveranceAmount(dailyWage, effectiveDays) {
-  return Math.round(dailyWage * 30 * Math.min(1, Math.max(0, effectiveDays / 365)));
-}
 
 /**
  * مالیات عیدی: معاف تا ۴۰۰٬۰۰۰٬۰۰۰ ریال؛ مازاد ۱۰٪
  */
-function calcEidTax(eidAmount) {
-  const exempt = 400000000;
-  const excess = Math.max(0, (Number(eidAmount) || 0) - exempt);
-  return Math.round(excess * 0.10);
-}
 
 /**
  * مبلغ بازخرید / کسر مرخصی:
  * مزد روزانه مرخصی = جمع حکم ÷ ۳۰
  * مبلغ مرخصی = مزد روزانه × روز قابل پرداخت (مثبت یا منفی)
  */
-function calcLeavePayAmount(decreeSum, basicSalary, payableLeaveDays) {
-  const base = (Number(decreeSum) > 0) ? Number(decreeSum) : (Number(basicSalary) || 0);
-  const daily = base / 30;
-  return Math.round(daily * (Number(payableLeaveDays) || 0));
-}
 
-function runEidCalculation() {
+async function runEidCalculation() {
   if (!requirePerm('eid', 'دسترسی مجاز نیست.')) return;
   const year = Number(document.getElementById('eidYear').value) || 1405;
   const minDaily = Number(document.getElementById('eidMinDaily').value) || 5541850;
@@ -6195,7 +5862,6 @@ function runEidCalculation() {
   const leaveCeiling = leaveCeilingEl ? Number(leaveCeilingEl.value) : 30;
   const leaveCeilingVal = (isNaN(leaveCeiling) || leaveCeiling < 0) ? 30 : leaveCeiling;
 
-  const results = [];
   // آیا ایام استعلاجی/تعلیق در عیدی و سنوات محاسبه شود؟
   const specialEmps = getActiveEmployees().filter(isSpecialStatus);
   let includeSpecialDays = true;
@@ -6209,86 +5875,20 @@ function runEidCalculation() {
     );
   }
 
-  getActiveEmployees().forEach(function(emp) {
-    let wl = getYearWorkAndLeave(emp, year, leaveCeilingVal);
-    // اگر استعلاجی/تعلیق و کاربر گفته کسر شود: فقط روزهای همپوشان با سال از کارکرد کسر شود
-    // مرخصی منفی همچنان حفظ و کسر می‌شود
-    if (isSpecialStatus(emp) && !includeSpecialDays) {
-      let deduct = 0;
-      for (let mm = 1; mm <= 12; mm++) {
-        deduct += countSpecialDaysInMonth(emp, year, mm);
-      }
-      const newWork = Math.max(0, (wl.workDays || 0) - deduct);
-      const leaveUsed = wl.leaveUsed || 0;
-      // استحقاقی متناسب با کارکرد جدید، ولی مرخصی استفاده‌شده حفظ می‌شود
-      const entitledNew = Math.round((newWork / 365) * 30 * 10) / 10;
-      const remainingNew = Math.round((entitledNew - leaveUsed) * 10) / 10;
-      // قابل پرداخت: می‌تواند منفی باشد (بدهی مرخصی)
-      let payableNew = remainingNew;
-      const ceil = leaveCeilingVal;
-      if (payableNew > ceil) payableNew = ceil;
-      // منفی را صفر نکن — باید کسر شود
-      wl = {
-        workDays: newWork,
-        leaveUsed: leaveUsed,
-        entitledLeave: entitledNew,
-        remainingLeave: remainingNew,
-        payableLeave: payableNew,
-        effectiveDays: newWork
-      };
-    }
-
-    const tots = getDecreeEmpTotals(emp.code);
-    const eidSubjectSum = tots.eidSum;
-    const decreeSum = tots.decreeSum;
-    // مزد روزانه عیدی/سنوات از مشمول عیدی
-    const dailyEid = eidSubjectSum > 0 ? (eidSubjectSum / 30) : ((Number(emp.basicSalary) || 0) / 30);
-    const eidGross = calcEidAmount(dailyEid, wl.effectiveDays, minDaily);
-    const eidTax = calcEidTax(eidGross);
-    const eidNet = eidGross - eidTax;
-    const severance = calcSeveranceAmount(dailyEid, wl.effectiveDays);
-    // مبلغ مرخصی از جمع حکم ÷ ۳۰ × روز قابل پرداخت (مثبت یا منفی)
-    const leaveDaily = decreeSum > 0 ? (decreeSum / 30) : ((Number(emp.basicSalary) || 0) / 30);
-    const leavePay = calcLeavePayAmount(decreeSum, emp.basicSalary, wl.payableLeave);
-    let totalPay = eidNet + severance + leavePay;
-    let annualTaxAdj = 0;
-    let annualTaxAdjTitle = '';
-    if (data.eidTaxAdjustments && data.eidTaxAdjustments[year] && data.eidTaxAdjustments[year][String(emp.code)]) {
-      const adj = data.eidTaxAdjustments[year][String(emp.code)];
-      annualTaxAdj = Number(adj.netAdj) || 0;
-      annualTaxAdjTitle = adj.title || ('اصلاح مالیات سالانه (تسویه وسط سال) ' + year);
-      totalPay = Math.round(totalPay + annualTaxAdj);
-    }
-    results.push({
-      code: emp.code,
-      fullName: emp.fullName,
-      hireDate: emp.hireDate || '',
-      workDays: Math.round(wl.workDays * 10) / 10,
-      leaveUsed: Math.round(wl.leaveUsed * 10) / 10,
-      entitledLeave: Math.round(wl.entitledLeave * 10) / 10,
-      remainingLeave: Math.round(wl.remainingLeave * 10) / 10,
-      payableLeave: Math.round(wl.payableLeave * 10) / 10,
-      leaveCeiling: leaveCeilingVal,
-      dailyWage: Math.round(dailyEid),
-      leaveDailyWage: Math.round(leaveDaily),
-      eidSubjectSum: eidSubjectSum,
-      decreeSum: decreeSum,
-      eidGross: eidGross,
-      eidTax: eidTax,
-      eidNet: eidNet,
-      severance: severance,
-      leavePay: leavePay,
-      totalPay: totalPay,
-      totalPayBase: eidNet + severance + leavePay,
-      annualTaxAdj: annualTaxAdj,
-      annualTaxAdjTitle: annualTaxAdjTitle,
-      specialStatus: isSpecialStatus(emp) ? emp.status : '',
-      statusStart: emp.statusStart || '',
-      statusEnd: emp.statusEnd || '',
-      includeSpecialDays: isSpecialStatus(emp) ? includeSpecialDays : null
-    });
+  if (getActiveEmployees().length) ensureDecreeHeaders();
+  const eidMonthly = {};
+  for (let m = 1; m <= 12; m++) {
+    if (data.monthlyData[year + '-' + m]) eidMonthly[year + '-' + m] = data.monthlyData[year + '-' + m];
+  }
+  const eidAdj = {};
+  if (data.eidTaxAdjustments && data.eidTaxAdjustments[year]) eidAdj[year] = data.eidTaxAdjustments[year];
+  const out = await callCalcServer('eid', {
+    year: year, minDaily: minDaily, leaveCeilingVal: leaveCeilingVal, includeSpecialDays: includeSpecialDays,
+    employees: data.employees || [], monthlyData: eidMonthly, settings: pickPayrollSettings(),
+    decreeHeaders: data.decreeHeaders, decreeValues: data.decreeValues, eidTaxAdjustments: eidAdj
   });
-
+  if (!out) return;
+  const results = out.results;
   if (!data.eidResults) data.eidResults = {};
   data.eidResults[year] = results;
   addChangeLog('عیدی و سنوات', String(year), 'محاسبه عیدی، سنوات و مرخصی سال ' + year);
@@ -6630,7 +6230,7 @@ function confirmAdjustmentWizard() {
 /**
  * محاسبه مغایرت برای نفرات انتخابی و انتقال به ماه مقصد
  */
-function runAdjustmentCalculation(selectedCodes, targetYear, targetMonth) {
+async function runAdjustmentCalculation(selectedCodes, targetYear, targetMonth) {
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
@@ -6657,12 +6257,14 @@ function runAdjustmentCalculation(selectedCodes, targetYear, targetMonth) {
 
   window.__calcSilent = true;
   window.__skipLoanSE = true;
+  let calcOk;
   try {
-    runCalculation();
+    calcOk = await runCalculation();
   } finally {
     window.__calcSilent = false;
     window.__skipLoanSE = false;
   }
+  if (calcOk === false) return;
 
   const neu = data.payrolls[key] || [];
   const adjustments = [];
@@ -6837,36 +6439,6 @@ function renderAdjustmentResult(rows, targetKey) {
  * مهم: مبلغ اصلاح و مالیات/بیمهٔ آن قبلاً در ماه مبدأ محاسبه شده‌اند.
  * در ماه مقصد دوباره مشمول مالیات یا بیمه نمی‌شوند — فقط همان مابه‌التفاوت اضافه/کسر می‌شود.
  */
-function applyTransferredAdjustmentsToResults(key, results) {
-  const list = (data.transferredAdjustments && data.transferredAdjustments[key]) || [];
-  if (!list.length || !results || !results.length) return results;
-  results.forEach(function(r) {
-    const adjs = list.filter(function(a) { return String(a.code) === String(r.code); });
-    if (!adjs.length) return;
-    adjs.forEach(function(a) {
-      if (!r.itemDetails) r.itemDetails = [];
-      (a.itemDetails || []).forEach(function(it) {
-        // ردیف‌های مالیات/بیمه اصلاحی جداگانه در جمع بیمه/مالیات اعمال می‌شوند؛ در شرح هم نمایش داده شوند
-        r.itemDetails.push({
-          name: it.name + (a.fromKey ? ' (از ' + a.fromKey + ')' : ''),
-          amount: it.amount,
-          isAdjustment: true,
-          noTax: true,
-          noIns: true,
-          isDeduction: it.isDeduction || (Number(it.amount) < 0)
-        });
-      });
-      // فقط مابه‌التفاوت ازپیش‌محاسبه‌شده — بدون محاسبه مجدد مالیات/بیمه روی مبلغ اصلاح
-      r.gross = Math.round((Number(r.gross) || 0) + (Number(a.gross) || 0));
-      r.insurance = Math.round((Number(r.insurance) || 0) + (Number(a.insurance) || 0));
-      r.tax = Math.round((Number(r.tax) || 0) + (Number(a.tax) || 0));
-      r.net = Math.round((Number(r.net) || 0) + (Number(a.net) || 0));
-      r.hasTransferredAdjustment = true;
-      r.adjustmentNote = 'اصلاحات ماه‌های قبل بدون محاسبه مجدد مالیات/بیمه لحاظ شد';
-    });
-  });
-  return results;
-}
 
 function renderAdjustmentHistory() {
   const body = document.getElementById('adjHistoryBody');
@@ -6943,85 +6515,13 @@ function autoDeactivateByEndDate(refYear, refMonth) {
 /**
  * پله‌های سالانه = سقف ماهانه × ۱۲ (معافیت و پله‌های بودجه)
  */
-function getAnnualTaxBrackets() {
-  return ensureTaxBrackets().map(function(b) {
-    return {
-      upTo: (b.upTo == null || b.upTo === '') ? null : Number(b.upTo) * 12,
-      rate: Number(b.rate) || 0
-    };
-  });
-}
-
-function calcIncomeTaxWithBrackets(taxable, bracketsIn) {
-  const amount = Math.max(0, Number(taxable) || 0);
-  if (amount <= 0) return 0;
-  const brackets = (bracketsIn || ensureTaxBrackets()).slice().sort(function(a, b) {
-    const au = (a.upTo == null || a.upTo === '') ? Infinity : Number(a.upTo);
-    const bu = (b.upTo == null || b.upTo === '') ? Infinity : Number(b.upTo);
-    return au - bu;
-  });
-  const thresholds = [];
-  const deltas = [];
-  let prevRate = 0;
-  for (let i = 0; i < brackets.length; i++) {
-    const ratePct = Number(brackets[i].rate) || 0;
-    const delta = ratePct - prevRate;
-    if (i === 0 && ratePct === 0) {
-      prevRate = 0;
-      continue;
-    }
-    let thr = 0;
-    if (i > 0) {
-      const pu = brackets[i - 1].upTo;
-      thr = (pu == null || pu === '') ? 0 : Number(pu);
-    }
-    if (delta !== 0) {
-      thresholds.push(thr);
-      deltas.push(delta / 100);
-    }
-    prevRate = ratePct;
-  }
-  if (brackets.length && (Number(brackets[0].rate) || 0) === 0) {
-    const firstCap = brackets[0].upTo;
-    if (firstCap != null && firstCap !== '' && thresholds.length) {
-      thresholds[0] = Number(firstCap);
-    }
-  }
-  let tax = 0;
-  for (let i = 0; i < thresholds.length; i++) {
-    if (amount > thresholds[i]) tax += (amount - thresholds[i]) * deltas[i];
-  }
-  return Math.round(tax);
-}
-
-function calcIncomeTaxAnnual(taxableAnnual) {
-  return calcIncomeTaxWithBrackets(taxableAnnual, getAnnualTaxBrackets());
-}
 
 /** جمع مشمول و مالیات کسرشده از اول سال تا قبل از ماه جاری */
-function getYtdTaxInfo(code, year, upToMonthExclusive) {
-  let taxable = 0, withheld = 0, monthCount = 0;
-  const codeStr = String(code);
-  for (let m = 1; m < upToMonthExclusive; m++) {
-    const rows = (data.payrolls[year + '-' + m]) || [];
-    const r = rows.find(function(x) { return String(x.code) === codeStr; });
-    if (!r) continue;
-    taxable += estimateTaxableFromPayrollRow(r);
-    withheld += Number(r.tax) || 0;
-    monthCount += 1;
-  }
-  return { taxable: taxable, withheld: withheld, monthCount: monthCount };
-}
 
 /**
  * برای رکوردهای قدیمی بدون فیلد taxable: تقریب = max(0, gross - insurance)
  * (دقیق نیست ولی بهتر از صفر است؛ پس از محاسبهٔ مجدد ماه‌ها فیلد taxable ذخیره می‌شود)
  */
-function estimateTaxableFromPayrollRow(r) {
-  if (r.taxable != null && r.taxable !== '') return Math.max(0, Number(r.taxable) || 0);
-  if (r.taxBase != null) return Math.max(0, (Number(r.taxBase) || 0) - (Number(r.insurance) || 0));
-  return Math.max(0, (Number(r.gross) || 0) - (Number(r.insurance) || 0));
-}
 
 function fillAnnualTaxEmpList() {
   const box = document.getElementById('annualTaxEmpList');
@@ -7057,7 +6557,7 @@ function getAnnualTaxSelectedCodes() {
   return codes;
 }
 
-function runAnnualTaxSettlement() {
+async function runAnnualTaxSettlement() {
   if (!requirePerm('annual_tax', 'دسترسی مجاز نیست.')) return;
   const year = Number(document.getElementById('annualTaxYear').value) || data.settings.currentYear || 1405;
   const until = Number(document.getElementById('annualTaxUntilMonth').value) || 12;
@@ -7070,75 +6570,22 @@ function runAnnualTaxSettlement() {
     alert('نفر یا محاسبه ماهانه‌ای برای این بازه نیست.');
     return;
   }
-  const selectedSet = {};
-  selected.forEach(function(c) { selectedSet[String(c)] = true; });
-  const byCode = {};
-
+  const atPayrolls = {};
   for (let m = 1; m <= until; m++) {
-    const rows = data.payrolls[year + '-' + m] || [];
-    rows.forEach(function(r) {
-      if (!r || !r.code) return;
-      const code = String(r.code);
-      if (!selectedSet[code]) return;
-      if (!byCode[code]) {
-        byCode[code] = {
-          code: r.code,
-          fullName: r.fullName || '',
-          months: 0,
-          totalTaxable: 0,
-          totalTaxWithheld: 0,
-          taxPercent: Number(r.taxPercent) || 100,
-          exemption: r.exemption || 'none'
-        };
-      }
-      byCode[code].months += 1;
-      byCode[code].totalTaxable += estimateTaxableFromPayrollRow(r);
-      byCode[code].totalTaxWithheld += Number(r.tax) || 0;
-      if (r.taxPercent != null) byCode[code].taxPercent = Number(r.taxPercent) || 100;
-      if (r.exemption) byCode[code].exemption = r.exemption;
+    const rows = data.payrolls[year + '-' + m];
+    if (!rows) continue;
+    atPayrolls[year + '-' + m] = rows.map(function(r) {
+      return r ? { code: r.code, fullName: r.fullName, taxPercent: r.taxPercent, exemption: r.exemption, taxable: r.taxable, taxBase: r.taxBase, insurance: r.insurance, gross: r.gross, tax: r.tax } : r;
     });
   }
-
-  (data.employees || []).forEach(function(emp) {
-    const c = String(emp.code);
-    if (byCode[c]) {
-      byCode[c].fullName = emp.fullName || byCode[c].fullName;
-      byCode[c].taxPercent = Number(emp.taxPercent) || byCode[c].taxPercent || 100;
-      byCode[c].exemption = emp.exemption || byCode[c].exemption || 'none';
-    }
+  const out = await callCalcServer('annualTax', {
+    year: year, until: until, selected: selected, payrolls: atPayrolls,
+    employees: (data.employees || []).map(function(e) { return { code: e.code, fullName: e.fullName, taxPercent: e.taxPercent, exemption: e.exemption }; }),
+    settings: { taxBrackets: data.settings.taxBrackets }
   });
-
-  const results = Object.keys(byCode).map(function(code) {
-    const row = byCode[code];
-    let dueTax = 0;
-    if (row.exemption !== 'tax' && row.exemption !== 'both') {
-      const mc = Math.max(1, row.months);
-      // تا ماه انتخابی: سالیانه‌سازی سپس سهم همان تعداد ماه
-      const annualized = row.totalTaxable * (12 / mc);
-      dueTax = calcIncomeTaxAnnual(annualized);
-      dueTax = Math.round(dueTax * (mc / 12));
-      if (Number(row.taxPercent) === 50) dueTax = Math.round(dueTax * 0.5);
-    }
-    const diff = Math.round(dueTax - row.totalTaxWithheld);
-    let status = 'تسویه';
-    if (diff > 0) status = 'بدهکار (کسری)';
-    else if (diff < 0) status = 'بستانکار (اضافه پرداخت)';
-    return {
-      code: row.code,
-      fullName: row.fullName,
-      months: row.months,
-      totalTaxable: Math.round(row.totalTaxable),
-      totalTaxWithheld: Math.round(row.totalTaxWithheld),
-      annualTax: dueTax,
-      diff: diff,
-      status: status,
-      year: year,
-      untilMonth: until
-    };
-  }).sort(function(a, b) {
-    return String(a.code).localeCompare(String(b.code), 'fa');
-  });
-
+  if (!out) return;
+  if (out.filledTaxBrackets) ensureTaxBrackets();
+  const results = out.results;
   if (!data.annualTaxResults) data.annualTaxResults = {};
   data.annualTaxResults[year] = results;
   addChangeLog('تسویه مالیات', String(year), 'تا ماه ' + until + ' — ' + results.length + ' نفر');
@@ -7529,7 +6976,7 @@ function getBonusKey() {
   return y + '-' + m;
 }
 
-function loadBonusSheet() {
+async function loadBonusSheet() {
   if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
   const key = getBonusKey();
   if (!data.bonusData) data.bonusData = {};
@@ -7543,6 +6990,8 @@ function loadBonusSheet() {
   data.bonusData[key].baseType = baseType;
 
   const emps = getActiveEmployees().filter(function(e) { return e.status === 'active'; });
+  const bases = emps.length ? await bonusBasesFromServer(emps, baseType) : {};
+  if (!bases) return;
   emps.forEach(function(emp) {
     if (!data.bonusData[key].rows[emp.code]) {
       data.bonusData[key].rows[emp.code] = {
@@ -7550,19 +6999,21 @@ function loadBonusSheet() {
         fullName: emp.fullName,
         eligible: true,
         pct: defPct,
-        base: calcBonusBaseForEmp(emp, baseType)
+        base: bases[emp.code]
       };
     } else {
       const row = data.bonusData[key].rows[emp.code];
       row.fullName = emp.fullName;
-      row.base = calcBonusBaseForEmp(emp, baseType);
+      row.base = bases[emp.code];
     }
   });
-  renderBonusSheet();
+  await renderBonusSheet();
   saveToCache();
 }
 
-function renderBonusSheet() {
+let bonusRenderSeq = 0;
+async function renderBonusSheet() {
+  const seq = ++bonusRenderSeq;
   const key = getBonusKey();
   const box = document.getElementById('bonusResultArea');
   if (!box) return;
@@ -7576,6 +7027,9 @@ function renderBonusSheet() {
     box.innerHTML = '<div class="empty">کارمند فعالی نیست.</div>';
     return;
   }
+  const calcByCode = await bonusRowsByCode(store, codes);
+  if (!calcByCode) return;
+  if (seq !== bonusRenderSeq) return;
   let html = '<table><thead><tr>' +
     '<th>مشمول</th><th>کد</th><th>نام</th><th>مبنا (ریال)</th><th>درصد (%)</th>' +
     '<th>ناخالص کارانه</th><th>مالیات</th><th>خالص</th>' +
@@ -7583,9 +7037,9 @@ function renderBonusSheet() {
   let sumGross = 0, sumTax = 0, sumNet = 0, nElig = 0;
   codes.forEach(function(code) {
     const r = store.rows[code];
-    const gross = r.eligible ? Math.round((Number(r.base) || 0) * (Number(r.pct) || 0) / 100) : 0;
-    const tax = r.eligible ? (typeof calcIncomeTaxWithBrackets === 'function' ? calcIncomeTaxWithBrackets(gross) : Math.round(gross * 0.1)) : 0;
-    const net = gross - tax;
+    const gross = calcByCode[code].gross;
+    const tax = calcByCode[code].tax;
+    const net = calcByCode[code].net;
     if (r.eligible) { sumGross += gross; sumTax += tax; sumNet += net; nElig++; }
     r.gross = gross; r.tax = tax; r.net = net;
     html += '<tr' + (!r.eligible ? ' style="opacity:0.65;"' : '') + '>' +
@@ -7607,42 +7061,42 @@ function renderBonusSheet() {
   box.innerHTML = html;
 }
 
-function updateBonusField(code, field, value) {
+async function updateBonusField(code, field, value) {
   const key = getBonusKey();
   if (!data.bonusData || !data.bonusData[key] || !data.bonusData[key].rows[code]) return;
   const r = data.bonusData[key].rows[code];
   if (field === 'eligible') r.eligible = !!value;
   else if (field === 'pct') r.pct = Number(value) || 0;
-  renderBonusSheet();
+  await renderBonusSheet();
   saveToCache();
 }
 
-function bonusSelectAll(on) {
+async function bonusSelectAll(on) {
   const key = getBonusKey();
   if (!data.bonusData || !data.bonusData[key]) return;
   Object.keys(data.bonusData[key].rows).forEach(function(code) {
     data.bonusData[key].rows[code].eligible = !!on;
   });
-  renderBonusSheet();
+  await renderBonusSheet();
   saveToCache();
 }
 
-function applyBonusDefaultPct() {
+async function applyBonusDefaultPct() {
   const key = getBonusKey();
   const pct = Number(document.getElementById('bonusDefaultPct').value) || 0;
   if (!data.bonusData || !data.bonusData[key]) return;
   Object.keys(data.bonusData[key].rows).forEach(function(code) {
     data.bonusData[key].rows[code].pct = pct;
   });
-  renderBonusSheet();
+  await renderBonusSheet();
   saveToCache();
 }
 
-function runBonusCalculation() {
+async function runBonusCalculation() {
   if (!requirePerm('bonus', 'دسترسی مجاز نیست.')) return;
   const key = getBonusKey();
   if (!data.bonusData || !data.bonusData[key] || !Object.keys(data.bonusData[key].rows).length) {
-    loadBonusSheet();
+    await loadBonusSheet();
   }
   // بازخوانی مبنا از حکم
   const baseType = document.getElementById('bonusBaseType').value || 'decree';
@@ -7650,12 +7104,18 @@ function runBonusCalculation() {
   store.baseType = baseType;
   store.title = document.getElementById('bonusTitle').value || 'کارانه';
   if (baseType === 'items') renderBonusItemChecks();
+  const baseCodes = [];
+  const baseEmps = [];
   Object.keys(store.rows).forEach(function(code) {
     const emp = data.employees.find(function(e) { return String(e.code) === String(code); });
     if (!emp) return;
-    store.rows[code].base = calcBonusBaseForEmp(emp, baseType);
+    baseCodes.push(code);
+    baseEmps.push(emp);
   });
-  renderBonusSheet();
+  const bases = baseEmps.length ? await bonusBasesFromServer(baseEmps, baseType) : {};
+  if (!bases) return;
+  baseCodes.forEach(function(code, i) { store.rows[code].base = bases[baseEmps[i].code]; });
+  await renderBonusSheet();
   if (!data.bonusResults) data.bonusResults = {};
   data.bonusResults[key] = store.rows;
   addChangeLog('کارانه', key, 'محاسبه ' + (store.title || 'کارانه'));
@@ -7691,32 +7151,6 @@ function getSelectedBonusItemNames() {
   return names;
 }
 
-function calcBonusBaseForEmp(emp, baseType) {
-  if (baseType === 'basic') return Number(emp.basicSalary) || 0;
-  const tots = typeof getDecreeEmpTotals === 'function' ? getDecreeEmpTotals(emp.code) : { decreeSum: 0, eidSum: 0 };
-  if (baseType === 'eidSubject') return tots.eidSum || 0;
-  if (baseType === 'decree') return tots.decreeSum || Number(emp.basicSalary) || 0;
-  if (baseType === 'items') {
-    const names = getSelectedBonusItemNames();
-    let sum = 0;
-    if (names.indexOf('__basic__') >= 0) sum += Number(emp.basicSalary) || 0;
-    const allowMap = {};
-    (data.allowances || []).forEach(function(a) { if (a && a.name) allowMap[a.name] = Number(a.amount) || 0; });
-    // custom per employee
-    const customs = emp.customItems || emp.customs || [];
-    names.forEach(function(n) {
-      if (n === '__basic__') return;
-      // from decree values if available
-      if (data.decreeValues && data.decreeValues[emp.code] && data.decreeValues[emp.code][n] != null) {
-        sum += Number(data.decreeValues[emp.code][n]) || 0;
-      } else if (allowMap[n] != null) {
-        sum += allowMap[n];
-      }
-    });
-    return sum;
-  }
-  return tots.decreeSum || 0;
-}
 
 function downloadBonusPctTemplate() {
   let csv = 'کد پرسنلی,درصد,مشمول(1/0)\n';
@@ -7730,12 +7164,12 @@ function importBonusPctFromExcel(ev) {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     const text = e.target.result || '';
     const lines = text.split(/\r?\n/).filter(function(l){return l.trim();});
     if (lines.length < 2) { alert('فایل خالی است'); return; }
     const key = getBonusKey();
-    if (!data.bonusData || !data.bonusData[key]) loadBonusSheet();
+    if (!data.bonusData || !data.bonusData[key]) await loadBonusSheet();
     const store = data.bonusData[getBonusKey()];
     let n = 0;
     for (let i = 1; i < lines.length; i++) {
@@ -7746,7 +7180,7 @@ function importBonusPctFromExcel(ev) {
       if (cols[2] != null && cols[2] !== '') store.rows[code].eligible = (cols[2] === '1' || cols[2] === 'true' || cols[2] === 'بله');
       n++;
     }
-    renderBonusSheet();
+    await renderBonusSheet();
     saveToCache();
     alert(n + ' ردیف درصد از فایل بارگذاری شد.');
     ev.target.value = '';
@@ -7754,32 +7188,36 @@ function importBonusPctFromExcel(ev) {
   reader.readAsText(file, 'UTF-8');
 }
 
-function exportBonusExcel() {
+async function exportBonusExcel() {
   const key = getBonusKey();
   const store = data.bonusData && data.bonusData[key];
   if (!store || !store.rows) { alert('ابتدا بارگذاری و محاسبه کنید.'); return; }
+  const calcByCode = await bonusRowsByCode(store, Object.keys(store.rows));
+  if (!calcByCode) return;
   let csv = 'کد,نام,مشمول,مبنا,درصد,ناخالص,مالیات,خالص\n';
   Object.keys(store.rows).forEach(function(code) {
     const r = store.rows[code];
-    const gross = r.eligible ? Math.round((Number(r.base)||0)*(Number(r.pct)||0)/100) : 0;
-    const tax = r.eligible && typeof calcIncomeTaxWithBrackets==='function' ? calcIncomeTaxWithBrackets(gross) : 0;
+    const gross = calcByCode[code].gross;
+    const tax = calcByCode[code].tax;
     csv += code + ',"' + (r.fullName||'') + '",' + (r.eligible?1:0) + ',' + (r.base||0) + ',' + (r.pct||0) + ',' + gross + ',' + tax + ',' + (gross-tax) + '\n';
   });
   downloadTextFile('bonus_' + key + '.csv', csv);
 }
 
-function exportBonusBank() {
+async function exportBonusBank() {
   const key = getBonusKey();
   const store = data.bonusData && data.bonusData[key];
   if (!store || !store.rows) { alert('ابتدا محاسبه کنید.'); return; }
+  const calcByCode = await bonusRowsByCode(store, Object.keys(store.rows));
+  if (!calcByCode) return;
   const title = store.title || 'کارانه';
   let csv = 'نام ذینفع,شبای ذینفع,مبلغ انتقال,شناسه واریز,شرح\n';
   let n = 0, total = 0;
   Object.keys(store.rows).forEach(function(code) {
     const r = store.rows[code];
     if (!r.eligible) return;
-    const gross = Math.round((Number(r.base)||0)*(Number(r.pct)||0)/100);
-    const tax = typeof calcIncomeTaxWithBrackets==='function' ? calcIncomeTaxWithBrackets(gross) : 0;
+    const gross = calcByCode[code].gross;
+    const tax = calcByCode[code].tax;
     const net = gross - tax;
     if (net <= 0) return;
     const emp = data.employees.find(function(e){return String(e.code)===String(code);}) || {};
@@ -8931,8 +8369,597 @@ try {
   loadSettingsToForm();
   applyYearTheme(data.settings.currentYear || 1405);
 } catch (bootErr) { console.error('boot', bootErr); }
+/* ---- Central sync: the Cloudflare server keeps the master copy; every computer follows it automatically ---- */
+var SYNC_DOCS = ['settings', 'data', 'log'];
+var syncOn = false;          // true when the server master copy is available
+var ssoActive = false;       // true when the identity comes from the site login
+var syncWho = null;          // { user, role, adminConfigured }
+var syncBase = {};           // document -> { version, obj } : what this computer last exchanged with the server
+var syncBusy = false;
+var syncPaused = false;
+var syncTimer = null;
+var syncPollTimer = null;
+var syncPollCount = 0;
+var syncFails = 0;
+var syncState = 'idle';
+var syncApplied = false;
+var syncAgain = false;
+var syncProblem = '';
+var syncBackedUp = false;
+var syncShapes = null;
+
+function syncClone(x) { return x === undefined ? undefined : JSON.parse(JSON.stringify(x)); }
+
+function syncIsObj(x) { return x !== null && typeof x === 'object' && !Array.isArray(x); }
+
+// Canonical text of a value (keys sorted) so that equal content always compares equal.
+function syncCanon(x) {
+  if (x === undefined) return 'u';
+  if (x === null || typeof x !== 'object') return JSON.stringify(x);
+  if (Array.isArray(x)) return '[' + x.map(syncCanon).join(',') + ']';
+  return '{' + Object.keys(x).filter(function(k) { return x[k] !== undefined; }).sort().map(function(k) {
+    return JSON.stringify(k) + ':' + syncCanon(x[k]);
+  }).join(',') + '}';
+}
+
+// ---- three-way merge: base = last synced, local = this computer, remote = server ----
+var SYNC_KEYFNS = [
+  function(r) { return r && r.code != null ? String(r.code) + '|' + String(r.listType || r.list_type || 'main') : undefined; },
+  function(r) { return r && r.id != null ? String(r.id) : undefined; },
+  function(r) { return r && r.username != null ? String(r.username) : undefined; },
+  function(r) { return r && r.name != null ? String(r.name) : undefined; }
+];
+
+function syncPickKeyFn(arrs) {
+  for (var i = 0; i < SYNC_KEYFNS.length; i++) {
+    var fn = SYNC_KEYFNS[i];
+    var ok = true;
+    for (var a = 0; a < arrs.length && ok; a++) {
+      var seen = {};
+      for (var j = 0; j < arrs[a].length; j++) {
+        var item = arrs[a][j];
+        var k = syncIsObj(item) ? fn(item) : undefined;
+        if (k === undefined || seen[k]) { ok = false; break; }
+        seen[k] = true;
+      }
+    }
+    if (ok) return fn;
+  }
+  return null;
+}
+
+function syncMerge3(base, local, remote, policy, path, conflicts) {
+  var cl = syncCanon(local);
+  var cr = syncCanon(remote);
+  var cb = syncCanon(base);
+  if (cl === cb) return remote;
+  if (cr === cb) return local;
+  if (cl === cr) return local;
+  if (syncIsObj(local) && syncIsObj(remote)) {
+    var b = syncIsObj(base) ? base : {};
+    var keys = {};
+    [b, local, remote].forEach(function(o) { Object.keys(o).forEach(function(k) { keys[k] = true; }); });
+    var res = {};
+    Object.keys(keys).forEach(function(k) {
+      var v = syncMerge3(b[k], local[k], remote[k], policy, path + '/' + k, conflicts);
+      if (v !== undefined) res[k] = v;
+    });
+    return res;
+  }
+  if (Array.isArray(local) && Array.isArray(remote)) {
+    var barr = Array.isArray(base) ? base : [];
+    var kf = syncPickKeyFn([barr, local, remote]);
+    if (kf) {
+      var index = function(arr) {
+        var m = {};
+        var order = [];
+        arr.forEach(function(r) { var k = kf(r); m[k] = r; order.push(k); });
+        return { m: m, order: order };
+      };
+      var B = index(barr);
+      var L = index(local);
+      var R = index(remote);
+      var out = [];
+      var done = {};
+      var take = function(k) {
+        if (done[k]) return;
+        done[k] = true;
+        var v = syncMerge3(B.m[k], L.m[k], R.m[k], policy, path + '[' + k + ']', conflicts);
+        if (v !== undefined) out.push(v);
+      };
+      R.order.forEach(take);
+      L.order.forEach(take);
+      B.order.forEach(take);
+      return out;
+    }
+  }
+  conflicts.push(path);
+  return policy === 'local' ? local : remote;
+}
+
+// The audit log is only ever added to, so both sides are simply combined.
+function syncMergeLog(base, local, remote) {
+  var seen = {};
+  var out = [];
+  var add = function(arr) {
+    (arr || []).forEach(function(e) {
+      var k = syncCanon(e);
+      if (!seen[k]) { seen[k] = true; out.push(e); }
+    });
+  };
+  add(local && local.changeLog);
+  add(remote && remote.changeLog);
+  out.sort(function(a, b) {
+    var x = String((a && a.time) || '');
+    var y = String((b && b.time) || '');
+    return x < y ? 1 : (x > y ? -1 : 0);
+  });
+  if (out.length > 500) out = out.slice(0, 500);
+  return { value: { changeLog: out }, conflicts: [] };
+}
+
+function syncSetBase(name, version, obj) {
+  var json = JSON.stringify(obj);
+  syncBase[name] = { version: version, obj: JSON.parse(json), json: json };
+}
+
+// Fast path: identical text means nothing changed. Only when the text differs is the (slower) content comparison done.
+function syncIsDirty(name, cur) {
+  var b = syncBase[name];
+  if (!b) return false;
+  if (JSON.stringify(cur) === b.json) return false;
+  return syncCanon(cur) !== syncCanon(b.obj);
+}
+
+// ---- what is synchronised ----
+function syncDocsNow() {
+  var rest = {};
+  Object.keys(data).forEach(function(k) { if (k !== 'settings' && k !== 'changeLog') rest[k] = data[k]; });
+  return { settings: sbStripSecrets(data.settings), data: rest, log: { changeLog: data.changeLog || [] } };
+}
+
+function syncApply(name, obj) {
+  if (name === 'settings') {
+    data.settings = sbMergeLocalSecrets(syncClone(obj), data.settings);
+  } else if (name === 'log') {
+    data.changeLog = (obj && obj.changeLog) || [];
+  } else {
+    Object.keys(data).forEach(function(k) { if (k !== 'settings' && k !== 'changeLog') delete data[k]; });
+    Object.keys(obj).forEach(function(k) { data[k] = obj[k]; });
+    Object.keys(syncShapes || {}).forEach(function(k) {
+      if (data[k] === undefined && k !== 'settings' && k !== 'changeLog') {
+        if (syncShapes[k] === 'a') data[k] = [];
+        else if (syncShapes[k] === 'o') data[k] = {};
+      }
+    });
+  }
+}
+
+// One safety copy of this computer's data per round, taken BEFORE anything is replaced.
+function syncBackupLocal() {
+  if (syncBackedUp) return;
+  syncBackedUp = true;
+  try { localStorage.setItem('parssepehr_backup_before_sync', JSON.stringify({ at: new Date().toISOString(), data: data })); } catch (e) {}
+}
+
+function syncHasContent(name, obj) {
+  if (name === 'data') {
+    return !!((obj.employees && obj.employees.length) || Object.keys(obj.monthlyData || {}).length || Object.keys(obj.payrolls || {}).length);
+  }
+  if (name === 'log') return !!(obj.changeLog && obj.changeLog.length);
+  return true;
+}
+
+function syncIsEditing() {
+  try {
+    var a = document.activeElement;
+    return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'loginPassword');
+  } catch (e) { return false; }
+}
+
+// ---- talking to the server ----
+async function syncApi(method, path, body) {
+  var res;
+  try {
+    res = await fetch(path, {
+      method: method, credentials: 'same-origin',
+      headers: body != null ? { 'Content-Type': 'application/json' } : {},
+      body: body
+    });
+  } catch (e) {
+    return { ok: false, offline: true, status: 0, out: null };
+  }
+  var out = null;
+  try { out = await res.json(); } catch (e) {}
+  return { ok: !!(res.ok && out && out.ok !== false), status: res.status, out: out };
+}
+
+async function syncGetDoc(name) {
+  var r = await syncApi('GET', '/api/state/' + name);
+  if (!r.ok) { syncProblem = r.offline ? 'offline' : 'error'; return null; }
+  var obj = null;
+  if (r.out.data !== null && r.out.data !== undefined) {
+    try { obj = JSON.parse(r.out.data); } catch (e) { syncProblem = 'error'; return null; }
+  }
+  return { version: Number(r.out.version) || 0, obj: obj };
+}
+
+async function syncPush(name, baseV, obj, depth) {
+  var snap = JSON.stringify(obj);
+  var r = await syncApi('PUT', '/api/state/' + name + '?base=' + baseV, snap);
+  if (r.ok) {
+    syncSetBase(name, Number(r.out.version), JSON.parse(snap));
+    return true;
+  }
+  if (r.status === 409) {
+    if ((depth || 0) < 3) return syncMergeDoc(name, (depth || 0) + 1);
+    syncProblem = 'error';
+    return false;
+  }
+  syncProblem = r.status === 403 ? 'forbidden' : (r.offline ? 'offline' : 'error');
+  return false;
+}
+
+async function syncPull(name) {
+  var before = JSON.stringify(syncDocsNow()[name]);
+  var rd = await syncGetDoc(name);
+  if (!rd || rd.obj === null) return false;
+  // if this computer changed something while we were waiting, do not overwrite it: it is merged on the next round
+  if (JSON.stringify(syncDocsNow()[name]) !== before) return false;
+  syncBackupLocal();
+  syncApply(name, rd.obj);
+  syncApplied = true;
+  syncSetBase(name, rd.version, syncDocsNow()[name]);
+  return true;
+}
+
+async function syncMergeDoc(name, depth) {
+  var rd = await syncGetDoc(name);
+  if (!rd) return false;
+  var remoteObj = rd.obj || {};
+  var base = syncBase[name] || { version: 0, obj: {} };
+  var cur = syncDocsNow()[name];
+  var curSnap = JSON.stringify(cur);
+  var res;
+  if (name === 'log') {
+    res = syncMergeLog(base.obj, cur, remoteObj);
+  } else {
+    var conflicts = [];
+    var merged = syncMerge3(base.obj, cur, remoteObj, 'remote', '', conflicts);
+    if (conflicts.length) {
+      var keepMine = confirm('همزمان با شما، شخص دیگری هم همین مورد را تغییر داده است (' + conflicts.length + ' مورد).\n\nOK = مقدار این دستگاه (شما) نگه داشته شود\nCancel = مقدار سرور (دیگران) نگه داشته شود');
+      if (keepMine) {
+        conflicts = [];
+        merged = syncMerge3(base.obj, cur, remoteObj, 'local', '', conflicts);
+      }
+    }
+    res = { value: merged, conflicts: conflicts };
+  }
+  // the screen may have changed while we waited: then start again later instead of overwriting
+  if (JSON.stringify(syncDocsNow()[name]) !== curSnap) return false;
+  syncBackupLocal();
+  syncApply(name, res.value);
+  syncApplied = true;
+  var now = syncDocsNow()[name];
+  if (syncCanon(now) === syncCanon(remoteObj)) {
+    syncSetBase(name, rd.version, now);
+    return true;
+  }
+  syncSetBase(name, rd.version, remoteObj);
+  return syncPush(name, rd.version, now, depth);
+}
+
+async function syncDoc(name, remoteV, editing) {
+  var cur = syncDocsNow()[name];
+  var base = syncBase[name];
+  var isAdmin = syncWho.role === 'admin';
+  var canWrite = name !== 'settings' || isAdmin;
+
+  if (!base) {
+    if (remoteV === 0) {
+      // an empty server is filled only from the admin computer
+      if (!isAdmin) return;
+      if (syncHasContent(name, cur)) { await syncPush(name, 0, cur); return; }
+      syncSetBase(name, 0, cur);
+      return;
+    }
+    if (editing) return;
+    var rd = await syncGetDoc(name);
+    if (!rd || rd.obj === null) return;
+    if (name === 'log') {
+      var ml = syncMergeLog({}, cur, rd.obj);
+      syncBackupLocal();
+      syncApply('log', ml.value);
+      syncApplied = true;
+      syncSetBase('log', rd.version, rd.obj);
+      if (syncCanon(syncDocsNow().log) !== syncCanon(rd.obj)) await syncPush('log', rd.version, syncDocsNow().log);
+      return;
+    }
+    if (name === 'data' && isAdmin && syncHasContent('data', cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
+      var useServer = confirm('روی این کامپیوتر داده‌ای هست که با داده سرور فرق دارد.\n\nOK = داده سرور (اصلی) گرفته شود — داده این کامپیوتر جایگزین می‌شود (یک نسخه پشتیبان نگه داشته می‌شود)\nCancel = داده این کامپیوتر به سرور فرستاده شود — داده سرور جایگزین می‌شود');
+      if (!useServer) { await syncPush('data', rd.version, cur); return; }
+    }
+    syncBackupLocal();
+    syncApply(name, rd.obj);
+    syncApplied = true;
+    syncSetBase(name, rd.version, syncDocsNow()[name]);
+    return;
+  }
+
+  var dirty = syncIsDirty(name, cur);
+  if (!dirty) {
+    if (remoteV > base.version && !editing) await syncPull(name);
+    return;
+  }
+  if (!canWrite) {
+    // changes this computer is not allowed to make (settings on an operator computer) are dropped when the server changes
+    if (remoteV > base.version && !editing) await syncPull(name);
+    return;
+  }
+  if (remoteV === base.version) { await syncPush(name, base.version, cur); return; }
+  if (editing) return;
+  await syncMergeDoc(name, 0);
+}
+
+function syncHasUnsynced() {
+  if (!syncOn || !syncWho) return false;
+  var cur = syncDocsNow();
+  return SYNC_DOCS.some(function(n) {
+    if (n === 'settings' && syncWho.role !== 'admin') return false;
+    var b = syncBase[n];
+    return !!b && syncIsDirty(n, cur[n]);
+  });
+}
+
+async function syncTick(reason) {
+  if (!syncOn || syncBusy || syncPaused) return;
+  syncBusy = true;
+  syncProblem = '';
+  syncBackedUp = false;
+  syncNote('syncing');
+  try {
+    var v = await syncApi('GET', '/api/state/version');
+    if (!v.ok) {
+      syncFails++;
+      syncProblem = v.offline ? 'offline' : 'error';
+    } else {
+      var editing = reason !== 'manual' && syncIsEditing();
+      for (var i = 0; i < SYNC_DOCS.length; i++) {
+        await syncDoc(SYNC_DOCS[i], Number((v.out.versions || {})[SYNC_DOCS[i]] || 0), editing);
+      }
+      if (!syncProblem) syncFails = 0; else syncFails++;
+    }
+  } catch (e) {
+    console.error('sync', e);
+    syncFails++;
+    syncProblem = 'error';
+  }
+  syncBusy = false;
+  if (syncApplied) syncAfterApply();
+  syncNote(syncProblem || 'ok');
+  if (syncAgain) { syncAgain = false; setTimeout(function() { syncTick('change'); }, 500); }
+}
+
+function syncNoteChange() {
+  if (!syncOn) return;
+  if (syncBusy) { syncAgain = true; return; }
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(function() { syncTimer = null; syncTick('change'); }, 1500);
+}
+
+function syncAfterApply() {
+  syncApplied = false;
+  try { localStorage.setItem('payroll_iran_v12', JSON.stringify(data)); } catch (e) {}
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+  try { if (typeof renderInactive === 'function') renderInactive(); } catch (e) {}
+  try { if (typeof renderAllowances === 'function') renderAllowances(); } catch (e) {}
+  try { if (typeof loadSettingsToForm === 'function') loadSettingsToForm(); } catch (e) {}
+  if (ssoActive) syncApplyIdentity(false);
+  try {
+    var t = document.querySelector('.tab-btn.active');
+    if (t && typeof t.click === 'function') t.click();
+  } catch (e) {}
+}
+
+// ---- who is this person (decided by the server from the site login) ----
+function syncBlock(msg) {
+  try {
+    var ov = document.getElementById('loginOverlay');
+    if (ov) {
+      ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;text-align:center;color:#b91c1c;font-weight:700;">' + msg + '</div>';
+      ov.style.display = 'flex';
+    }
+  } catch (e) {}
+}
+
+function syncApplyIdentity(first) {
+  var role = syncWho.role === 'admin' ? 'admin' : 'operator';
+  var acc = null;
+  if (role === 'operator') {
+    var list = (data.settings && data.settings.operators) || [];
+    for (var i = 0; i < list.length; i++) { if (list[i] && list[i].username === syncWho.user) { acc = list[i]; break; } }
+    if (acc && acc.active === false) {
+      currentRole = null;
+      currentAccountPerms = null;
+      syncBlock('حساب شما توسط مدیر غیرفعال شده است.');
+      return false;
+    }
+  }
+  currentRole = role;
+  currentAccountPerms = null;
+  if (role === 'admin') {
+    currentUserName = syncWho.user;
+    currentAccountUsername = '__main_admin__';
+  } else {
+    currentUserName = (acc && (acc.displayName || acc.username)) || syncWho.user;
+    currentAccountUsername = acc ? (acc.username || '') : '__legacy_op__';
+    currentAccountPerms = Object.assign({}, acc ? getAccountPerms(acc) : getLegacyOpPerms());
+  }
+  try {
+    var ov2 = document.getElementById('loginOverlay');
+    if (ov2) ov2.style.display = 'none';
+  } catch (e) {}
+  try { updateRoleUI(); } catch (e) {}
+  if (first) {
+    try { addChangeLog('ورود', '-', 'ورود: ' + currentUserName + ' (' + currentRole + ') [سرور]'); } catch (e) {}
+    setTimeout(function() {
+      try { showWelcomeToast(currentUserName); } catch (e) {}
+      setTimeout(function() { try { checkStatusEndAlerts(); } catch (e) {} }, 2800);
+    }, 250);
+  }
+  return true;
+}
+
+// ---- small status bar (bottom of the screen) ----
+var SYNC_TEXTS = {
+  syncing: 'در حال همگام‌سازی…',
+  offline: 'آفلاین — تغییرات نگه داشته می‌شود و بعداً ارسال می‌شود',
+  error: 'خطا در همگام‌سازی — دوباره تلاش می‌شود',
+  forbidden: 'این کاربر اجازه تغییر تنظیمات را ندارد',
+  unconfigured: 'همگام‌سازی سرور هنوز فعال نشده است',
+  idle: ''
+};
+
+function syncNote(state) {
+  syncState = state;
+  try {
+    var el = document.getElementById('syncBanner');
+    if (!el) return;
+    var txt;
+    if (state === 'ok') {
+      var d = new Date();
+      var p = function(n) { return String(n).padStart(2, '0'); };
+      txt = (syncHasUnsynced() ? 'تغییرات هنوز ارسال نشده' : 'همگام با سرور ✓') + '  ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    } else {
+      txt = SYNC_TEXTS[state] || '';
+    }
+    var label = document.getElementById('syncBannerText');
+    if (label) label.textContent = txt;
+    el.style.background = (state === 'ok' ? '#0f766e' : (state === 'syncing' ? '#475569' : '#b45309'));
+    var warn = document.getElementById('syncBannerWarn');
+    if (warn) warn.style.display = (syncWho && syncWho.adminConfigured === false) ? '' : 'none';
+  } catch (e) {}
+}
+
+function syncEnsureBanner() {
+  try {
+    if (document.getElementById('syncBanner') || !document.body) return;
+    var el = document.createElement('div');
+    el.id = 'syncBanner';
+    el.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:1500;color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;display:flex;gap:8px;align-items:center;background:#475569;box-shadow:0 2px 8px rgba(0,0,0,.25);direction:rtl;';
+    var label = document.createElement('span');
+    label.id = 'syncBannerText';
+    el.appendChild(label);
+    var mk = function(text, fn) {
+      var b = document.createElement('button');
+      b.textContent = text;
+      b.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:6px;border:0;cursor:pointer;';
+      b.onclick = fn;
+      el.appendChild(b);
+    };
+    mk('همگام‌سازی', function() { syncTick('manual'); });
+    if (syncWho && syncWho.role === 'admin') {
+      mk('دریافت اجباری', function() { syncForcePull(); });
+      mk('ارسال اجباری', function() { syncForcePush(); });
+    }
+    var warn = document.createElement('span');
+    warn.id = 'syncBannerWarn';
+    warn.style.cssText = 'display:none;background:#fde68a;color:#7c2d12;padding:1px 6px;border-radius:4px;';
+    warn.textContent = 'هیچ ادمینی تعریف نشده: همه کاربران ادمین محسوب می‌شوند';
+    el.appendChild(warn);
+    document.body.appendChild(el);
+  } catch (e) {}
+}
+
+async function syncForcePull() {
+  if (!syncOn || !syncWho || syncWho.role !== 'admin' || syncBusy) return;
+  if (!confirm('همه داده‌های این کامپیوتر با نسخه اصلی سرور جایگزین شود؟\n(یک نسخه پشتیبان از داده فعلی نگه داشته می‌شود)')) return;
+  syncBusy = true;
+  syncProblem = '';
+  syncBackedUp = false;
+  try {
+    for (var i = 0; i < SYNC_DOCS.length; i++) {
+      var rd = await syncGetDoc(SYNC_DOCS[i]);
+      if (!rd || rd.obj === null) continue;
+      syncBackupLocal();
+      syncApply(SYNC_DOCS[i], rd.obj);
+      syncApplied = true;
+      syncSetBase(SYNC_DOCS[i], rd.version, syncDocsNow()[SYNC_DOCS[i]]);
+    }
+  } catch (e) { console.error(e); syncProblem = 'error'; }
+  syncBusy = false;
+  if (syncApplied) syncAfterApply();
+  syncNote(syncProblem || 'ok');
+}
+
+async function syncForcePush() {
+  if (!syncOn || !syncWho || syncWho.role !== 'admin' || syncBusy) return;
+  if (!confirm('نسخه اصلی روی سرور با داده‌های همین کامپیوتر جایگزین شود؟\n(نسخه‌های قبلی در سرور نگه داشته می‌شوند)')) return;
+  syncBusy = true;
+  syncProblem = '';
+  try {
+    var v = await syncApi('GET', '/api/state/version');
+    if (!v.ok) { syncProblem = v.offline ? 'offline' : 'error'; }
+    else {
+      var cur = syncDocsNow();
+      for (var i = 0; i < SYNC_DOCS.length; i++) {
+        await syncPush(SYNC_DOCS[i], Number((v.out.versions || {})[SYNC_DOCS[i]] || 0), cur[SYNC_DOCS[i]], 3);
+      }
+    }
+  } catch (e) { console.error(e); syncProblem = 'error'; }
+  syncBusy = false;
+  syncNote(syncProblem || 'ok');
+}
+
+function syncStartTimers() {
+  if (syncPollTimer) return;
+  syncPollTimer = setInterval(function() {
+    try { if (document.hidden) return; } catch (e) {}
+    // after repeated failures try less often
+    if (syncFails > 2 && (syncPollCount++ % 3) !== 0) return;
+    syncTick('poll');
+  }, 10000);
+  try {
+    document.addEventListener('visibilitychange', function() { if (!document.hidden) syncTick('poll'); });
+    window.addEventListener('online', function() { syncTick('poll'); });
+    window.addEventListener('beforeunload', function(e) {
+      if (syncHasUnsynced()) { e.preventDefault(); e.returnValue = ''; }
+    });
+  } catch (e) {}
+}
+
+async function ssoBoot() {
+  var w = await syncApi('GET', '/api/whoami');
+  if (!w.ok || !w.out || !w.out.user) return false; // no server login: the classic login screen stays
+  ssoActive = true;
+  syncWho = { user: w.out.user, role: w.out.role === 'admin' ? 'admin' : 'operator', adminConfigured: w.out.adminConfigured !== false };
+  try {
+    var ov = document.getElementById('loginOverlay');
+    if (ov) ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;text-align:center;color:#0f766e;font-weight:700;">در حال اتصال به سرور…</div>';
+  } catch (e) {}
+  syncShapes = {};
+  Object.keys(data).forEach(function(k) {
+    syncShapes[k] = Array.isArray(data[k]) ? 'a' : ((data[k] && typeof data[k] === 'object') ? 'o' : 'p');
+  });
+  var cloud = !!w.out.syncConfigured;
+  if (cloud) {
+    syncOn = true;
+    await syncTick('boot');
+  }
+  if (!syncApplyIdentity(true)) return true;
+  syncEnsureBanner();
+  try {
+    var cloudTab = document.querySelector('.tab-btn[data-tab="cloud"]');
+    if (cloudTab) cloudTab.style.display = 'none';
+  } catch (e) {}
+  if (cloud) { syncNote(syncProblem || 'ok'); syncStartTimers(); }
+  else syncNote('unconfigured');
+  return true;
+}
+
 try { showLogin(); } catch (e1) { console.error(e1); }
 try { updateRoleUI(); } catch (e2) {}
+try { ssoBoot().catch(function(e3) { console.error('sso', e3); }); } catch (e4) { console.error(e4); }
 
 </script>
 </body>
