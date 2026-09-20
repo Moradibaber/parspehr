@@ -1,5 +1,5 @@
 // AUTO-GENERATED payroll engine. Runs ONLY on the server (never sent to browsers).
-// Functions are copied verbatim from the original app; only the screen/permission parts were removed.
+// Functions are copied verbatim from the original app; only screen/permission parts were removed.
 export function makeEngine(data) {
   function defaultMonthDaysMap() {
     return {1:31,2:31,3:31,4:31,5:31,6:31,7:30,8:30,9:30,10:30,11:30,12:29};
@@ -73,6 +73,13 @@ export function makeEngine(data) {
 
   function getActiveEmployees() { return data.employees.filter(e => e.status !== 'inactive'); }
 
+  function nameStartsWithDeductionOrArrears(name) {
+    const n = String(name || '').trim();
+    if (!n) return false;
+    // شروع با یکی از این کلمات + جداکننده یا پایان رشته
+    return /^(کسورات|کسر|معوقه)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n);
+  }
+
   function isNameDeductionItem(name) {
     const n = String(name || '').trim();
     if (!n) return false;
@@ -83,6 +90,14 @@ export function makeEngine(data) {
     const n = String(name || '').trim();
     if (!n) return false;
     return /^معوقه(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n);
+  }
+
+  function isDeductionOrArrearsItem(ci) {
+    if (!ci) return true;
+    if (ci.isDeduction) return true;
+    const n = String(ci.name || '').trim();
+    if (!n) return true;
+    return nameStartsWithDeductionOrArrears(n);
   }
 
   function isActiveAllowance(a) { return a && a.name && !a.name.startsWith('آیتم جدید'); }
@@ -225,6 +240,84 @@ export function makeEngine(data) {
     return isCustomItemInDuration(ci, year, month);
   }
 
+  function ensureDecreeHeaders() {
+    if (!data.decreeHeaders) data.decreeHeaders = [];
+    if (!data.decreeValues) data.decreeValues = {};
+    return data.decreeHeaders;
+  }
+
+  function getDecreeEmpTotals(code) {
+    const headers = ensureDecreeHeaders();
+    const vals = (data.decreeValues && data.decreeValues[code]) || {};
+    let decreeSum = 0, eidSum = 0;
+    headers.forEach(function(h) {
+      const amt = Number(vals[h.id]) || 0;
+      if (h.subjectDecree !== false) decreeSum += amt;
+      if (h.subjectEid !== false) eidSum += amt;
+    });
+    return { decreeSum: decreeSum, eidSum: eidSum };
+  }
+
+  function getYearWorkAndLeave(emp, year, leaveCeiling) {
+    let workDays = 0, leaveUsed = 0, hourlyLeave = 0;
+    for (let m = 1; m <= 12; m++) {
+      const key = year + '-' + m;
+      const row = (data.monthlyData[key] && data.monthlyData[key][emp.code]) || null;
+      if (!row) continue;
+      workDays += Number(row.workDays) || 0;
+      leaveUsed += Number(row.leaveDays) || 0;
+      hourlyLeave += Number(row.hourlyLeave) || 0;
+    }
+    // مرخصی ساعتی ≈ روز (۷.۳۳ ساعت = ۱ روز)
+    leaveUsed += hourlyLeave / 7.33;
+    const ceiling = (leaveCeiling != null && !isNaN(Number(leaveCeiling)) && Number(leaveCeiling) >= 0)
+      ? Number(leaveCeiling)
+      : 30;
+    // استحقاقی = تناسب خالص کارکرد (۳۰ روز به ازای ۳۶۵) — سقف دخالت ندارد
+    const entitledLeave = (workDays / 365) * 30;
+    // مانده = استحقاقی − استفاده‌شده (می‌تواند منفی باشد؛ سقف دخالت ندارد)
+    const remaining = entitledLeave - leaveUsed;
+    // قابل پرداخت = حداقل(مانده، سقف) — اگر مانده منفی باشد، قابل پرداخت هم منفی می‌شود
+    const payableLeave = Math.min(remaining, ceiling);
+    return {
+      workDays: workDays,
+      leaveUsed: leaveUsed,
+      entitledLeave: entitledLeave,
+      remainingLeave: remaining,
+      payableLeave: payableLeave,
+      leaveCeiling: ceiling,
+      effectiveDays: workDays
+    };
+  }
+
+  function calcEidAmount(dailyWage, effectiveDays, minDailyLegal) {
+    const ratio = Math.min(1, Math.max(0, effectiveDays / 365));
+    let eid = dailyWage * 60 * ratio;
+    const legalMax = (minDailyLegal || 5541850) * 90 * ratio;
+    const legalMin = (minDailyLegal || 5541850) * 60 * ratio;
+    if (dailyWage < (minDailyLegal || 5541850)) {
+      eid = legalMin;
+    }
+    if (eid > legalMax) eid = legalMax;
+    return Math.round(eid);
+  }
+
+  function calcSeveranceAmount(dailyWage, effectiveDays) {
+    return Math.round(dailyWage * 30 * Math.min(1, Math.max(0, effectiveDays / 365)));
+  }
+
+  function calcEidTax(eidAmount) {
+    const exempt = 400000000;
+    const excess = Math.max(0, (Number(eidAmount) || 0) - exempt);
+    return Math.round(excess * 0.10);
+  }
+
+  function calcLeavePayAmount(decreeSum, basicSalary, payableLeaveDays) {
+    const base = (Number(decreeSum) > 0) ? Number(decreeSum) : (Number(basicSalary) || 0);
+    const daily = base / 30;
+    return Math.round(daily * (Number(payableLeaveDays) || 0));
+  }
+
   function applyTransferredAdjustmentsToResults(key, results) {
     const list = (data.transferredAdjustments && data.transferredAdjustments[key]) || [];
     if (!list.length || !results || !results.length) return results;
@@ -329,6 +422,10 @@ export function makeEngine(data) {
     if (r.taxable != null && r.taxable !== '') return Math.max(0, Number(r.taxable) || 0);
     if (r.taxBase != null) return Math.max(0, (Number(r.taxBase) || 0) - (Number(r.insurance) || 0));
     return Math.max(0, (Number(r.gross) || 0) - (Number(r.insurance) || 0));
+  }
+
+  function isSpecialStatus(emp) {
+    return emp && (emp.status === 'sick' || emp.status === 'suspend');
   }
 
   function parseJalaliParts(str) {
@@ -671,5 +768,244 @@ export function makeEngine(data) {
     return { ok: true, results: results, loanUpdates: loanUpdates, workDayCaps: workDayCaps };
   }
 
-  return { runMonth: runMonth };
+  function runEid(year, minDaily, leaveCeilingVal, includeSpecialDays) {
+    const results = [];
+    getActiveEmployees().forEach(function(emp) {
+      let wl = getYearWorkAndLeave(emp, year, leaveCeilingVal);
+      // اگر استعلاجی/تعلیق و کاربر گفته کسر شود: فقط روزهای همپوشان با سال از کارکرد کسر شود
+      // مرخصی منفی همچنان حفظ و کسر می‌شود
+      if (isSpecialStatus(emp) && !includeSpecialDays) {
+        let deduct = 0;
+        for (let mm = 1; mm <= 12; mm++) {
+          deduct += countSpecialDaysInMonth(emp, year, mm);
+        }
+        const newWork = Math.max(0, (wl.workDays || 0) - deduct);
+        const leaveUsed = wl.leaveUsed || 0;
+        // استحقاقی متناسب با کارکرد جدید، ولی مرخصی استفاده‌شده حفظ می‌شود
+        const entitledNew = Math.round((newWork / 365) * 30 * 10) / 10;
+        const remainingNew = Math.round((entitledNew - leaveUsed) * 10) / 10;
+        // قابل پرداخت: می‌تواند منفی باشد (بدهی مرخصی)
+        let payableNew = remainingNew;
+        const ceil = leaveCeilingVal;
+        if (payableNew > ceil) payableNew = ceil;
+        // منفی را صفر نکن — باید کسر شود
+        wl = {
+          workDays: newWork,
+          leaveUsed: leaveUsed,
+          entitledLeave: entitledNew,
+          remainingLeave: remainingNew,
+          payableLeave: payableNew,
+          effectiveDays: newWork
+        };
+      }
+  
+      const tots = getDecreeEmpTotals(emp.code);
+      const eidSubjectSum = tots.eidSum;
+      const decreeSum = tots.decreeSum;
+      // مزد روزانه عیدی/سنوات از مشمول عیدی
+      const dailyEid = eidSubjectSum > 0 ? (eidSubjectSum / 30) : ((Number(emp.basicSalary) || 0) / 30);
+      const eidGross = calcEidAmount(dailyEid, wl.effectiveDays, minDaily);
+      const eidTax = calcEidTax(eidGross);
+      const eidNet = eidGross - eidTax;
+      const severance = calcSeveranceAmount(dailyEid, wl.effectiveDays);
+      // مبلغ مرخصی از جمع حکم ÷ ۳۰ × روز قابل پرداخت (مثبت یا منفی)
+      const leaveDaily = decreeSum > 0 ? (decreeSum / 30) : ((Number(emp.basicSalary) || 0) / 30);
+      const leavePay = calcLeavePayAmount(decreeSum, emp.basicSalary, wl.payableLeave);
+      let totalPay = eidNet + severance + leavePay;
+      let annualTaxAdj = 0;
+      let annualTaxAdjTitle = '';
+      if (data.eidTaxAdjustments && data.eidTaxAdjustments[year] && data.eidTaxAdjustments[year][String(emp.code)]) {
+        const adj = data.eidTaxAdjustments[year][String(emp.code)];
+        annualTaxAdj = Number(adj.netAdj) || 0;
+        annualTaxAdjTitle = adj.title || ('اصلاح مالیات سالانه (تسویه وسط سال) ' + year);
+        totalPay = Math.round(totalPay + annualTaxAdj);
+      }
+      results.push({
+        code: emp.code,
+        fullName: emp.fullName,
+        hireDate: emp.hireDate || '',
+        workDays: Math.round(wl.workDays * 10) / 10,
+        leaveUsed: Math.round(wl.leaveUsed * 10) / 10,
+        entitledLeave: Math.round(wl.entitledLeave * 10) / 10,
+        remainingLeave: Math.round(wl.remainingLeave * 10) / 10,
+        payableLeave: Math.round(wl.payableLeave * 10) / 10,
+        leaveCeiling: leaveCeilingVal,
+        dailyWage: Math.round(dailyEid),
+        leaveDailyWage: Math.round(leaveDaily),
+        eidSubjectSum: eidSubjectSum,
+        decreeSum: decreeSum,
+        eidGross: eidGross,
+        eidTax: eidTax,
+        eidNet: eidNet,
+        severance: severance,
+        leavePay: leavePay,
+        totalPay: totalPay,
+        totalPayBase: eidNet + severance + leavePay,
+        annualTaxAdj: annualTaxAdj,
+        annualTaxAdjTitle: annualTaxAdjTitle,
+        specialStatus: isSpecialStatus(emp) ? emp.status : '',
+        statusStart: emp.statusStart || '',
+        statusEnd: emp.statusEnd || '',
+        includeSpecialDays: isSpecialStatus(emp) ? includeSpecialDays : null
+      });
+    });
+    return results;
+  }
+
+  function runAnnualTax(year, until, selected) {
+    const selectedSet = {};
+    selected.forEach(function(c) { selectedSet[String(c)] = true; });
+    const byCode = {};
+  
+    for (let m = 1; m <= until; m++) {
+      const rows = data.payrolls[year + '-' + m] || [];
+      rows.forEach(function(r) {
+        if (!r || !r.code) return;
+        const code = String(r.code);
+        if (!selectedSet[code]) return;
+        if (!byCode[code]) {
+          byCode[code] = {
+            code: r.code,
+            fullName: r.fullName || '',
+            months: 0,
+            totalTaxable: 0,
+            totalTaxWithheld: 0,
+            taxPercent: Number(r.taxPercent) || 100,
+            exemption: r.exemption || 'none'
+          };
+        }
+        byCode[code].months += 1;
+        byCode[code].totalTaxable += estimateTaxableFromPayrollRow(r);
+        byCode[code].totalTaxWithheld += Number(r.tax) || 0;
+        if (r.taxPercent != null) byCode[code].taxPercent = Number(r.taxPercent) || 100;
+        if (r.exemption) byCode[code].exemption = r.exemption;
+      });
+    }
+  
+    (data.employees || []).forEach(function(emp) {
+      const c = String(emp.code);
+      if (byCode[c]) {
+        byCode[c].fullName = emp.fullName || byCode[c].fullName;
+        byCode[c].taxPercent = Number(emp.taxPercent) || byCode[c].taxPercent || 100;
+        byCode[c].exemption = emp.exemption || byCode[c].exemption || 'none';
+      }
+    });
+  
+    const results = Object.keys(byCode).map(function(code) {
+      const row = byCode[code];
+      let dueTax = 0;
+      if (row.exemption !== 'tax' && row.exemption !== 'both') {
+        const mc = Math.max(1, row.months);
+        // تا ماه انتخابی: سالیانه‌سازی سپس سهم همان تعداد ماه
+        const annualized = row.totalTaxable * (12 / mc);
+        dueTax = calcIncomeTaxAnnual(annualized);
+        dueTax = Math.round(dueTax * (mc / 12));
+        if (Number(row.taxPercent) === 50) dueTax = Math.round(dueTax * 0.5);
+      }
+      const diff = Math.round(dueTax - row.totalTaxWithheld);
+      let status = 'تسویه';
+      if (diff > 0) status = 'بدهکار (کسری)';
+      else if (diff < 0) status = 'بستانکار (اضافه پرداخت)';
+      return {
+        code: row.code,
+        fullName: row.fullName,
+        months: row.months,
+        totalTaxable: Math.round(row.totalTaxable),
+        totalTaxWithheld: Math.round(row.totalTaxWithheld),
+        annualTax: dueTax,
+        diff: diff,
+        status: status,
+        year: year,
+        untilMonth: until
+      };
+    }).sort(function(a, b) {
+      return String(a.code).localeCompare(String(b.code), 'fa');
+    });
+    return results;
+  }
+
+  let bonusItemNames = [];
+  function calcBonusBaseForEmp(emp, baseType) {
+    if (baseType === 'basic') return Number(emp.basicSalary) || 0;
+    const tots = typeof getDecreeEmpTotals === 'function' ? getDecreeEmpTotals(emp.code) : { decreeSum: 0, eidSum: 0 };
+    if (baseType === 'eidSubject') return tots.eidSum || 0;
+    if (baseType === 'decree') return tots.decreeSum || Number(emp.basicSalary) || 0;
+    if (baseType === 'items') {
+      const names = bonusItemNames;
+      let sum = 0;
+      if (names.indexOf('__basic__') >= 0) sum += Number(emp.basicSalary) || 0;
+      const allowMap = {};
+      (data.allowances || []).forEach(function(a) { if (a && a.name) allowMap[a.name] = Number(a.amount) || 0; });
+      // custom per employee
+      const customs = emp.customItems || emp.customs || [];
+      names.forEach(function(n) {
+        if (n === '__basic__') return;
+        // from decree values if available
+        if (data.decreeValues && data.decreeValues[emp.code] && data.decreeValues[emp.code][n] != null) {
+          sum += Number(data.decreeValues[emp.code][n]) || 0;
+        } else if (allowMap[n] != null) {
+          sum += allowMap[n];
+        }
+      });
+      return sum;
+    }
+    return tots.decreeSum || 0;
+  }
+  function bonusBases(emps, baseType, names) {
+    bonusItemNames = Array.isArray(names) ? names : [];
+    const bases = {};
+    emps.forEach(function(emp) { bases[emp.code] = calcBonusBaseForEmp(emp, baseType); });
+    return bases;
+  }
+  function bonusRows(rows) {
+    return rows.map(function(r) {
+      const gross = r.eligible ? Math.round((Number(r.base) || 0) * (Number(r.pct) || 0) / 100) : 0;
+      const tax = r.eligible ? calcIncomeTaxWithBrackets(gross) : 0;
+      return { code: r.code, gross: gross, tax: tax, net: gross - tax };
+    });
+  }
+
+  function decreeAmounts(year, selectedNames) {
+    const selectedSet = {};
+    selectedNames.forEach(function(n) { selectedSet[n] = true; });
+    const month = 12;
+    const entries = [];
+  
+    getActiveEmployees().forEach(function(emp) {
+  
+      if (selectedSet['حقوق پایه']) {
+        entries.push({ code: emp.code, name: 'حقوق پایه', amount: Number(emp.basicSalary) || 0 });
+      }
+  
+      (data.allowances || []).forEach(function(a) {
+        if (!a || !a.name) return;
+        const n = String(a.name).trim();
+        if (!selectedSet[n]) return;
+        if (isDeductionOrArrearsItem({ name: n })) return;
+        let amt = Number(a.amount) || 0;
+        if (a.id === 'child' || n.indexOf('اولاد') >= 0) {
+          amt = (Number(emp.children) || 0) * (Number(a.amount) || 0);
+        }
+        if (a.id === 'marital' || n.indexOf('تأهل') >= 0 || n.indexOf('تاهل') >= 0) {
+          amt = (emp.marital === 'married' || emp.marital === 'provider') ? (Number(a.amount) || 0) : 0;
+        }
+        if (a.id === 'seniority' || n.indexOf('سنوات') >= 0) {
+          if (yearsOfService(emp.hireDate, year, month) < 1) amt = 0;
+          else amt = Number(a.amount) || 0;
+        }
+        entries.push({ code: emp.code, name: n, amount: amt });
+      });
+  
+      (emp.customItems || []).forEach(function(ci) {
+        if (!ci || !ci.name) return;
+        if (isDeductionOrArrearsItem(ci)) return;
+        const n = String(ci.name).trim();
+        if (!selectedSet[n]) return;
+        entries.push({ code: emp.code, name: n, amount: Number(ci.amount) || 0 });
+      });
+    });
+    return entries;
+  }
+
+  return { runMonth: runMonth, runEid: runEid, runAnnualTax: runAnnualTax, bonusBases: bonusBases, bonusRows: bonusRows, decreeAmounts: decreeAmounts };
 }
