@@ -81,6 +81,7 @@ async function stamp(html, user, env) {
 }
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_ITEMS = 5000;
 
 function jsonResponse(obj, status) {
   return new Response(JSON.stringify(obj), {
@@ -93,25 +94,38 @@ function isPlainObject(x) {
   return x !== null && typeof x === 'object' && !Array.isArray(x);
 }
 
-// The payroll calculation. Runs only here on the server; the browser just sends the inputs and shows the answer.
-async function handlePayroll(request, user) {
-  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+function arrOf(x) { return Array.isArray(x) ? x : []; }
+function objOf(x) { return isPlainObject(x) ? x : {}; }
+function isInt(x, lo, hi) { return Number.isInteger(x) && x >= lo && x <= hi; }
+function isNum(x) { return typeof x === 'number' && Number.isFinite(x); }
+
+// Common checks for every calculation request. Returns { body } or { error: Response }.
+async function readBody(request) {
+  if (request.method !== 'POST') return { error: jsonResponse({ ok: false, error: 'method_not_allowed' }, 405) };
   const site = request.headers.get('Sec-Fetch-Site');
-  if (site && site !== 'same-origin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  if (site && site !== 'same-origin') return { error: jsonResponse({ ok: false, error: 'forbidden' }, 403) };
   if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY_BYTES) {
-    return jsonResponse({ ok: false, error: 'too_large' }, 413);
+    return { error: jsonResponse({ ok: false, error: 'too_large' }, 413) };
   }
-  let body;
   try {
     const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
-    body = JSON.parse(text);
+    if (text.length > MAX_BODY_BYTES) return { error: jsonResponse({ ok: false, error: 'too_large' }, 413) };
+    const body = JSON.parse(text);
+    if (!isPlainObject(body)) return { error: jsonResponse({ ok: false, error: 'bad_request' }, 400) };
+    return { body: body };
   } catch (e) {
-    return jsonResponse({ ok: false, error: 'bad_json' }, 400);
+    return { error: jsonResponse({ ok: false, error: 'bad_json' }, 400) };
   }
-  const year = Number(body && body.year);
-  const month = Number(body && body.month);
-  if (!isPlainObject(body) || !Number.isInteger(year) || year < 1300 || year > 1600 ||
+}
+
+// Monthly payroll. Runs only here on the server; the browser sends the inputs and shows the answer.
+async function handlePayroll(request, user) {
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body;
+  const year = Number(body.year);
+  const month = Number(body.month);
+  if (!Number.isInteger(year) || year < 1300 || year > 1600 ||
       !Number.isInteger(month) || month < 1 || month > 12 ||
       !isPlainObject(body.settings) || !Array.isArray(body.employees) || !Array.isArray(body.allowances) ||
       !isPlainObject(body.monthlyData) || !isPlainObject(body.payrolls)) {
@@ -137,6 +151,64 @@ async function handlePayroll(request, user) {
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
+// Eid / severance / leave pay, annual tax settlement, bonus and decree transfer.
+async function handleCalc(request, user) {
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body;
+  const op = body.op;
+  const data = {
+    settings: objOf(body.settings),
+    allowances: arrOf(body.allowances),
+    employees: arrOf(body.employees),
+    monthlyData: objOf(body.monthlyData),
+    payrolls: objOf(body.payrolls),
+    decreeHeaders: arrOf(body.decreeHeaders),
+    decreeValues: objOf(body.decreeValues),
+    eidTaxAdjustments: objOf(body.eidTaxAdjustments)
+  };
+  if (data.employees.length > MAX_ITEMS || data.allowances.length > MAX_ITEMS) {
+    return jsonResponse({ ok: false, error: 'too_many_items' }, 413);
+  }
+  const bad = function () { return jsonResponse({ ok: false, error: 'bad_request' }, 400); };
+  let result;
+  try {
+    const eng = makeEngine(data);
+    if (op === 'eid') {
+      const year = Number(body.year);
+      if (!isInt(year, 1300, 1600) || !isNum(body.minDaily) || body.minDaily <= 0 ||
+          !isNum(body.leaveCeilingVal) || body.leaveCeilingVal < 0 || typeof body.includeSpecialDays !== 'boolean') return bad();
+      result = { ok: true, results: eng.runEid(year, body.minDaily, body.leaveCeilingVal, body.includeSpecialDays) };
+    } else if (op === 'annualTax') {
+      const year = Number(body.year);
+      const until = Number(body.until);
+      if (!isInt(year, 1300, 1600) || !isInt(until, 1, 12) || !Array.isArray(body.selected) || body.selected.length > MAX_ITEMS) return bad();
+      const bracketsBefore = JSON.stringify(data.settings.taxBrackets);
+      result = { ok: true, results: eng.runAnnualTax(year, until, body.selected) };
+      result.filledTaxBrackets = JSON.stringify(data.settings.taxBrackets) !== bracketsBefore;
+    } else if (op === 'bonusBases') {
+      if (typeof body.baseType !== 'string' || !Array.isArray(body.names)) return bad();
+      result = { ok: true, bases: eng.bonusBases(data.employees, body.baseType, body.names) };
+    } else if (op === 'bonusRows') {
+      if (!Array.isArray(body.rows) || body.rows.length > MAX_ITEMS) return bad();
+      const bracketsBefore = JSON.stringify(data.settings.taxBrackets);
+      result = { ok: true, rows: eng.bonusRows(body.rows) };
+      result.filledTaxBrackets = JSON.stringify(data.settings.taxBrackets) !== bracketsBefore;
+    } else if (op === 'decreeAmounts') {
+      const year = Number(body.year);
+      if (!isInt(year, 1300, 1600) || !Array.isArray(body.selectedNames) || body.selectedNames.length > MAX_ITEMS) return bad();
+      result = { ok: true, entries: eng.decreeAmounts(year, body.selectedNames) };
+    } else {
+      return jsonResponse({ ok: false, error: 'unknown_op' }, 400);
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ event: 'calc_error', user: user, op: String(op), message: String(e && e.message) }));
+    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+  }
+  console.log(JSON.stringify({ event: 'calc', user: user, op: op, employees: data.employees.length }));
+  return jsonResponse(result);
+}
+
 export default {
   async fetch(request, env) {
     let users;
@@ -160,8 +232,12 @@ export default {
       });
     }
 
-    if (new URL(request.url).pathname === '/api/payroll') {
+    const path = new URL(request.url).pathname;
+    if (path === '/api/payroll') {
       return handlePayroll(request, user);
+    }
+    if (path === '/api/calc') {
+      return handleCalc(request, user);
     }
 
     const h = new Headers(request.headers);
