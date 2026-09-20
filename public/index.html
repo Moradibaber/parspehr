@@ -8388,6 +8388,11 @@ var syncProblem = '';
 var syncBackedUp = false;
 var syncShapes = null;
 
+function syncReasonOf(r) {
+  var x = r && r.out && r.out.reason;
+  return (x && SYNC_TEXTS[x]) ? x : 'error';
+}
+
 function syncClone(x) { return x === undefined ? undefined : JSON.parse(JSON.stringify(x)); }
 
 function syncIsObj(x) { return x !== null && typeof x === 'object' && !Array.isArray(x); }
@@ -8578,7 +8583,7 @@ async function syncApi(method, path, body) {
 
 async function syncGetDoc(name) {
   var r = await syncApi('GET', '/api/state/' + name);
-  if (!r.ok) { syncProblem = r.offline ? 'offline' : 'error'; return null; }
+  if (!r.ok) { syncProblem = r.offline ? 'offline' : syncReasonOf(r); return null; }
   var obj = null;
   if (r.out.data !== null && r.out.data !== undefined) {
     try { obj = JSON.parse(r.out.data); } catch (e) { syncProblem = 'error'; return null; }
@@ -8598,7 +8603,7 @@ async function syncPush(name, baseV, obj, depth) {
     syncProblem = 'error';
     return false;
   }
-  syncProblem = r.status === 403 ? 'forbidden' : (r.offline ? 'offline' : 'error');
+  syncProblem = r.status === 403 ? 'forbidden' : (r.offline ? 'offline' : syncReasonOf(r));
   return false;
 }
 
@@ -8725,7 +8730,7 @@ async function syncTick(reason) {
     var v = await syncApi('GET', '/api/state/version');
     if (!v.ok) {
       syncFails++;
-      syncProblem = v.offline ? 'offline' : 'error';
+      syncProblem = v.offline ? 'offline' : syncReasonOf(v);
     } else {
       var editing = reason !== 'manual' && syncIsEditing();
       for (var i = 0; i < SYNC_DOCS.length; i++) {
@@ -8819,6 +8824,10 @@ var SYNC_TEXTS = {
   syncing: 'در حال همگام‌سازی…',
   offline: 'آفلاین — تغییرات نگه داشته می‌شود و بعداً ارسال می‌شود',
   error: 'خطا در همگام‌سازی — دوباره تلاش می‌شود',
+  table_missing: 'جدول سرور ساخته نشده — فایل supabase_state.sql را در Supabase اجرا کنید',
+  bad_key: 'کلید Supabase پذیرفته نشد — در Cloudflare مقدار SUPABASE_SERVICE_KEY را بررسی کنید (باید کلید service_role یا secret باشد)',
+  unreachable: 'آدرس Supabase در دسترس نیست — مقدار SUPABASE_URL را بررسی کنید',
+  not_configured: 'همگام‌سازی روی سرور تنظیم نشده (SUPABASE_URL / SUPABASE_SERVICE_KEY)',
   forbidden: 'این کاربر اجازه تغییر تنظیمات را ندارد',
   unconfigured: 'همگام‌سازی سرور هنوز فعال نشده است',
   idle: ''
@@ -8851,6 +8860,11 @@ function syncEnsureBanner() {
     var el = document.createElement('div');
     el.id = 'syncBanner';
     el.style.cssText = 'position:fixed;bottom:8px;left:8px;z-index:1500;color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;display:flex;gap:8px;align-items:center;background:#475569;box-shadow:0 2px 8px rgba(0,0,0,.25);direction:rtl;';
+    var who = document.createElement('span');
+    who.id = 'syncBannerWho';
+    who.style.cssText = 'font-weight:700;background:rgba(255,255,255,.2);padding:1px 6px;border-radius:4px;';
+    who.textContent = (syncWho ? syncWho.user : '') + ' · ' + (syncWho && syncWho.role === 'admin' ? 'ادمین' : 'اپراتور');
+    el.appendChild(who);
     var label = document.createElement('span');
     label.id = 'syncBannerText';
     el.appendChild(label);
@@ -8903,7 +8917,7 @@ async function syncForcePush() {
   syncProblem = '';
   try {
     var v = await syncApi('GET', '/api/state/version');
-    if (!v.ok) { syncProblem = v.offline ? 'offline' : 'error'; }
+    if (!v.ok) { syncProblem = v.offline ? 'offline' : syncReasonOf(v); }
     else {
       var cur = syncDocsNow();
       for (var i = 0; i < SYNC_DOCS.length; i++) {
@@ -8932,9 +8946,20 @@ function syncStartTimers() {
   } catch (e) {}
 }
 
+// Shown under the classic login box when the server did not recognise the site login (so people know why they see it).
+function syncClassicNote(w) {
+  try {
+    var ov = document.getElementById('loginOverlay');
+    var card = ov && ov.querySelector ? ov.querySelector('div') : null;
+    if (!card || !card.insertAdjacentHTML) return;
+    var why = (w && w.offline) ? 'اتصال به سرور برقرار نشد (اینترنت را بررسی کنید).' : 'نام کاربری سایت توسط سرور شناخته نشد یا این نسخه قدیمی است (کلیدهای Ctrl+F5 را بزنید).';
+    card.insertAdjacentHTML('beforeend', '<p style="font-size:0.75rem;color:#b45309;margin-top:10px;text-align:center;">' + why + ' این صفحه ورود فقط برای حالت اضطراری است و فقط حساب‌های ذخیره‌شده روی همین کامپیوتر را می‌شناسد.</p>');
+  } catch (e) {}
+}
+
 async function ssoBoot() {
   var w = await syncApi('GET', '/api/whoami');
-  if (!w.ok || !w.out || !w.out.user) return false; // no server login: the classic login screen stays
+  if (!w.ok || !w.out || !w.out.user) { syncClassicNote(w); return false; } // no server login: the classic login screen stays
   ssoActive = true;
   syncWho = { user: w.out.user, role: w.out.role === 'admin' ? 'admin' : 'operator', adminConfigured: w.out.adminConfigured !== false };
   try {
