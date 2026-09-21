@@ -149,45 +149,49 @@
     --de-code-w: 72px;
     --de-font: 0.7rem;
   }
-  /* عرض جدول = جمع ستون‌ها (نه کشیده شدن تا تمام صفحه) */
+  /* عرض جدول = جمع ستون‌ها؛ قابل تغییر با کشیدن لبه مثل اکسل */
   #dataEntryArea table {
-    border-collapse: collapse; border: 1px solid #94a3b8; background: #fff;
+    border-collapse: separate; border-spacing: 0;
+    border: 1px solid #94a3b8; background: #fff;
     table-layout: fixed; width: max-content; max-width: none;
   }
   #dataEntryArea th, #dataEntryArea td {
     border: 1px solid #cbd5e1; padding: 1px 2px; vertical-align: middle;
     height: var(--de-row-h); box-sizing: border-box;
-    width: var(--de-col-w); max-width: var(--de-col-w);
+    text-align: center !important;
   }
   #dataEntryArea thead th {
     background: #e2e8f0; color: #0f766e; font-size: calc(var(--de-font) - 0.06rem); font-weight: 700;
     white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.12;
-    width: var(--de-col-w); max-width: var(--de-col-w); min-width: var(--de-col-w);
-    vertical-align: bottom; text-align: center;
-    position: sticky; top: 0; z-index: 2; padding: 2px 1px;
+    vertical-align: bottom; text-align: center !important;
+    position: sticky; top: 0; z-index: 2; padding: 2px 4px 2px 2px;
   }
-  #dataEntryArea tbody td { text-align: center; font-size: var(--de-font); padding: 0 1px; }
-  /* کد */
-  #dataEntryArea thead th:nth-child(1),
-  #dataEntryArea tbody td:nth-child(1) {
-    width: var(--de-code-w); max-width: var(--de-code-w); min-width: var(--de-code-w);
-    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  #dataEntryArea thead th .de-col-label {
+    display: block; overflow: hidden; text-align: center;
   }
-  /* نام — فشرده، بدون کش آمدن */
-  #dataEntryArea thead th:nth-child(2),
-  #dataEntryArea tbody td:nth-child(2) {
-    width: var(--de-name-w); max-width: var(--de-name-w); min-width: var(--de-name-w);
-    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  #dataEntryArea thead th .de-resize {
+    position: absolute; top: 0; left: 0; width: 6px; height: 100%;
+    cursor: col-resize; user-select: none; z-index: 3;
+  }
+  #dataEntryArea thead th .de-resize:hover,
+  #dataEntryArea thead th .de-resize.dragging {
+    background: rgba(15, 118, 110, 0.35);
+  }
+  #dataEntryArea tbody td {
+    text-align: center !important; font-size: var(--de-font); padding: 0 1px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
   #dataEntryArea tr:hover td { background: #ecfdf5; }
   #dataEntryArea .data-input {
     width: 100%; max-width: 100%; min-width: 0; height: calc(var(--de-row-h) - 4px);
     box-sizing: border-box; padding: 0 1px; font-size: var(--de-font);
+    text-align: center !important;
   }
   #dataEntryArea select.data-input {
     width: 100%; max-width: 100%; min-width: 0;
     height: calc(var(--de-row-h) - 4px); font-size: calc(var(--de-font) - 0.04rem); padding: 0;
+    text-align: center !important; text-align-last: center;
   }
   .data-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .log-entry { border-bottom: 1px solid #e2e8f0; padding: 10px 0; font-size: 0.82rem; }
@@ -935,6 +939,8 @@
             style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
             onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — عرض ستون نام">
         </label>
+        <button type="button" class="btn btn-outline btn-sm" onclick="resetDataEntryColWidths()" title="بازگشت به نسبت پیش‌فرض ستون‌ها">بازنشانی عرض ستون‌ها</button>
+        <span style="font-size:0.72rem;color:#64748b;">لبه ستون را مثل اکسل بکشید</span>
       </div>
       </div>
       <div id="dataEntryArea" style="display:none; overflow-x:auto;">
@@ -4899,33 +4905,156 @@ function getDataKey() {
   return document.getElementById('dataYear').value + '-' + document.getElementById('dataMonth').value;
 }
 
-/** تنظیم عرض ستون / ارتفاع ردیف شیت ورود داده (ذخیره در localStorage) */
-function applyDataEntryLayout() {
-  var area = document.getElementById('dataEntryArea');
-  if (!area) return;
+/** تنظیم ارتفاع ردیف + نسبت پایه ستون‌ها؛ عرض تک‌تک ستون با کشیدن لبه مثل اکسل */
+function deDefaultWidths(colCount) {
+  var col = document.getElementById('deColWidth');
+  var name = document.getElementById('deNameWidth');
+  var cw = col ? Math.max(28, Math.min(120, Number(col.value) || 44)) : 44;
+  var nw = name ? Math.max(60, Math.min(220, Number(name.value) || 110)) : 110;
+  var codeW = Math.max(56, Math.round(cw * 1.6));
+  var widths = [];
+  for (var i = 0; i < colCount; i++) {
+    if (i === 0) widths.push(codeW);
+    else if (i === 1) widths.push(nw);
+    else widths.push(cw);
+  }
+  return widths;
+}
+function deLoadSavedWidths(colCount) {
+  try {
+    var s = JSON.parse(localStorage.getItem('parssepehr_de_layout') || '{}');
+    if (s.row && document.getElementById('deRowHeight')) document.getElementById('deRowHeight').value = s.row;
+    if (s.col && document.getElementById('deColWidth')) document.getElementById('deColWidth').value = s.col;
+    if (s.name && document.getElementById('deNameWidth')) document.getElementById('deNameWidth').value = s.name;
+    if (Array.isArray(s.widths) && s.widths.length) {
+      var w = s.widths.slice(0, colCount);
+      while (w.length < colCount) {
+        var i = w.length;
+        var defs = deDefaultWidths(colCount);
+        w.push(defs[i]);
+      }
+      return w;
+    }
+  } catch (e) {}
+  return deDefaultWidths(colCount);
+}
+function deSaveLayout(widths) {
   var col = document.getElementById('deColWidth');
   var row = document.getElementById('deRowHeight');
   var name = document.getElementById('deNameWidth');
-  var cw = col ? Math.max(28, Math.min(120, Number(col.value) || 44)) : 44;
+  var payload = {
+    col: col ? Number(col.value) || 44 : 44,
+    row: row ? Number(row.value) || 26 : 26,
+    name: name ? Number(name.value) || 110 : 110,
+    widths: widths || []
+  };
+  try { localStorage.setItem('parssepehr_de_layout', JSON.stringify(payload)); } catch (e) {}
+}
+function applyDataEntryLayout() {
+  var area = document.getElementById('dataEntryArea');
+  if (!area) return;
+  var row = document.getElementById('deRowHeight');
   var rh = row ? Math.max(20, Math.min(56, Number(row.value) || 26)) : 26;
-  var nw = name ? Math.max(60, Math.min(200, Number(name.value) || 110)) : 110;
-  if (col) col.value = cw;
   if (row) row.value = rh;
-  if (name) name.value = nw;
-  area.style.setProperty('--de-col-w', cw + 'px');
   area.style.setProperty('--de-row-h', rh + 'px');
-  area.style.setProperty('--de-name-w', nw + 'px');
-  try {
-    localStorage.setItem('parssepehr_de_layout', JSON.stringify({ col: cw, row: rh, name: nw }));
-  } catch (e) {}
+  var table = area.querySelector('table');
+  if (!table) return;
+  var ths = table.querySelectorAll('thead th');
+  if (!ths.length) return;
+  var widths = deLoadSavedWidths(ths.length);
+  // اگر کاربر عرض پایه را عوض کرد، نسبت‌ها را دوباره از پیش‌فرض بساز (با حفظ کشیده‌شده‌ها فقط اگر هنوز ذخیره نشده)
+  applyColumnWidths(table, widths);
+  deSaveLayout(widths);
+  enableColumnResize(table);
+}
+function applyColumnWidths(table, widths) {
+  if (!table || !widths) return;
+  var ths = table.querySelectorAll('thead th');
+  var rows = table.querySelectorAll('tr');
+  var total = 0;
+  for (var i = 0; i < ths.length; i++) {
+    var w = Math.max(28, Number(widths[i]) || 44);
+    widths[i] = w;
+    total += w;
+    ths[i].style.width = w + 'px';
+    ths[i].style.minWidth = w + 'px';
+    ths[i].style.maxWidth = w + 'px';
+  }
+  table.style.width = total + 'px';
+  rows.forEach(function(tr) {
+    for (var c = 0; c < tr.children.length && c < widths.length; c++) {
+      var cell = tr.children[c];
+      var w = widths[c];
+      cell.style.width = w + 'px';
+      cell.style.minWidth = w + 'px';
+      cell.style.maxWidth = w + 'px';
+    }
+  });
+}
+function getCurrentColumnWidths(table) {
+  var ths = table.querySelectorAll('thead th');
+  var out = [];
+  ths.forEach(function(th) {
+    out.push(Math.max(28, Math.round(th.getBoundingClientRect().width) || 44));
+  });
+  return out;
+}
+function enableColumnResize(table) {
+  if (!table) return;
+  var ths = table.querySelectorAll('thead th');
+  ths.forEach(function(th, idx) {
+    th.style.position = 'sticky';
+    // label wrap if needed
+    if (!th.querySelector('.de-col-label')) {
+      var label = document.createElement('span');
+      label.className = 'de-col-label';
+      while (th.firstChild) label.appendChild(th.firstChild);
+      th.appendChild(label);
+    }
+    var handle = th.querySelector('.de-resize');
+    if (!handle) {
+      handle = document.createElement('span');
+      handle.className = 'de-resize';
+      handle.title = 'کشیدن برای تغییر عرض ستون';
+      th.appendChild(handle);
+    }
+    handle.onmousedown = function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      handle.classList.add('dragging');
+      var startX = ev.clientX;
+      // در RTL لبه چپ = مرز ستون؛ کشیدن به چپ = پهن‌تر
+      var startW = th.getBoundingClientRect().width;
+      var widths = getCurrentColumnWidths(table);
+      function onMove(e) {
+        // RTL: حرکت موس به چپ (clientX کمتر) → عرض بیشتر
+        var dx = startX - e.clientX;
+        var nw = Math.max(28, Math.min(280, Math.round(startW + dx)));
+        widths[idx] = nw;
+        applyColumnWidths(table, widths);
+      }
+      function onUp() {
+        handle.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        deSaveLayout(getCurrentColumnWidths(table));
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+  });
 }
 function loadDataEntryLayout() {
-  try {
-    var s = JSON.parse(localStorage.getItem('parssepehr_de_layout') || '{}');
-    if (s.col && document.getElementById('deColWidth')) document.getElementById('deColWidth').value = s.col;
-    if (s.row && document.getElementById('deRowHeight')) document.getElementById('deRowHeight').value = s.row;
-    if (s.name && document.getElementById('deNameWidth')) document.getElementById('deNameWidth').value = s.name;
-  } catch (e) {}
+  applyDataEntryLayout();
+}
+function resetDataEntryColWidths() {
+  try { localStorage.removeItem('parssepehr_de_layout'); } catch (e) {}
+  var col = document.getElementById('deColWidth');
+  var row = document.getElementById('deRowHeight');
+  var name = document.getElementById('deNameWidth');
+  if (col) col.value = 44;
+  if (row) row.value = 26;
+  if (name) name.value = 110;
   applyDataEntryLayout();
 }
 function getAllQuantityItemNames(year, month) {
