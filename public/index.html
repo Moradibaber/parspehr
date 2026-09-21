@@ -147,20 +147,20 @@
     border: 1px solid #cbd5e1; padding: 3px 4px; vertical-align: middle;
   }
   #dataEntryArea thead th {
-    background: #e2e8f0; color: #0f766e; font-size: 0.68rem; font-weight: 700;
-    white-space: normal; word-break: break-word; line-height: 1.25;
-    max-width: 78px; min-width: 52px; vertical-align: bottom; text-align: center;
-    position: sticky; top: 0; z-index: 2;
+    background: #e2e8f0; color: #0f766e; font-size: 0.62rem; font-weight: 700;
+    white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.15;
+    max-width: 56px; min-width: 36px; width: 48px; vertical-align: bottom; text-align: center;
+    position: sticky; top: 0; z-index: 2; padding: 2px 2px;
   }
-  #dataEntryArea tbody td { text-align: center; font-size: 0.75rem; }
+  #dataEntryArea tbody td { text-align: center; font-size: 0.72rem; padding: 1px 2px; }
   #dataEntryArea tbody td:nth-child(1),
   #dataEntryArea tbody td:nth-child(2) { text-align: right; white-space: nowrap; }
-  #dataEntryArea thead th:nth-child(1),
-  #dataEntryArea thead th:nth-child(2) { max-width: 110px; min-width: 70px; }
+  #dataEntryArea thead th:nth-child(1) { max-width: 48px; min-width: 40px; width: 44px; }
+  #dataEntryArea thead th:nth-child(2) { max-width: 90px; min-width: 70px; width: 80px; }
   #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
   #dataEntryArea tr:hover td { background: #ecfdf5; }
-  #dataEntryArea .data-input { width: 100%; max-width: 64px; box-sizing: border-box; }
-  #dataEntryArea select.data-input { width: 100%; max-width: 100px; font-size: 0.7rem; }
+  #dataEntryArea .data-input { width: 100%; max-width: 48px; min-width: 32px; box-sizing: border-box; padding: 1px 2px; font-size: 0.72rem; }
+  #dataEntryArea select.data-input { width: 100%; max-width: 72px; min-width: 52px; font-size: 0.65rem; padding: 1px; }
   .data-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .log-entry { border-bottom: 1px solid #e2e8f0; padding: 10px 0; font-size: 0.82rem; }
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
@@ -844,8 +844,9 @@
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
         این‌ها ستون‌های عددی ثابت «ورود داده‌های ماهانه» هستند (بدون مبلغ — فقط عدد؛ مثل روز کارکرد، مرخصی، ماموریت).
         همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه ساخته می‌شود.
-        <b>توجه:</b> ستون‌های «تعداد …» در شیت ورود داده از <b>آیتم‌های سفارشی حقوقی</b> (بر اساس تعداد / تعداد خالص) می‌آیند، نه از این شیت.
-        اگر نامی را اینجا عوض کنید فقط ستون متغیر ماهانه عوض می‌شود؛ برای تغییر نام ستون «تعداد …» باید همان آیتم را در «آیتم‌های سفارشی» یا کارت کارمند rename کنید.
+        <b>توجه:</b> ستون‌های «تعداد …» در شیت ورود داده فقط از <b>آیتم‌های سفارشی / حقوق و مزایا کارمند</b> (بر اساس تعداد یا تعداد خالص) می‌آیند.
+        اگر متغیری اینجا هم‌نام با یک آیتم تعدادی باشد، فقط ستون «تعداد …» نمایش داده می‌شود (بدون تکرار).
+        برای تغییر نام ستون «تعداد …» باید همان آیتم را در «آیتم‌های سفارشی» یا کارت کارمند rename کنید.
         تیک <b>اثر روی تعداد خالص</b> مشخص می‌کند آیا این ستون در پیشنهاد خودکار آیتم‌های «تعداد خالص» کسر شود یا نه.
       </p>
       <div id="monthlyVarsList"></div>
@@ -4901,7 +4902,21 @@ function loadDataEntry() {
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
-  getMonthlyVars(true).forEach(function(v) {
+  // ستون‌های متغیر ماهانه فقط وقتی که همان مفهوم به‌صورت آیتم تعدادی حقوقی وجود ندارد
+  // منبع اصلی ستون‌های «تعداد …» = آیتم‌های سفارشی/حقوق کارمند (quantity / qty_flat)
+  var qtyNameSet = {};
+  qtyNames.forEach(function(n) {
+    var k = String(n).trim().replace(/^تعداد\s*/,'');
+    qtyNameSet[k] = true;
+    qtyNameSet[String(n).trim()] = true;
+  });
+  var visibleMonthlyVars = getMonthlyVars(true).filter(function(v) {
+    var nm = String(v.name || '').trim();
+    if (!nm) return false;
+    if (qtyNameSet[nm] || qtyNameSet[nm.replace(/^تعداد\s*/,'')]) return false;
+    return true;
+  });
+  visibleMonthlyVars.forEach(function(v) {
     head += '<th title="متغیر ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
   });
   qtyNames.forEach(function(n) {
@@ -4957,18 +4972,18 @@ function loadDataEntry() {
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.hourlyLeave||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'hourlyLeave\',this.value)" title="ساعات مرخصی ساعتی"></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.nightHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value)"></td>' +
-      '<td><select class="data-input" style="width:118px;font-size:0.72rem;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
+      '<td><select class="data-input" style="width:68px;font-size:0.65rem;padding:1px;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
         '<option value="none"' + ((row.shiftType||'none')==='none'?' selected':'') + '>ندارد</option>' +
         '<option value="me"' + ((row.shiftType||'')==='me'?' selected':'') + '>صبح‌عصر ۱۰٪</option>' +
         '<option value="mn"' + ((row.shiftType||'')==='mn'?' selected':'') + '>صبح/عصر‌شب ۲۲٫۵٪</option>' +
         '<option value="all"' + ((row.shiftType||'')==='all'?' selected':'') + '>سه‌نوبته ۱۵٪</option>' +
       '</select></td>' +
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.shiftDays||0) + '" title="تعداد روزهایی که نوبت‌کار بوده" onchange="updateDataField(\'' + emp.code + '\',\'shiftDays\',this.value)"></td>';
-    getMonthlyVars(true).forEach(v => {
+    visibleMonthlyVars.forEach(function(v) {
       const vv = (row.vars && row.vars[v.id] !== undefined) ? row.vars[v.id] : 0;
       html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(v.id) + "',this.value)") + '"></td>';
     });
-    qtyNames.forEach(n => { html += countCellHtml(emp, row, n, fd, monthDays); });
+    qtyNames.forEach(function(n) { html += countCellHtml(emp, row, n, fd, monthDays); });
     html += '</tr>';
     return html;
   }).join('');
