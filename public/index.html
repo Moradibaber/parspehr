@@ -141,26 +141,44 @@
   }
   .footer-note { margin-top: 10px; font-size: 0.8rem; color: #64748b; text-align: center; }
   .data-input { width: 58px; padding: 2px 3px; font-size: 0.75rem; border: 1px solid #cbd5e1; border-radius: 3px; }
-  /* شیت ورود داده شبیه اکسل */
-  #dataEntryArea table { border-collapse: collapse; border: 1px solid #94a3b8; background: #fff; }
+  /* شیت ورود داده شبیه اکسل — عرض/ارتفاع با کنترل‌های UI قابل تنظیم */
+  #dataEntryArea {
+    --de-col-w: 48px;
+    --de-row-h: 28px;
+    --de-name-w: 88px;
+    --de-font: 0.72rem;
+  }
+  #dataEntryArea table { border-collapse: collapse; border: 1px solid #94a3b8; background: #fff; table-layout: fixed; }
   #dataEntryArea th, #dataEntryArea td {
-    border: 1px solid #cbd5e1; padding: 3px 4px; vertical-align: middle;
+    border: 1px solid #cbd5e1; padding: 1px 2px; vertical-align: middle;
+    height: var(--de-row-h); box-sizing: border-box;
   }
   #dataEntryArea thead th {
-    background: #e2e8f0; color: #0f766e; font-size: 0.62rem; font-weight: 700;
+    background: #e2e8f0; color: #0f766e; font-size: calc(var(--de-font) - 0.08rem); font-weight: 700;
     white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.15;
-    max-width: 56px; min-width: 36px; width: 48px; vertical-align: bottom; text-align: center;
-    position: sticky; top: 0; z-index: 2; padding: 2px 2px;
+    max-width: var(--de-col-w); min-width: calc(var(--de-col-w) * 0.7); width: var(--de-col-w);
+    vertical-align: bottom; text-align: center;
+    position: sticky; top: 0; z-index: 2; padding: 2px 1px;
   }
-  #dataEntryArea tbody td { text-align: center; font-size: 0.72rem; padding: 1px 2px; }
+  #dataEntryArea tbody td { text-align: center; font-size: var(--de-font); padding: 1px 1px; }
   #dataEntryArea tbody td:nth-child(1),
   #dataEntryArea tbody td:nth-child(2) { text-align: right; white-space: nowrap; }
-  #dataEntryArea thead th:nth-child(1) { max-width: 48px; min-width: 40px; width: 44px; }
-  #dataEntryArea thead th:nth-child(2) { max-width: 90px; min-width: 70px; width: 80px; }
+  #dataEntryArea thead th:nth-child(1) {
+    max-width: calc(var(--de-col-w) * 0.9); min-width: calc(var(--de-col-w) * 0.8); width: calc(var(--de-col-w) * 0.9);
+  }
+  #dataEntryArea thead th:nth-child(2) {
+    max-width: var(--de-name-w); min-width: calc(var(--de-name-w) * 0.8); width: var(--de-name-w);
+  }
   #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
   #dataEntryArea tr:hover td { background: #ecfdf5; }
-  #dataEntryArea .data-input { width: 100%; max-width: 48px; min-width: 32px; box-sizing: border-box; padding: 1px 2px; font-size: 0.72rem; }
-  #dataEntryArea select.data-input { width: 100%; max-width: 72px; min-width: 52px; font-size: 0.65rem; padding: 1px; }
+  #dataEntryArea .data-input {
+    width: 100%; max-width: var(--de-col-w); min-width: 28px; height: calc(var(--de-row-h) - 4px);
+    box-sizing: border-box; padding: 1px 2px; font-size: var(--de-font);
+  }
+  #dataEntryArea select.data-input {
+    width: 100%; max-width: calc(var(--de-col-w) * 1.4); min-width: 48px;
+    height: calc(var(--de-row-h) - 4px); font-size: calc(var(--de-font) - 0.05rem); padding: 0 1px;
+  }
   .data-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .log-entry { border-bottom: 1px solid #e2e8f0; padding: 10px 0; font-size: 0.82rem; }
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
@@ -889,6 +907,25 @@
         <button class="btn btn-outline" onclick="downloadDataTemplate()">دانلود نمونه اکسل ورود داده</button>
         <button class="btn btn-outline" onclick="document.getElementById('dataImportFile').click()">بارگذاری اکسل ورود داده</button>
         <input type="file" id="dataImportFile" accept=".csv" style="display:none" onchange="importDataFromExcel(event)">
+        <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
+        <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
+          عرض ستون
+          <input type="number" id="deColWidth" value="48" min="28" max="120" step="2"
+            style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
+            onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — عرض ستون‌های عددی">
+        </label>
+        <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
+          ارتفاع ردیف
+          <input type="number" id="deRowHeight" value="28" min="20" max="56" step="1"
+            style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
+            onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — ارتفاع هر ردیف">
+        </label>
+        <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
+          عرض نام
+          <input type="number" id="deNameWidth" value="88" min="60" max="200" step="4"
+            style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
+            onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — عرض ستون نام">
+        </label>
       </div>
       </div>
       <div id="dataEntryArea" style="display:none; overflow-x:auto;">
@@ -4826,6 +4863,36 @@ function exportChangeLog() {
 function getDataKey() {
   return document.getElementById('dataYear').value + '-' + document.getElementById('dataMonth').value;
 }
+
+/** تنظیم عرض ستون / ارتفاع ردیف شیت ورود داده (ذخیره در localStorage) */
+function applyDataEntryLayout() {
+  var area = document.getElementById('dataEntryArea');
+  if (!area) return;
+  var col = document.getElementById('deColWidth');
+  var row = document.getElementById('deRowHeight');
+  var name = document.getElementById('deNameWidth');
+  var cw = col ? Math.max(28, Math.min(120, Number(col.value) || 48)) : 48;
+  var rh = row ? Math.max(20, Math.min(56, Number(row.value) || 28)) : 28;
+  var nw = name ? Math.max(60, Math.min(200, Number(name.value) || 88)) : 88;
+  if (col) col.value = cw;
+  if (row) row.value = rh;
+  if (name) name.value = nw;
+  area.style.setProperty('--de-col-w', cw + 'px');
+  area.style.setProperty('--de-row-h', rh + 'px');
+  area.style.setProperty('--de-name-w', nw + 'px');
+  try {
+    localStorage.setItem('parssepehr_de_layout', JSON.stringify({ col: cw, row: rh, name: nw }));
+  } catch (e) {}
+}
+function loadDataEntryLayout() {
+  try {
+    var s = JSON.parse(localStorage.getItem('parssepehr_de_layout') || '{}');
+    if (s.col && document.getElementById('deColWidth')) document.getElementById('deColWidth').value = s.col;
+    if (s.row && document.getElementById('deRowHeight')) document.getElementById('deRowHeight').value = s.row;
+    if (s.name && document.getElementById('deNameWidth')) document.getElementById('deNameWidth').value = s.name;
+  } catch (e) {}
+  applyDataEntryLayout();
+}
 function getAllQuantityItemNames(year, month) {
   // فقط آیتم‌های تعداد/تعداد خالص که برای این ماه هنوز فعال‌اند (مدت منقضی نشده)
   const y = year != null ? Number(year) : Number(document.getElementById('dataYear') && document.getElementById('dataYear').value) || Number(data.settings.currentYear) || 1405;
@@ -4988,6 +5055,7 @@ function loadDataEntry() {
     return html;
   }).join('');
   document.getElementById('dataEntryArea').style.display = 'block';
+  loadDataEntryLayout();
   renderCountAlarm();
 }
 
