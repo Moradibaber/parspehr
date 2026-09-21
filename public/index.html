@@ -294,7 +294,7 @@
     <button class="tab-btn" data-tab="customitems">آیتم‌های سفارشی</button>
     <button class="tab-btn" data-tab="settings">نرخ بیمه و مالیات</button>
     <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
-    <button class="tab-btn" data-tab="monthlyvars">متغیرهای ماهانه</button>
+    <button class="tab-btn" data-tab="monthlyvars">ثابت‌های ماهانه</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
     <button class="tab-btn" data-tab="dashboard">داشبورد هزینه‌ها</button>
@@ -868,22 +868,21 @@
   
   <div class="panel" id="panel-monthlyvars">
     <div class="card">
-      <div class="section-title">متغیرهای ورود داده (کارکرد، مرخصی، ماموریت و …)</div>
+      <div class="section-title">ثابت‌های ماهانه (کارکرد، مرخصی، ماموریت و …)</div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
-        این‌ها ستون‌های عددی ثابت «ورود داده‌های ماهانه» هستند (بدون مبلغ — فقط عدد؛ مثل روز کارکرد، مرخصی، ماموریت).
-        همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه ساخته می‌شود.
-        <b>توجه:</b> ستون‌های «تعداد …» در شیت ورود داده فقط از <b>آیتم‌های سفارشی / حقوق و مزایا کارمند</b> (بر اساس تعداد یا تعداد خالص) می‌آیند.
-        اگر متغیری اینجا هم‌نام با یک آیتم تعدادی باشد، فقط ستون «تعداد …» نمایش داده می‌شود (بدون تکرار).
-        برای تغییر نام ستون «تعداد …» باید همان آیتم را در «آیتم‌های سفارشی» یا کارت کارمند rename کنید.
+        این‌ها ستون‌های عددی ثابت «ورود داده‌های ماهانه» هستند (بدون مبلغ — فقط عدد).
+        همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه در شیت ورود داده ساخته می‌شود.
+        <b>منبع ستون‌ها در ورود داده:</b> آیتم‌های ثبت‌شده در همین شیت (ثابت‌های ماهانه) — نه آیتم‌های حقوق و مزایا و نه آیتم‌های سفارشی.
+        این ثابت‌ها در شیت «آیتم‌های حقوق و مزایا» و «آیتم‌های سفارشی» نمایش داده نمی‌شوند.
         تیک <b>اثر روی تعداد خالص</b> مشخص می‌کند آیا این ستون در پیشنهاد خودکار آیتم‌های «تعداد خالص» کسر شود یا نه.
       </p>
       <div id="monthlyVarsList"></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
-        <button class="btn btn-success btn-sm" onclick="addMonthlyVar()">+ افزودن متغیر جدید</button>
+        <button class="btn btn-success btn-sm" onclick="addMonthlyVar()">+ افزودن ثابت جدید</button>
       </div>
       <div style="margin-top:16px;padding:10px 12px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:0.8rem;line-height:1.9;">
         <b>پیشنهاد خودکار فقط برای آیتم‌های «تعداد خالص» (نه «بر اساس تعداد»)</b><br>
-        تعداد پیشنهادی = «کارکرد خالص ماه» − (روزهای ماه − روز کارکرد) − روز مرخصی − مرخصی ساعتی ÷ ۷٫۳۳ − هر متغیری که تیک <b>اثر روی تعداد خالص</b> دارد.<br>
+        تعداد پیشنهادی = «کارکرد خالص ماه» − (روزهای ماه − روز کارکرد) − روز مرخصی − مرخصی ساعتی ÷ ۷٫۳۳ − هر ثابتی که تیک <b>اثر روی تعداد خالص</b> دارد.<br>
         <span style="color:#475569;">مثال: ماه ۳۰ روز، کارکرد خالص ۲۲؛ کارمندی با کارکرد ۲۷ روز، ۲ روز مرخصی و ۱ روز ماموریت ← ۲۲ − ۳ − ۲ − ۱ = <b>۱۶</b>.</span><br>
         <span style="color:#b45309;">توجه: آیتم‌های «بر اساس تعداد» پیشنهاد خودکار نمی‌گیرند و مقدار دستی می‌مانند. تیک «اثر روی بر اساس تعداد» فقط برای استفاده‌های آینده/گزارش است و روی پیشنهاد تعداد خالص اثر ندارد.</span><br>
         این فقط یک <b>پیشنهاد</b> است: در شیت ماهانه خانه‌ی رنگی نشان می‌دهد چه عددی باید باشد؛ اپراتور می‌تواند عدد را عوض کند.
@@ -3155,6 +3154,7 @@ function seedCustomTemplatesFromEmployees() {
       if (isDeductionOrArrearsItem(ci)) return;
       const name = String(ci.name || '').trim();
       if (!name || byName[name]) return;
+      if (typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(name)) return;
       byName[name] = {
         name: name,
         entryType: ci.entryType || 'workdays',
@@ -3175,7 +3175,16 @@ function renderCustomTemplates() {
     box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
     return;
   }
-  box.innerHTML = data.customItemTemplates.map(function(tpl, idx) {
+  // ثابت‌های ماهانه در این شیت نمایش داده نمی‌شوند
+  var templatesForUi = (data.customItemTemplates || []).filter(function(t) {
+    return t && String(t.name || '').trim() && !(typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(t.name));
+  });
+  if (!templatesForUi.length) {
+    box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
+    return;
+  }
+  box.innerHTML = templatesForUi.map(function(tpl, idx) {
+    idx = data.customItemTemplates.indexOf(tpl);
     const dur = (tpl.duration == null || tpl.duration === '') ? 'always' : String(tpl.duration);
     const en = tpl.enabled !== false;
     if (!tpl._prevName) tpl._prevName = tpl.name || '';
@@ -3269,7 +3278,9 @@ function saveCustomTemplates(applyToAll) {
   if (!requirePerm('custom_templates', 'شما اجازه مدیریت آیتم‌های سفارشی را ندارید.')) return;
   // پاک‌سازی نام‌های خالی
   data.customItemTemplates = (data.customItemTemplates || []).filter(function(t) {
-    return t && String(t.name || '').trim();
+    if (!t || !String(t.name || '').trim()) return false;
+    if (typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(t.name)) return false;
+    return true;
   }).map(function(t) {
     return {
       name: String(t.name).trim(),
@@ -3464,14 +3475,26 @@ function applySalaryGradeToEmployee() {
   alert('حقوق پایه کارمند به ' + formatNumber(r.salary) + ' ریال به‌روز شد.');
 }
 
+function isFixedMonthlyName(name) {
+  var nm = String(name || '').trim();
+  if (!nm) return false;
+  var list = (data.settings && data.settings.monthlyVars) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].name || '').trim() === nm) return true;
+  }
+  return false;
+}
+
 function syncEmployeeCustomsToAllowances() {
   // فقط همگام‌سازی شیت مزایا — پخش اجباری به کارکنان اینجا نیست
+  // ثابت‌های ماهانه وارد شیت مزایا نمی‌شوند
   const byName = {};
   data.allowances.forEach(a => { if (a && a.name) byName[a.name.trim()] = a; });
   data.employees.forEach(emp => {
     (emp.customItems || []).forEach(ci => {
       if (!ci.name || !ci.name.trim()) return;
       if (isDeductionOrArrearsItem(ci)) return;
+      if (isFixedMonthlyName(ci.name)) return;
       const name = ci.name.trim();
       if (!byName[name]) {
         const row = {
@@ -3495,7 +3518,9 @@ function syncEmployeeCustomsToAllowances() {
     });
   });
   data.allowances = (data.allowances || []).filter(function(a) {
-    if (!a || !a.fromEmployee) return true;
+    if (!a) return false;
+    if (isFixedMonthlyName(a.name)) return false;
+    if (!a.fromEmployee) return true;
     return stillUsed.has(String(a.name || '').trim());
   });
 }
@@ -4979,24 +5004,23 @@ function loadDataEntry() {
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
-  // ستون‌های متغیر ماهانه فقط وقتی که همان مفهوم به‌صورت آیتم تعدادی حقوقی وجود ندارد
-  // منبع اصلی ستون‌های «تعداد …» = آیتم‌های سفارشی/حقوق کارمند (quantity / qty_flat)
-  var qtyNameSet = {};
-  qtyNames.forEach(function(n) {
-    var k = String(n).trim().replace(/^تعداد\s*/,'');
-    qtyNameSet[k] = true;
-    qtyNameSet[String(n).trim()] = true;
-  });
-  var visibleMonthlyVars = getMonthlyVars(true).filter(function(v) {
+  // ستون‌های ثابت‌های ماهانه — منبع همین تب (همیشه نمایش)
+  var fixedVars = getMonthlyVars(true);
+  var fixedNameSet = {};
+  fixedVars.forEach(function(v) {
     var nm = String(v.name || '').trim();
-    if (!nm) return false;
-    if (qtyNameSet[nm] || qtyNameSet[nm.replace(/^تعداد\s*/,'')]) return false;
-    return true;
+    if (nm) {
+      fixedNameSet[nm] = true;
+      fixedNameSet[nm.replace(/^تعداد\s*/,'')] = true;
+    }
   });
-  visibleMonthlyVars.forEach(function(v) {
-    head += '<th title="متغیر ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
+  fixedVars.forEach(function(v) {
+    head += '<th title="ثابت ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
   });
+  // ستون‌های «تعداد …» فقط برای آیتم‌های حقوقی تعدادی که در ثابت‌های ماهانه ثبت نشده‌اند
   qtyNames.forEach(function(n) {
+    var bare = String(n).trim().replace(/^تعداد\s*/,'');
+    if (fixedNameSet[String(n).trim()] || fixedNameSet[bare]) return;
     head += '<th title="آیتم حقوقی بر اساس تعداد / تعداد خالص">' + 'تعداد ' + mvEsc(n) + '</th>';
   });
   head += '</tr>';
@@ -5056,11 +5080,15 @@ function loadDataEntry() {
         '<option value="all"' + ((row.shiftType||'')==='all'?' selected':'') + '>سه‌نوبته ۱۵٪</option>' +
       '</select></td>' +
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.shiftDays||0) + '" title="تعداد روزهایی که نوبت‌کار بوده" onchange="updateDataField(\'' + emp.code + '\',\'shiftDays\',this.value)"></td>';
-    visibleMonthlyVars.forEach(function(v) {
+    fixedVars.forEach(function(v) {
       const vv = (row.vars && row.vars[v.id] !== undefined) ? row.vars[v.id] : 0;
       html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(v.id) + "',this.value)") + '"></td>';
     });
-    qtyNames.forEach(function(n) { html += countCellHtml(emp, row, n, fd, monthDays); });
+    qtyNames.forEach(function(n) {
+      var bare = String(n).trim().replace(/^تعداد\s*/,'');
+      if (fixedNameSet[String(n).trim()] || fixedNameSet[bare]) return;
+      html += countCellHtml(emp, row, n, fd, monthDays);
+    });
     html += '</tr>';
     return html;
   }).join('');
@@ -8834,7 +8862,7 @@ function updateDataVar(code, id, value) {
   refreshCountCells(code);
 }
 
-// ---- the "متغیرهای ماهانه" tab (admin only) ----
+// ---- the "ثابت‌های ماهانه" tab (admin only) ----
 // Fixed numeric data-entry columns (no amount). Names are editable; effects only drive qty_flat suggestions.
 var MV_BUILTINS = [
   { key: 'workDays', name: 'روز کارکرد', unit: 'روز', rule: 'workShortfall', ruleFlat: 'workShortfallFlat' },
@@ -8952,15 +8980,15 @@ function updateMonthlyVar(id, field, value) {
 }
 
 function addMonthlyVar(presetName) {
-  if (!isAdmin()) { alert('فقط ادمین می‌تواند متغیر تعریف کند.'); return; }
-  var name = presetName || prompt('نام متغیر جدید را وارد کنید (مثلاً مرخصی استعلاجی):');
+  if (!isAdmin()) { alert('فقط ادمین می‌تواند ثابت ماهانه تعریف کند.'); return; }
+  var name = presetName || prompt('نام ثابت ماهانه جدید را وارد کنید (مثلاً مرخصی استعلاجی):');
   name = String(name || '').trim();
   if (!name) return;
   var list = data.settings.monthlyVars = data.settings.monthlyVars || [];
   var clash = MV_BUILTINS.some(function(b) { return b.name === name; }) || list.some(function(o) { return o && String(o.name).trim() === name; });
   if (clash) { alert('این نام قبلاً وجود دارد.'); return; }
   list.push({ id: 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), name: name, unit: 'day', deductCounts: false, deductQtyFlat: true, active: true });
-  try { addChangeLog('متغیر ماهانه', '-', 'افزودن متغیر: ' + name); } catch (e) {}
+  try { addChangeLog('ثابت ماهانه', '-', 'افزودن ثابت: ' + name); } catch (e) {}
   saveToCache();
   renderMonthlyVars();
 }
@@ -8969,9 +8997,9 @@ function deleteMonthlyVar(id) {
   if (!isAdmin()) return;
   var v = mvFind(id);
   if (!v) return;
-  if (!confirm('متغیر «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
+  if (!confirm('ثابت «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
   data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
-  try { addChangeLog('متغیر ماهانه', '-', 'حذف متغیر: ' + v.name); } catch (e) {}
+  try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
   saveToCache();
   renderMonthlyVars();
   try {
