@@ -143,41 +143,51 @@
   .data-input { width: 58px; padding: 2px 3px; font-size: 0.75rem; border: 1px solid #cbd5e1; border-radius: 3px; }
   /* شیت ورود داده شبیه اکسل — عرض/ارتفاع با کنترل‌های UI قابل تنظیم */
   #dataEntryArea {
-    --de-col-w: 48px;
-    --de-row-h: 28px;
-    --de-name-w: 88px;
-    --de-font: 0.72rem;
+    --de-col-w: 44px;
+    --de-row-h: 26px;
+    --de-name-w: 110px;
+    --de-code-w: 72px;
+    --de-font: 0.7rem;
   }
-  #dataEntryArea table { border-collapse: collapse; border: 1px solid #94a3b8; background: #fff; table-layout: fixed; }
+  /* عرض جدول = جمع ستون‌ها (نه کشیده شدن تا تمام صفحه) */
+  #dataEntryArea table {
+    border-collapse: collapse; border: 1px solid #94a3b8; background: #fff;
+    table-layout: fixed; width: max-content; max-width: none;
+  }
   #dataEntryArea th, #dataEntryArea td {
     border: 1px solid #cbd5e1; padding: 1px 2px; vertical-align: middle;
     height: var(--de-row-h); box-sizing: border-box;
+    width: var(--de-col-w); max-width: var(--de-col-w);
   }
   #dataEntryArea thead th {
-    background: #e2e8f0; color: #0f766e; font-size: calc(var(--de-font) - 0.08rem); font-weight: 700;
-    white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.15;
-    max-width: var(--de-col-w); min-width: calc(var(--de-col-w) * 0.7); width: var(--de-col-w);
+    background: #e2e8f0; color: #0f766e; font-size: calc(var(--de-font) - 0.06rem); font-weight: 700;
+    white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.12;
+    width: var(--de-col-w); max-width: var(--de-col-w); min-width: var(--de-col-w);
     vertical-align: bottom; text-align: center;
     position: sticky; top: 0; z-index: 2; padding: 2px 1px;
   }
-  #dataEntryArea tbody td { text-align: center; font-size: var(--de-font); padding: 1px 1px; }
-  #dataEntryArea tbody td:nth-child(1),
-  #dataEntryArea tbody td:nth-child(2) { text-align: right; white-space: nowrap; }
-  #dataEntryArea thead th:nth-child(1) {
-    max-width: calc(var(--de-col-w) * 0.9); min-width: calc(var(--de-col-w) * 0.8); width: calc(var(--de-col-w) * 0.9);
+  #dataEntryArea tbody td { text-align: center; font-size: var(--de-font); padding: 0 1px; }
+  /* کد */
+  #dataEntryArea thead th:nth-child(1),
+  #dataEntryArea tbody td:nth-child(1) {
+    width: var(--de-code-w); max-width: var(--de-code-w); min-width: var(--de-code-w);
+    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #dataEntryArea thead th:nth-child(2) {
-    max-width: var(--de-name-w); min-width: calc(var(--de-name-w) * 0.8); width: var(--de-name-w);
+  /* نام — فشرده، بدون کش آمدن */
+  #dataEntryArea thead th:nth-child(2),
+  #dataEntryArea tbody td:nth-child(2) {
+    width: var(--de-name-w); max-width: var(--de-name-w); min-width: var(--de-name-w);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
   #dataEntryArea tr:hover td { background: #ecfdf5; }
   #dataEntryArea .data-input {
-    width: 100%; max-width: var(--de-col-w); min-width: 28px; height: calc(var(--de-row-h) - 4px);
-    box-sizing: border-box; padding: 1px 2px; font-size: var(--de-font);
+    width: 100%; max-width: 100%; min-width: 0; height: calc(var(--de-row-h) - 4px);
+    box-sizing: border-box; padding: 0 1px; font-size: var(--de-font);
   }
   #dataEntryArea select.data-input {
-    width: 100%; max-width: calc(var(--de-col-w) * 1.4); min-width: 48px;
-    height: calc(var(--de-row-h) - 4px); font-size: calc(var(--de-font) - 0.05rem); padding: 0 1px;
+    width: 100%; max-width: 100%; min-width: 0;
+    height: calc(var(--de-row-h) - 4px); font-size: calc(var(--de-font) - 0.04rem); padding: 0;
   }
   .data-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .log-entry { border-bottom: 1px solid #e2e8f0; padding: 10px 0; font-size: 0.82rem; }
@@ -910,19 +920,19 @@
         <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
         <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
           عرض ستون
-          <input type="number" id="deColWidth" value="48" min="28" max="120" step="2"
+          <input type="number" id="deColWidth" value="44" min="28" max="120" step="2"
             style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
             onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — عرض ستون‌های عددی">
         </label>
         <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
           ارتفاع ردیف
-          <input type="number" id="deRowHeight" value="28" min="20" max="56" step="1"
+          <input type="number" id="deRowHeight" value="26" min="20" max="56" step="1"
             style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
             onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — ارتفاع هر ردیف">
         </label>
         <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
           عرض نام
-          <input type="number" id="deNameWidth" value="88" min="60" max="200" step="4"
+          <input type="number" id="deNameWidth" value="110" min="60" max="200" step="4"
             style="width:56px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;"
             onchange="applyDataEntryLayout()" oninput="applyDataEntryLayout()" title="پیکسل — عرض ستون نام">
         </label>
@@ -4871,9 +4881,9 @@ function applyDataEntryLayout() {
   var col = document.getElementById('deColWidth');
   var row = document.getElementById('deRowHeight');
   var name = document.getElementById('deNameWidth');
-  var cw = col ? Math.max(28, Math.min(120, Number(col.value) || 48)) : 48;
-  var rh = row ? Math.max(20, Math.min(56, Number(row.value) || 28)) : 28;
-  var nw = name ? Math.max(60, Math.min(200, Number(name.value) || 88)) : 88;
+  var cw = col ? Math.max(28, Math.min(120, Number(col.value) || 44)) : 44;
+  var rh = row ? Math.max(20, Math.min(56, Number(row.value) || 26)) : 26;
+  var nw = name ? Math.max(60, Math.min(200, Number(name.value) || 110)) : 110;
   if (col) col.value = cw;
   if (row) row.value = rh;
   if (name) name.value = nw;
