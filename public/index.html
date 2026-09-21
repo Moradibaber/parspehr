@@ -140,23 +140,45 @@
     text-align: center; margin-top: 10px; padding: 10px; background: #f0fdfa; border-radius: 8px;
   }
   .footer-note { margin-top: 10px; font-size: 0.8rem; color: #64748b; text-align: center; }
-  .data-input { width: 62px; padding: 3px 4px; font-size: 0.77rem; }
+  .data-input { width: 58px; padding: 2px 3px; font-size: 0.75rem; border: 1px solid #cbd5e1; border-radius: 3px; }
+  /* شیت ورود داده شبیه اکسل */
+  #dataEntryArea table { border-collapse: collapse; border: 1px solid #94a3b8; background: #fff; }
+  #dataEntryArea th, #dataEntryArea td {
+    border: 1px solid #cbd5e1; padding: 3px 4px; vertical-align: middle;
+  }
+  #dataEntryArea thead th {
+    background: #e2e8f0; color: #0f766e; font-size: 0.68rem; font-weight: 700;
+    white-space: normal; word-break: break-word; line-height: 1.25;
+    max-width: 78px; min-width: 52px; vertical-align: bottom; text-align: center;
+    position: sticky; top: 0; z-index: 2;
+  }
+  #dataEntryArea tbody td { text-align: center; font-size: 0.75rem; }
+  #dataEntryArea tbody td:nth-child(1),
+  #dataEntryArea tbody td:nth-child(2) { text-align: right; white-space: nowrap; }
+  #dataEntryArea thead th:nth-child(1),
+  #dataEntryArea thead th:nth-child(2) { max-width: 110px; min-width: 70px; }
+  #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
+  #dataEntryArea tr:hover td { background: #ecfdf5; }
+  #dataEntryArea .data-input { width: 100%; max-width: 64px; box-sizing: border-box; }
+  #dataEntryArea select.data-input { width: 100%; max-width: 100px; font-size: 0.7rem; }
   .data-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
   .log-entry { border-bottom: 1px solid #e2e8f0; padding: 10px 0; font-size: 0.82rem; }
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
   .log-change { color: #64748b; margin-top: 4px; white-space: pre-wrap; }
   @media print {
-    @page { size: A4 portrait; margin: 12mm; }
-    .toolbar, .tabs, .no-print, .app-top-header, header, .footer-note, .panel > .card > .section-title,
-    .panel > .card > .form-grid, .panel > .card > p { display: none !important; }
-    body { background: #fff !important; padding: 0 !important; margin: 0 !important; }
-    .container { max-width: 100% !important; padding: 0 !important; box-shadow: none !important; }
+    @page { size: A4 portrait; margin: 8mm; }
+    html, body { background: #fff !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
+    .toolbar, .tabs, .no-print, .app-top-header, header, .footer-note,
+    .panel > .card > .section-title, .panel > .card > .form-grid, .panel > .card > p,
+    #loginOverlay, #welcomeToast, #syncBanner, #bootLoading { display: none !important; }
+    .container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
     .panel { display: none !important; }
     .panel.active { display: block !important; }
     #panel-payslip, #panel-payslip .card, #payslipContainer, .payslip,
     #panel-eid, #panel-eid .card, #eidPayslipContainer, #eidPayslipPrintArea {
       display: block !important; border: none !important; box-shadow: none !important;
-      padding: 0 !important; margin: 0 !important; max-width: 100% !important; border-radius: 0 !important;
+      padding: 0 !important; margin: 0 auto !important; max-width: 100% !important; border-radius: 0 !important;
+      background: #fff !important;
     }
     #panel-payslip .card > .section-title,
     #panel-payslip .card > .form-grid,
@@ -164,12 +186,18 @@
     #panel-eid .card > .form-grid,
     #panel-eid .card > p { display: none !important; }
     #eidResultArea { display: none !important; }
-    /* هنگام چاپ فقط فیش نمایش داده شود، پنل تیک‌ها مخفی */
     #eidPayslipContainer > div { display: block !important; }
     #eidPayslipContainer > div > div:first-child { display: none !important; }
     #eidPayslipPrintArea { display: block !important; }
-    .payslip table { width: 100%; border-collapse: collapse; }
-    .payslip td, .payslip th { border: 1px solid #ccc; padding: 4px 6px; }
+    .payslip { max-width: 100% !important; page-break-inside: avoid; break-inside: avoid; }
+    .payslip-header { margin-bottom: 6px !important; }
+    .payslip-header h2 { font-size: 1.05rem !important; margin: 0 0 2px !important; }
+    .payslip-header p { font-size: 0.85rem !important; margin: 0 !important; }
+    .payslip table { width: 100%; border-collapse: collapse; font-size: 0.78rem !important; }
+    .payslip td, .payslip th { border: 1px solid #999; padding: 3px 5px !important; }
+    .net-pay { margin-top: 8px !important; padding: 8px !important; font-size: 1rem !important; page-break-inside: avoid; }
+    /* جلوگیری از صفحه دوم خالی */
+    body * { box-shadow: none !important; }
   }
 
   /* پیام خوش‌آمد شیک */
@@ -815,15 +843,14 @@
       <div class="section-title">متغیرهای ورود داده (کارکرد، مرخصی، ماموریت و …)</div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
         این‌ها ستون‌های عددی ثابت «ورود داده‌های ماهانه» هستند (بدون مبلغ — فقط عدد؛ مثل روز کارکرد، مرخصی، ماموریت).
-        همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه ساخته می‌شود و در شیت ماهانه و اکسل ظاهر می‌شود.
+        همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه ساخته می‌شود.
+        <b>توجه:</b> ستون‌های «تعداد …» در شیت ورود داده از <b>آیتم‌های سفارشی حقوقی</b> (بر اساس تعداد / تعداد خالص) می‌آیند، نه از این شیت.
+        اگر نامی را اینجا عوض کنید فقط ستون متغیر ماهانه عوض می‌شود؛ برای تغییر نام ستون «تعداد …» باید همان آیتم را در «آیتم‌های سفارشی» یا کارت کارمند rename کنید.
         تیک <b>اثر روی تعداد خالص</b> مشخص می‌کند آیا این ستون در پیشنهاد خودکار آیتم‌های «تعداد خالص» کسر شود یا نه.
-        تعریف فقط توسط ادمین؛ اپراتورها فقط مقدار وارد می‌کنند.
       </p>
       <div id="monthlyVarsList"></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
         <button class="btn btn-success btn-sm" onclick="addMonthlyVar()">+ افزودن متغیر جدید</button>
-        <button class="btn btn-outline btn-sm" onclick="addMonthlyVar('مرخصی استعلاجی')">+ مرخصی استعلاجی</button>
-        <button class="btn btn-outline btn-sm" onclick="addMonthlyVar('ماموریت')">+ ماموریت</button>
       </div>
       <div style="margin-top:16px;padding:10px 12px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:0.8rem;line-height:1.9;">
         <b>پیشنهاد خودکار فقط برای آیتم‌های «تعداد خالص» (نه «بر اساس تعداد»)</b><br>
@@ -3173,6 +3200,10 @@ function renameCustomItemEverywhere(oldName, newName) {
     });
   });
   saveToCache();
+  try {
+    if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+      loadDataEntry();
+  } catch (e) {}
 }
 function addCustomTemplateRow() {
   if (!data.customItemTemplates) data.customItemTemplates = [];
@@ -4811,6 +4842,25 @@ function getAllQuantityItemNames(year, month) {
   return Array.from(names).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
 }
 
+/** حذف کلیدهای qty که دیگر در لیست آیتم‌های تعداد/تعداد خالص فعال نیستند */
+function pruneOrphanQtyKeys(monthKey, validNames) {
+  var bucket = data.monthlyData && data.monthlyData[monthKey];
+  if (!bucket) return;
+  var valid = {};
+  (validNames || []).forEach(function(n) { valid[String(n).trim()] = true; });
+  Object.keys(bucket).forEach(function(code) {
+    if (code === '_meta') return;
+    var row = bucket[code];
+    if (!row || !row.qty) return;
+    Object.keys(row.qty).forEach(function(qn) {
+      if (!valid[String(qn).trim()]) {
+        delete row.qty[qn];
+        if (row.qtyAuto) delete row.qtyAuto[qn];
+      }
+    });
+  });
+}
+
 /** آیا این نام آیتم برای ماه، حداقل روی یک کارمند از نوع «تعداد خالص» است؟ */
 function isQtyFlatItemName(name, year, month) {
   const y = year != null ? Number(year) : Number(document.getElementById('dataYear') && document.getElementById('dataYear').value) || Number(data.settings.currentYear) || 1405;
@@ -4846,11 +4896,17 @@ function loadDataEntry() {
   document.getElementById('dataFunctionalDays').value = fd;
   const activeEmps = getActiveEmployees();
   const qtyNames = getAllQuantityItemNames(y, m);
+  // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
+  pruneOrphanQtyKeys(key, qtyNames);
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
-  getMonthlyVars(true).forEach(v => head += '<th>' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>');
-  qtyNames.forEach(n => head += '<th>تعداد ' + mvEsc(n) + '</th>');
+  getMonthlyVars(true).forEach(function(v) {
+    head += '<th title="متغیر ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
+  });
+  qtyNames.forEach(function(n) {
+    head += '<th title="آیتم حقوقی بر اساس تعداد / تعداد خالص">' + 'تعداد ' + mvEsc(n) + '</th>';
+  });
   head += '</tr>';
   thead.innerHTML = head;
   const tbody = document.getElementById('dataEntryBody');
@@ -8771,7 +8827,7 @@ function updateMonthlyVar(id, field, value) {
   if (!v) return;
   if (field === 'name') {
     var nm = String(value || '').trim();
-    var clash = MV_BUILTINS.some(function(b) { return b.name === nm; }) ||
+    var clash = MV_BUILTINS.some(function(b) { return getBuiltinLabel(b.key, b.name) === nm || b.name === nm; }) ||
       (data.settings.monthlyVars || []).some(function(o) { return o && o.id !== id && String(o.name).trim() === nm; });
     if (!nm || clash) {
       alert(!nm ? 'نام نمی‌تواند خالی باشد.' : 'این نام قبلاً استفاده شده است.');
@@ -8779,10 +8835,25 @@ function updateMonthlyVar(id, field, value) {
       return;
     }
     v.name = nm;
+    // شیت ورود داده را بلافاصله با نام جدید بازسازی کن تا نام قبلی نماند
+    try {
+      if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+        loadDataEntry();
+    } catch (e) {}
   } else if (field === 'unit') {
     v.unit = value === 'hour' ? 'hour' : 'day';
+    try {
+      if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+        loadDataEntry();
+    } catch (e) {}
   } else if (field === 'deductCounts' || field === 'deductQtyFlat' || field === 'active') {
     v[field] = !!value;
+    if (field === 'active') {
+      try {
+        if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+          loadDataEntry();
+      } catch (e) {}
+    }
   }
   saveToCache();
 }
@@ -8810,6 +8881,10 @@ function deleteMonthlyVar(id) {
   try { addChangeLog('متغیر ماهانه', '-', 'حذف متغیر: ' + v.name); } catch (e) {}
   saveToCache();
   renderMonthlyVars();
+  try {
+    if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+      loadDataEntry();
+  } catch (e) {}
 }
 
 /* ---- Central sync: the Cloudflare server keeps the master copy; every computer follows it automatically ---- */
