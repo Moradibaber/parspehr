@@ -18,11 +18,17 @@
   }
   .container { max-width: 1750px; margin: 0 auto; }
   header {
-    background: var(--card); border-radius: 12px; padding: 12px 18px; margin-bottom: 12px;
-    box-shadow: 0 2px 6px rgba(15,118,110,0.08);
-    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+    background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #0891b2 100%);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(15,118,110,0.15);
+    display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px;
+    text-align: center; min-height: 56px;
   }
-  header h1 { font-size: 1.25rem; font-weight: 700; color: var(--primary); }
+  header h1 {
+    font-size: 1.3rem; font-weight: 800; color: #ffffff;
+    margin: 0; letter-spacing: -0.02em; text-align: center; width: 100%;
+  }
+  header #appYearLabel { color: #ecfdf5; }
   .badge { background: #ccfbf1; color: var(--primary); font-size: 0.72rem; padding: 3px 10px; border-radius: 16px; font-weight: 600; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
   button, .btn {
@@ -1351,6 +1357,7 @@
       <div class="section-title" style="font-size:0.95rem;">ماتریس دسترسی (برای حساب‌های انتخاب‌شده)</div>
       <p id="permTargetHint" style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
         ابتدا یک یا چند حساب با نقش «اپراتور» را تیک بزنید، سپس تیک دسترسی‌ها را تنظیم و ذخیره کنید.
+        دسترسی‌های جدید (مثل «ثابت‌های ماهانه») برای حساب‌های قدیمی به‌صورت خودکار در ماتریس ظاهر می‌شوند؛ مقدار پیش‌فرض آن‌ها را اینجا تنظیم کنید.
       </p>
       <div id="permMatrixBox" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
@@ -1594,7 +1601,7 @@
         نحوه ورود:
         «بر اساس کارکرد» = مبلغ × (روز کارکرد ÷ ۳۰) — اگر تیک <b>ثابت</b> باشد مبلغ کامل بدون تناسب<br>
         «بر اساس تعداد» = تعداد × مبلغ (مثلاً ایاب ذهاب)<br>
-        «تعداد خالص» = مبلغ × min(تعداد واردشده ، کارکرد خالص) ÷ کارکرد خالص — همیشه بر اساس کارکرد خالص و تعداد در شیت ورود داده (حق خودرو و مشابه)<br>
+        «تعداد خالص» = مبلغ × (تعداد مؤثر ÷ کارکرد خالص) — تعداد مؤثر = تعداد واردشده؛ اگر خالی/صفر باشد از <b>روز کارکرد</b> استفاده می‌شود (تا با کارکرد کم، مبلغ صفر نشود)<br>
         تیک <b>کسر</b> = از حقوق کم می‌شود. تیک <b>ثابت</b> فقط برای «بر اساس کارکرد» معنی دارد (مبلغ ثابت).<br>
         <b>مدت:</b> همیشه = هر ماه | یک ماه = فقط همان ماه | دو ماه = همان ماه و ماه بعد | … سپس از کارکنان و محاسبه حذف می‌شود.
       </div>
@@ -1728,6 +1735,7 @@ var OPERATOR_PERM_DEFS = [
   { group: 'ورود داده و محاسبه', items: [
     { key: 'data_entry', label: 'ورود و ذخیره داده‌های ماهانه (کارکرد، اضافه‌کار، …)' },
     { key: 'data_import', label: 'بارگذاری اکسل ورود داده' },
+    { key: 'monthly_vars', label: 'مشاهده و مدیریت ثابت‌های ماهانه' },
     { key: 'payroll_run', label: 'اجرای محاسبه حقوق ماهانه' },
     { key: 'payroll_lock', label: 'قفل مبنای پرداخت‌شده' },
     { key: 'payroll_adjust', label: 'محاسبه مغایرت / اصلاح' }
@@ -1783,6 +1791,7 @@ function defaultOperatorPermissions() {
     settings_save: false,
     data_entry: true,
     data_import: true,
+    monthly_vars: false,
     payroll_run: true,
     payroll_lock: false,
     payroll_adjust: false,
@@ -2648,7 +2657,11 @@ function updateRoleUI() {
     const activeTab = document.querySelector('.tab-btn.active');
     if (activeTab) {
       const t = activeTab.dataset.tab;
-      if (t === 'changelog' || t === 'pending' || t === 'permissions' || t === 'monthlyvars') {
+      if (t === 'pending' || t === 'permissions') {
+        document.querySelector('.tab-btn[data-tab="employees"]').click();
+      } else if (t === 'monthlyvars' && !hasPerm('monthly_vars')) {
+        document.querySelector('.tab-btn[data-tab="employees"]').click();
+      } else if (t === 'changelog' && !hasPerm('changelog')) {
         document.querySelector('.tab-btn[data-tab="employees"]').click();
       }
     }
@@ -2665,6 +2678,7 @@ function applyTabVisibilityByPerm() {
     customitems: 'custom_templates',
     settings: 'settings_view',
     dataentry: 'data_entry',
+    monthlyvars: 'monthly_vars',
     payroll: 'payroll_run',
     payslip: 'payslip',
     dashboard: 'dashboard',
@@ -2681,7 +2695,7 @@ function applyTabVisibilityByPerm() {
   };
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn) {
     var tab = btn.dataset.tab;
-    if (tab === 'pending' || tab === 'permissions' || tab === 'monthlyvars') {
+    if (tab === 'pending' || tab === 'permissions') {
       btn.style.display = isAdmin() ? '' : 'none';
       return;
     }
@@ -9013,7 +9027,7 @@ function getBuiltinLabel(key, fallback) {
 }
 
 function setBuiltinLabel(key, value) {
-  if (!isAdmin()) return;
+  if (!isAdmin() && !hasPerm('monthly_vars')) return;
   if (!data.settings.builtinLabels) data.settings.builtinLabels = {};
   var nm = String(value || '').trim();
   if (!nm) {
@@ -9059,7 +9073,7 @@ function renderMonthlyVars() {
 }
 
 function setCountRule(rule, checked) {
-  if (!isAdmin()) return;
+  if (!isAdmin() && !hasPerm('monthly_vars')) return;
   data.settings.countRules = Object.assign({}, data.settings.countRules || {});
   data.settings.countRules[rule] = !!checked;
   saveToCache();
@@ -9072,7 +9086,7 @@ function mvFind(id) {
 }
 
 function updateMonthlyVar(id, field, value) {
-  if (!isAdmin()) return;
+  if (!isAdmin() && !hasPerm('monthly_vars')) return;
   var v = mvFind(id);
   if (!v) return;
   if (field === 'name') {
@@ -9109,7 +9123,7 @@ function updateMonthlyVar(id, field, value) {
 }
 
 function addMonthlyVar(presetName) {
-  if (!isAdmin()) { alert('فقط ادمین می‌تواند ثابت ماهانه تعریف کند.'); return; }
+  if (!isAdmin() && !hasPerm('monthly_vars')) { alert('دسترسی مدیریت ثابت‌های ماهانه را ندارید.'); return; }
   var name = presetName || prompt('نام ثابت ماهانه جدید را وارد کنید (مثلاً مرخصی استعلاجی):');
   name = String(name || '').trim();
   if (!name) return;
@@ -9123,7 +9137,7 @@ function addMonthlyVar(presetName) {
 }
 
 function deleteMonthlyVar(id) {
-  if (!isAdmin()) return;
+  if (!isAdmin() && !hasPerm('monthly_vars')) return;
   var v = mvFind(id);
   if (!v) return;
   if (!confirm('ثابت «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
