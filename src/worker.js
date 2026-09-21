@@ -329,6 +329,201 @@ async function handleState(request, who, env, path) {
   }
 }
 
+// ---------- Login sessions: a real login page (instead of the browser's remembered login box) ----------
+const SESSION_IDLE_SECONDS = 60 * 60; // logged out after 60 minutes without use
+const COOKIE_NAME = 'psp_session';
+
+function b64urlEncode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64urlDecode(str) {
+  const b = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+  return out;
+}
+
+// The signing key is built from your secrets: changing any login or password ends every open session.
+async function sessionKey(env) {
+  const material = 'psp-session|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|' +
+    String(env.SITE_USER || '') + '|' + String(env.SITE_PASSWORD || '');
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function makeToken(env, name, exp) {
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ u: name, e: exp })));
+  const sig = await crypto.subtle.sign('HMAC', await sessionKey(env), new TextEncoder().encode(payload));
+  return payload + '.' + b64urlEncode(new Uint8Array(sig));
+}
+
+function sessionCookie(token) {
+  return COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
+}
+
+const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
+async function readSession(request, env, users) {
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_session=([^;]+)/);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  if (parts.length !== 2) return null;
+  try {
+    const good = await crypto.subtle.verify('HMAC', await sessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
+    if (!good) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    if (!p || typeof p.u !== 'string' || !Number.isFinite(p.e)) return null;
+    if (p.e < Math.floor(Date.now() / 1000)) return null;
+    // the person must still exist; the role is always taken from the current list
+    if (!Object.prototype.hasOwnProperty.call(users, p.u)) return null;
+    return { name: p.u, role: users[p.u].role, exp: p.e };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function checkLogin(name, pass, users) {
+  const nh = await sha256(name);
+  const ph = await sha256(pass);
+  let found = null;
+  for (const n of Object.keys(users)) {
+    const userOk = sameBytes(nh, await sha256(n));
+    const passOk = sameBytes(ph, await sha256(users[n].password));
+    if (userOk && passOk && found === null) found = { name: n, role: users[n].role };
+  }
+  return found;
+}
+
+function safeNext(n) {
+  return (typeof n === 'string' && n.charAt(0) === '/' && n.charAt(1) !== '/' && n.indexOf('\\') < 0 && n.length < 500) ? n : '/';
+}
+
+function loginPage(opts) {
+  const msg = opts.error ? 'نام کاربری یا رمز عبور اشتباه است.'
+    : (opts.expired ? 'نشست شما به پایان رسید؛ لطفاً دوباره وارد شوید.'
+    : (opts.loggedOut ? 'از سیستم خارج شدید.' : ''));
+  const action = '/login?next=' + encodeURIComponent(opts.next || '/') + (opts.popup ? '&popup=1' : '');
+  const html = '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1"><title>ورود — پارسپهر</title>' +
+    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f766e;font-family:Tahoma,Arial,sans-serif;}' +
+    '.c{background:#fff;border-radius:12px;padding:28px;width:100%;max-width:360px;box-shadow:0 8px 30px rgba(0,0,0,.25);}' +
+    'h1{font-size:1.1rem;color:#0f766e;text-align:center;margin:0 0 6px}p.s{font-size:.85rem;color:#64748b;text-align:center;margin:0 0 16px}' +
+    'label{display:block;font-size:.85rem;margin:10px 0 4px;color:#0f172a}input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #99f6e4;border-radius:8px;font-size:1rem}' +
+    'button{width:100%;margin-top:16px;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-size:1rem;cursor:pointer}' +
+    '.m{color:#b91c1c;font-size:.85rem;text-align:center;margin-bottom:8px;min-height:1em}</style></head><body><div class="c">' +
+    '<h1>ورود به سیستم حقوق و دستمزد پارسپهر</h1><p class="s">نام کاربری و رمز عبور خود را وارد کنید</p>' +
+    '<div class="m">' + msg + '</div>' +
+    '<form method="post" action="' + action + '"><label for="u">نام کاربری</label>' +
+    '<input id="u" name="username" autocomplete="username" autofocus required>' +
+    '<label for="p">رمز عبور</label><input id="p" name="password" type="password" autocomplete="current-password" required>' +
+    '<button type="submit">ورود</button></form></div></body></html>';
+  return new Response(html, {
+    status: opts.error ? 401 : 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+      'X-Robots-Tag': 'noindex, nofollow'
+    }
+  });
+}
+
+async function handleLogin(request, env, users) {
+  const url = new URL(request.url);
+  const next = safeNext(url.searchParams.get('next'));
+  const popup = url.searchParams.get('popup') === '1';
+  if (request.method === 'GET') {
+    return loginPage({ next: next, popup: popup, expired: url.searchParams.get('expired') === '1', loggedOut: url.searchParams.get('loggedout') === '1' });
+  }
+  if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return new Response('Forbidden', { status: 403 });
+  let name = '';
+  let pass = '';
+  try {
+    const form = await request.formData();
+    name = String(form.get('username') || '');
+    pass = String(form.get('password') || '');
+  } catch (e) {}
+  const found = await checkLogin(name, pass, users);
+  if (!found) {
+    await new Promise(function (r) { setTimeout(r, 600); }); // slows down guessing
+    return loginPage({ next: next, popup: popup, error: true });
+  }
+  const cookie = sessionCookie(await makeToken(env, found.name, Math.floor(Date.now() / 1000) + SESSION_IDLE_SECONDS));
+  console.log(JSON.stringify({ event: 'login', user: found.name }));
+  if (popup) {
+    return new Response('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"></head><body style="font-family:Tahoma,Arial,sans-serif;text-align:center;padding:40px">' +
+      '<p>ورود انجام شد. این پنجره را ببندید و به برنامه برگردید.</p><script>try{window.close()}catch(e){}</script></body></html>', {
+      status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': cookie, 'Cache-Control': 'no-store' }
+    });
+  }
+  return new Response(null, { status: 303, headers: { Location: next, 'Set-Cookie': cookie, 'Cache-Control': 'no-store' } });
+}
+
+function handleLogout() {
+  return new Response(null, { status: 303, headers: { Location: '/login?loggedout=1', 'Set-Cookie': CLEAR_COOKIE, 'Cache-Control': 'no-store' } });
+}
+
+function notLoggedIn(request, url) {
+  const dest = request.headers.get('Sec-Fetch-Dest');
+  const accept = request.headers.get('Accept') || '';
+  const isPage = request.method === 'GET' && url.pathname.indexOf('/api/') !== 0 &&
+    (dest === 'document' || (dest === null && accept.indexOf('text/html') >= 0));
+  if (isPage) {
+    return new Response(null, { status: 303, headers: { Location: '/login?next=' + encodeURIComponent(url.pathname + url.search), 'Cache-Control': 'no-store' } });
+  }
+  return jsonResponse({ ok: false, error: 'login_required' }, 401);
+}
+
+function withCookie(res, cookie) {
+  const h = new Headers(res.headers);
+  h.append('Set-Cookie', cookie);
+  return new Response(res.body, { status: res.status, headers: h });
+}
+
+async function route(request, env, users, found) {
+  const user = found.name;
+  // If nobody is marked as admin yet, everybody is treated as admin (so nobody is locked out). Mark one admin in SITE_USERS.
+  const adminConfigured = Object.keys(users).some(function (n) { return users[n].role === 'admin'; });
+  const who = { name: user, role: adminConfigured ? found.role : 'admin' };
+  const path = new URL(request.url).pathname;
+  if (path === '/api/whoami') {
+    return handleWhoami(request, who, adminConfigured, env);
+  }
+  if (path.indexOf('/api/state/') === 0) {
+    return handleState(request, who, env, path);
+  }
+  if (path === '/api/payroll') {
+    return handlePayroll(request, user);
+  }
+  if (path === '/api/calc') {
+    return handleCalc(request, user);
+  }
+
+  const h = new Headers(request.headers);
+  h.delete('If-None-Match');
+  h.delete('If-Modified-Since');
+  const res = await env.ASSETS.fetch(new Request(request, { headers: h }));
+
+  const headers = new Headers(res.headers);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Robots-Tag', 'noindex, nofollow');
+
+  const type = res.headers.get('Content-Type') || '';
+  if (request.method !== 'GET' || res.status !== 200 || type.indexOf('text/html') < 0) {
+    return new Response(res.body, { status: res.status, headers });
+  }
+
+  console.log(JSON.stringify({ event: 'page', user: user, path: path }));
+  const html = await res.text();
+  headers.delete('Content-Length');
+  headers.delete('Content-Encoding');
+  headers.delete('ETag');
+  return new Response(await stamp(html, user, env), { status: 200, headers });
+}
+
 export default {
   async fetch(request, env) {
     let users;
@@ -340,55 +535,29 @@ export default {
     if (Object.keys(users).length === 0) {
       return new Response('Site is not configured yet.', { status: 500 });
     }
+    const url = new URL(request.url);
 
-    const found = await authenticate(request, users);
-    const user = found === null ? null : found.name;
-    if (user === null) {
-      return new Response('Login required', {
-        status: 401,
-        headers: {
-          'WWW-Authenticate': 'Basic realm="parspehr", charset="UTF-8"',
-          'Cache-Control': 'no-store'
-        }
-      });
+    // LOGIN_MODE = basic switches back to the browser's own login box (an emergency way back; not needed normally).
+    if (env.LOGIN_MODE === 'basic') {
+      const b = await authenticate(request, users);
+      if (b === null) {
+        return new Response('Login required', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Basic realm="parspehr", charset="UTF-8"', 'Cache-Control': 'no-store' }
+        });
+      }
+      return route(request, env, users, b);
     }
 
-    // If nobody is marked as admin yet, everybody is treated as admin (so nobody is locked out). Mark one admin in SITE_USERS.
-    const adminConfigured = Object.keys(users).some(function (n) { return users[n].role === 'admin'; });
-    const who = { name: user, role: adminConfigured ? found.role : 'admin' };
-    const path = new URL(request.url).pathname;
-    if (path === '/api/whoami') {
-      return handleWhoami(request, who, adminConfigured, env);
-    }
-    if (path.indexOf('/api/state/') === 0) {
-      return handleState(request, who, env, path);
-    }
-    if (path === '/api/payroll') {
-      return handlePayroll(request, user);
-    }
-    if (path === '/api/calc') {
-      return handleCalc(request, user);
-    }
-
-    const h = new Headers(request.headers);
-    h.delete('If-None-Match');
-    h.delete('If-Modified-Since');
-    const res = await env.ASSETS.fetch(new Request(request, { headers: h }));
-
-    const headers = new Headers(res.headers);
-    headers.set('Cache-Control', 'no-store');
-    headers.set('X-Robots-Tag', 'noindex, nofollow');
-
-    const type = res.headers.get('Content-Type') || '';
-    if (request.method !== 'GET' || res.status !== 200 || type.indexOf('text/html') < 0) {
-      return new Response(res.body, { status: res.status, headers });
-    }
-
-    console.log(JSON.stringify({ event: 'page', user: user, path: new URL(request.url).pathname }));
-    const html = await res.text();
-    headers.delete('Content-Length');
-    headers.delete('Content-Encoding');
-    headers.delete('ETag');
-    return new Response(await stamp(html, user, env), { status: 200, headers });
+    if (url.pathname === '/login') return handleLogin(request, env, users);
+    if (url.pathname === '/logout') return handleLogout();
+    const sess = await readSession(request, env, users);
+    if (sess === null) return notLoggedIn(request, url);
+    // every use extends the session; it ends after 60 idle minutes or when the browser is closed
+    const now = Math.floor(Date.now() / 1000);
+    const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
+      ? sessionCookie(await makeToken(env, sess.name, now + SESSION_IDLE_SECONDS)) : null;
+    const res = await route(request, env, users, { name: sess.name, role: sess.role });
+    return renew ? withCookie(res, renew) : res;
   }
 };
