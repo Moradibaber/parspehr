@@ -17,18 +17,18 @@
     transition: background 0.25s ease;
   }
   .container { max-width: 1750px; margin: 0 auto; }
-  header {
-    background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #0891b2 100%);
+  header.app-top-header, header {
+    background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #0891b2 100%) !important;
     border-radius: 12px; padding: 16px 18px; margin-bottom: 12px;
-    box-shadow: 0 2px 6px rgba(15,118,110,0.15);
-    display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px;
-    text-align: center; min-height: 56px;
+    box-shadow: 0 4px 14px rgba(15,118,110,0.22);
+    display: flex !important; justify-content: center !important; align-items: center !important;
+    flex-wrap: wrap; gap: 8px; text-align: center !important; min-height: 58px;
   }
-  header h1 {
-    font-size: 1.3rem; font-weight: 800; color: #ffffff;
-    margin: 0; letter-spacing: -0.02em; text-align: center; width: 100%;
+  header.app-top-header h1, header h1, #appTitle {
+    font-size: 1.3rem; font-weight: 800; color: #ffffff !important;
+    margin: 0; letter-spacing: -0.02em; text-align: center !important; width: 100%;
   }
-  header #appYearLabel { color: #ecfdf5; }
+  header #appYearLabel, #appYearLabel { color: #ecfdf5 !important; }
   .badge { background: #ccfbf1; color: var(--primary); font-size: 0.72rem; padding: 3px 10px; border-radius: 16px; font-weight: 600; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
   button, .btn {
@@ -168,12 +168,14 @@
   }
   #dataEntryArea thead th {
     background: #e2e8f0; color: #0f766e; font-size: calc(var(--de-font) - 0.06rem); font-weight: 700;
-    white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.12;
-    vertical-align: bottom; text-align: center !important;
-    position: sticky; top: 0; z-index: 2; padding: 2px 4px 2px 2px;
+    white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.15;
+    vertical-align: middle !important; text-align: center !important;
+    position: sticky; top: 0; z-index: 2; padding: 4px 3px;
   }
   #dataEntryArea thead th .de-col-label {
-    display: block; overflow: hidden; text-align: center;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; text-align: center; width: 100%; height: 100%;
+    min-height: calc(var(--de-row-h) + 8px);
   }
   #dataEntryArea thead th .de-resize {
     position: absolute; top: 0; left: 0; width: 6px; height: 100%;
@@ -184,7 +186,8 @@
     background: rgba(15, 118, 110, 0.35);
   }
   #dataEntryArea tbody td {
-    text-align: center !important; font-size: var(--de-font); padding: 0 1px;
+    text-align: center !important; vertical-align: middle !important;
+    font-size: var(--de-font); padding: 0 1px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #dataEntryArea tr:nth-child(even) td { background: #f8fafc; }
@@ -892,8 +895,8 @@
       </div>
       <div style="margin-top:16px;padding:10px 12px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:0.8rem;line-height:1.9;">
         <b>پیشنهاد خودکار فقط برای آیتم‌های «تعداد خالص» (نه «بر اساس تعداد»)</b><br>
-        تعداد پیشنهادی = «کارکرد خالص ماه» − (روزهای ماه − روز کارکرد) − روز مرخصی − مرخصی ساعتی ÷ ۷٫۳۳ − هر ثابتی که تیک <b>اثر روی تعداد خالص</b> دارد.<br>
-        <span style="color:#475569;">مثال: ماه ۳۰ روز، کارکرد خالص ۲۲؛ کارمندی با کارکرد ۲۷ روز، ۲ روز مرخصی و ۱ روز ماموریت ← ۲۲ − ۳ − ۲ − ۱ = <b>۱۶</b>.</span><br>
+        تعداد پیشنهادی = min(روز کارکرد، کارکرد خالص) − روز مرخصی − مرخصی ساعتی ÷ ۷٫۳۳ − هر ثابتی که تیک <b>اثر روی تعداد خالص</b> دارد.<br>
+        <span style="color:#475569;">مثال: کارکرد خالص ۲۲؛ کارمند با کارکرد ۹ روز و بدون مرخصی ← پیشنهاد <b>۹</b> (نه صفر). کارمند با کارکرد ۲۷ و ۲ روز مرخصی ← min(۲۷،۲۲) − ۲ = <b>۲۰</b>.</span><br>
         <span style="color:#b45309;">توجه: آیتم‌های «بر اساس تعداد» پیشنهاد خودکار نمی‌گیرند و مقدار دستی می‌مانند. تیک «اثر روی بر اساس تعداد» فقط برای استفاده‌های آینده/گزارش است و روی پیشنهاد تعداد خالص اثر ندارد.</span><br>
         این فقط یک <b>پیشنهاد</b> است: در شیت ماهانه خانه‌ی رنگی نشان می‌دهد چه عددی باید باشد؛ اپراتور می‌تواند عدد را عوض کند.
         برای کارکنان روزمزد و ساعتی پیشنهادی داده نمی‌شود.
@@ -2395,6 +2398,18 @@ function applyYearTheme(year) {
   });
   const badge = document.querySelector('header .badge');
   if (badge) badge.style.background = t.badge;
+  // هدر همیشه گرادیان تیره + متن سفید (خوانا)
+  var hdr = document.querySelector('header.app-top-header') || document.querySelector('header');
+  if (hdr) {
+    hdr.style.setProperty('background', 'linear-gradient(135deg, ' + t.primary + ' 0%, ' + t.primaryDark + ' 55%, #0891b2 100%)', 'important');
+    hdr.style.setProperty('justify-content', 'center', 'important');
+    hdr.style.setProperty('align-items', 'center', 'important');
+    hdr.style.setProperty('text-align', 'center', 'important');
+  }
+  var title = document.getElementById('appTitle');
+  if (title) title.style.setProperty('color', '#ffffff', 'important');
+  var yl = document.getElementById('appYearLabel');
+  if (yl) yl.style.setProperty('color', '#ecfdf5', 'important');
   // واترمارک
   let wm = document.getElementById('yearWatermark');
   if (!wm) {
@@ -8821,13 +8836,15 @@ function countExpected(emp, row, F, M) {
   M = mvNum(M) > 0 ? mvNum(M) : 30;
   var W = Math.max(0, mvNum(row.workDays));
   var parts = [];
-  var total = F;
-  if (rules.workShortfallFlat) {
-    var missing = Math.max(0, M - W);
-    if (missing > 0) {
-      total -= missing;
-      parts.push('کارکرد ' + mvFmt(W) + ' از ' + mvFmt(M) + ' روز ماه (−' + mvFmt(missing) + ')');
-    }
+  // پیشنهاد تعداد خالص = تناسب با روز کارکرد (نه کسر «روزهای ماه − کارکرد» که کارکرد کم را صفر می‌کرد)
+  // مثال: کارکرد خالص ۲۲، کارکرد ۹ → پیشنهاد ۹ (نه ۰)
+  var total = Math.min(W, F);
+  if (W > 0 && W < F) {
+    parts.push('کارکرد ' + mvFmt(W) + ' روز (سقف کارکرد خالص ' + mvFmt(F) + ')');
+  } else if (W >= F) {
+    parts.push('کارکرد کامل نسبت به کارکرد خالص (' + mvFmt(F) + ')');
+  } else {
+    parts.push('بدون کارکرد');
   }
   var take = function(label, days) {
     if (days > 0) {
