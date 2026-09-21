@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -1272,7 +1272,8 @@
     </div>
   </div>
   <div id="loginOverlay" style="display:flex;position:fixed;inset:0;background:rgba(15,118,110,0.92);z-index:2000;align-items:center;justify-content:center;padding:16px;">
-  <div style="background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
+  <div id="bootLoading" style="position:absolute;color:#fff;font-weight:700;font-size:1.1rem;">در حال بارگذاری…</div>
+  <div id="loginCard" style="visibility:hidden;background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
     <h2 style="color:#0f766e;margin-bottom:8px;font-size:1.15rem;text-align:center;">ورود به سیستم حقوق</h2>
     <p style="font-size:0.88rem;color:#0f766e;text-align:center;margin-bottom:6px;font-weight:600;">به نرم‌افزار حقوق و دستمزد پارسپهر خوش آمدید</p>
     <p style="font-size:0.8rem;color:#64748b;text-align:center;margin-bottom:16px;">حساب خود را انتخاب و رمز را وارد کنید</p>
@@ -2500,7 +2501,7 @@ function showWelcomeToast(roleName) {
 
 function logoutUser() {
   if (ssoActive) {
-    alert('ورود شما با نام کاربری سایت انجام شده است.\nبرای تعویض کاربر، همه پنجره‌های مرورگر را ببندید و دوباره وارد شوید.');
+    syncLogout();
     return;
   }
   if (currentRole) addChangeLog('خروج', '-', 'خروج از سیستم — نقش: ' + (currentUserName || currentRole));
@@ -2514,6 +2515,8 @@ function logoutUser() {
 function showLogin() {
   populateLoginAccounts();
   document.getElementById('loginOverlay').style.display = 'flex';
+  var card0 = document.getElementById('loginCard'); if (card0) card0.style.visibility = 'visible';
+  var boot0 = document.getElementById('bootLoading'); if (boot0) boot0.style.display = 'none';
   var pw = document.getElementById('loginPassword');
   if (pw) pw.value = '';
 }
@@ -5069,6 +5072,7 @@ async function callPayrollServer(year, month, skipLoanSE) {
     alert('ارتباط با سرور محاسبه برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
     return null;
   }
+  if (res.status === 401) { sessionExpired(); return null; }
   let out = null;
   try { out = await res.json(); } catch (e) {}
   if (!res.ok || !out || !out.ok) {
@@ -5105,6 +5109,7 @@ async function callCalcServer(op, payload) {
     alert('ارتباط با سرور محاسبه برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
     return null;
   }
+  if (res.status === 401) { sessionExpired(); return null; }
   let out = null;
   try { out = await res.json(); } catch (e) {}
   if (!res.ok || !out || !out.ok) {
@@ -8389,6 +8394,7 @@ var syncBackedUp = false;
 var syncShapes = null;
 
 function syncReasonOf(r) {
+  if (r && r.status === 401) return 'auth';
   var x = r && r.out && r.out.reason;
   return (x && SYNC_TEXTS[x]) ? x : 'error';
 }
@@ -8824,6 +8830,7 @@ var SYNC_TEXTS = {
   syncing: 'در حال همگام‌سازی…',
   offline: 'آفلاین — تغییرات نگه داشته می‌شود و بعداً ارسال می‌شود',
   error: 'خطا در همگام‌سازی — دوباره تلاش می‌شود',
+  auth: 'نشست شما به پایان رسیده — برای ادامه دوباره وارد شوید (داده‌های شما از بین نمی‌رود)',
   table_missing: 'جدول سرور ساخته نشده — فایل supabase_state.sql را در Supabase اجرا کنید',
   bad_key: 'کلید Supabase پذیرفته نشد — در Cloudflare مقدار SUPABASE_SERVICE_KEY را بررسی کنید (باید کلید service_role یا secret باشد)',
   unreachable: 'آدرس Supabase در دسترس نیست — مقدار SUPABASE_URL را بررسی کنید',
@@ -8851,6 +8858,8 @@ function syncNote(state) {
     el.style.background = (state === 'ok' ? '#0f766e' : (state === 'syncing' ? '#475569' : '#b45309'));
     var warn = document.getElementById('syncBannerWarn');
     if (warn) warn.style.display = (syncWho && syncWho.adminConfigured === false) ? '' : 'none';
+    var rl = document.getElementById('syncBannerRelogin');
+    if (rl) rl.style.display = (state === 'auth') ? '' : 'none';
   } catch (e) {}
 }
 
@@ -8876,10 +8885,17 @@ function syncEnsureBanner() {
       el.appendChild(b);
     };
     mk('همگام‌سازی', function() { syncTick('manual'); });
+    var relog = document.createElement('button');
+    relog.id = 'syncBannerRelogin';
+    relog.textContent = 'ورود مجدد';
+    relog.style.cssText = 'display:none;font-size:11px;padding:2px 8px;border-radius:6px;border:0;cursor:pointer;background:#fde68a;';
+    relog.onclick = function() { try { window.open('/login?popup=1', '_blank'); } catch (e) {} };
+    el.appendChild(relog);
     if (syncWho && syncWho.role === 'admin') {
       mk('دریافت اجباری', function() { syncForcePull(); });
       mk('ارسال اجباری', function() { syncForcePush(); });
     }
+    mk('خروج', function() { syncLogout(); });
     var warn = document.createElement('span');
     warn.id = 'syncBannerWarn';
     warn.style.cssText = 'display:none;background:#fde68a;color:#7c2d12;padding:1px 6px;border-radius:4px;';
@@ -8946,11 +8962,26 @@ function syncStartTimers() {
   } catch (e) {}
 }
 
+// Log out: forget this person's copy of the data on this computer, then end the session on the server.
+function syncLogout() {
+  if (syncOn && syncHasUnsynced() && !confirm('تغییرات ارسال‌نشده‌ای روی این کامپیوتر هست و با خروج از بین می‌رود.\nبرای اطمینان ابتدا دکمه «همگام‌سازی» را بزنید.\n\nOK = با همین حال خارج شوم\nCancel = بمانم')) return;
+  syncOn = false;
+  if (syncTimer) clearTimeout(syncTimer);
+  try { localStorage.removeItem('payroll_iran_v12'); localStorage.removeItem('parssepehr_backup_before_sync'); } catch (e) {}
+  try { window.location.href = '/logout'; } catch (e) {}
+}
+
+// Used when a calculation request finds that the login session has ended.
+function sessionExpired() {
+  try { syncNote('auth'); } catch (e) {}
+  alert('نشست شما به پایان رسیده است (مدت زیادی از آخرین استفاده گذشته).\nپنجره ورود باز می‌شود؛ بعد از ورود دوباره همین کار را انجام دهید. داده‌های شما از بین نمی‌رود.');
+  try { window.open('/login?popup=1', '_blank'); } catch (e) {}
+}
+
 // Shown under the classic login box when the server did not recognise the site login (so people know why they see it).
 function syncClassicNote(w) {
   try {
-    var ov = document.getElementById('loginOverlay');
-    var card = ov && ov.querySelector ? ov.querySelector('div') : null;
+    var card = document.getElementById('loginCard');
     if (!card || !card.insertAdjacentHTML) return;
     var why = (w && w.offline) ? 'اتصال به سرور برقرار نشد (اینترنت را بررسی کنید).' : 'نام کاربری سایت توسط سرور شناخته نشد یا این نسخه قدیمی است (کلیدهای Ctrl+F5 را بزنید).';
     card.insertAdjacentHTML('beforeend', '<p style="font-size:0.75rem;color:#b45309;margin-top:10px;text-align:center;">' + why + ' این صفحه ورود فقط برای حالت اضطراری است و فقط حساب‌های ذخیره‌شده روی همین کامپیوتر را می‌شناسد.</p>');
@@ -8959,13 +8990,10 @@ function syncClassicNote(w) {
 
 async function ssoBoot() {
   var w = await syncApi('GET', '/api/whoami');
+  if (w.status === 401) { try { window.location.href = '/login?expired=1'; } catch (e) {} return true; } // session ended: go to the login page
   if (!w.ok || !w.out || !w.out.user) { syncClassicNote(w); return false; } // no server login: the classic login screen stays
   ssoActive = true;
   syncWho = { user: w.out.user, role: w.out.role === 'admin' ? 'admin' : 'operator', adminConfigured: w.out.adminConfigured !== false };
-  try {
-    var ov = document.getElementById('loginOverlay');
-    if (ov) ov.innerHTML = '<div style="background:#fff;border-radius:12px;padding:28px;max-width:400px;width:100%;text-align:center;color:#0f766e;font-weight:700;">در حال اتصال به سرور…</div>';
-  } catch (e) {}
   syncShapes = {};
   Object.keys(data).forEach(function(k) {
     syncShapes[k] = Array.isArray(data[k]) ? 'a' : ((data[k] && typeof data[k] === 'object') ? 'o' : 'p');
@@ -8986,9 +9014,11 @@ async function ssoBoot() {
   return true;
 }
 
-try { showLogin(); } catch (e1) { console.error(e1); }
 try { updateRoleUI(); } catch (e2) {}
-try { ssoBoot().catch(function(e3) { console.error('sso', e3); }); } catch (e4) { console.error(e4); }
+try {
+  ssoBoot().then(function(ok) { if (!ok) { try { showLogin(); } catch (e1) { console.error(e1); } } })
+    .catch(function(e3) { console.error('sso', e3); try { showLogin(); } catch (e1) { console.error(e1); } });
+} catch (e4) { console.error(e4); try { showLogin(); } catch (e5) {} }
 
 </script>
 </body>
