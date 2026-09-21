@@ -93,6 +93,10 @@
     border-radius: 6px; font-family: inherit;
   }
   .workdays-incomplete { background: #fecaca !important; color: #991b1b; }
+  td.qcell-deducted { background: #fef9c3 !important; }
+  td.qcell-differs { background: #ffedd5 !important; box-shadow: inset 0 0 0 2px #f97316; }
+  td.qcell .qnote { font-size: 0.66rem; color: #9a3412; cursor: pointer; line-height: 1.3; margin-top: 2px; }
+  td.qcell .qnote:empty { display: none; }
   .sg-wrap { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 18px; }
   @media (max-width: 900px) { .sg-wrap { grid-template-columns: 1fr; } }
   .sg-card {
@@ -234,6 +238,7 @@
     <button class="tab-btn" data-tab="customitems">آیتم‌های سفارشی</button>
     <button class="tab-btn" data-tab="settings">نرخ بیمه و مالیات</button>
     <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
+    <button class="tab-btn" data-tab="monthlyvars">متغیرهای ماهانه</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
     <button class="tab-btn" data-tab="dashboard">داشبورد هزینه‌ها</button>
@@ -805,6 +810,30 @@
   </div>
 
   
+  <div class="panel" id="panel-monthlyvars">
+    <div class="card">
+      <div class="section-title">متغیرهای ورود داده (کارکرد، مرخصی، ماموریت و …)</div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
+        این‌ها ستون‌های «ورود داده‌های ماهانه» هستند. موارد سیستمی ثابت‌اند؛ هر متغیر تازه‌ای (مثل <b>مرخصی استعلاجی</b> یا <b>ماموریت</b>) با دکمه زیر اضافه می‌شود و به‌صورت ستون تازه در شیت ماهانه و فایل اکسل ظاهر می‌شود.
+        تعریف متغیر فقط توسط ادمین انجام می‌شود؛ اپراتورها فقط مقدارها را وارد می‌کنند.
+      </p>
+      <div id="monthlyVarsList"></div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn btn-success btn-sm" onclick="addMonthlyVar()">+ افزودن متغیر جدید</button>
+        <button class="btn btn-outline btn-sm" onclick="addMonthlyVar('مرخصی استعلاجی')">+ مرخصی استعلاجی</button>
+        <button class="btn btn-outline btn-sm" onclick="addMonthlyVar('ماموریت')">+ ماموریت</button>
+      </div>
+      <div style="margin-top:16px;padding:10px 12px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:0.8rem;line-height:1.9;">
+        <b>«تعداد» آیتم‌ها (مثل تعداد حق ناهاری) چگونه پیشنهاد می‌شوند؟</b><br>
+        تعداد پیشنهادی = «کارکرد خالص ماه» − (روزهای ماه − روز کارکرد) − روز مرخصی − مرخصی ساعتی ÷ ۷٫۳۳ − هر متغیری که «از تعدادها کم شود» دارد.<br>
+        <span style="color:#475569;">مثال: ماه ۳۰ روز، کارکرد خالص ۲۲؛ کارمندی با کارکرد ۲۷ روز، ۲ روز مرخصی استعلاجی و ۱ روز ماموریت ← ۲۲ − ۳ − ۲ − ۱ = <b>۱۶</b>.</span><br>
+        <span style="color:#b45309;">توجه: اگر روز کارکرد را خودتان به‌خاطر همان مرخصی کم می‌کنید، تیک «از تعدادها کم شود» آن متغیر را بردارید تا دو بار کسر نشود.</span><br>
+        این فقط یک <b>پیشنهاد</b> است: در شیت ماهانه خانه‌ی رنگی نشان می‌دهد چه عددی باید باشد، ولی اپراتور می‌تواند هر عددی وارد کند و همان می‌ماند.
+        این متغیرها مستقیماً روی حقوق اثر ندارند؛ فقط روی تعدادها (که حقوق را می‌سازند).
+        برای کارکنان روزمزد و ساعتی پیشنهادی داده نمی‌شود، چون در محاسبه‌ی حقوق آن‌ها آیتم‌های تعدادی اصلاً لحاظ نمی‌شود.
+      </div>
+    </div>
+  </div>
   <div class="panel" id="panel-dataentry">
     <div class="card">
       <div class="section-title">ورود داده‌های ماهانه (فقط کارکنان فعال)</div>
@@ -834,6 +863,7 @@
       </div>
       </div>
       <div id="dataEntryArea" style="display:none; overflow-x:auto;">
+        <div id="countAlarmSummary" style="display:none;margin-bottom:10px;padding:8px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:0.8rem;line-height:1.9;"></div>
         <table>
           <thead id="dataEntryHead"></thead>
           <tbody id="dataEntryBody"></tbody>
@@ -2537,7 +2567,7 @@ function updateRoleUI() {
     const activeTab = document.querySelector('.tab-btn.active');
     if (activeTab) {
       const t = activeTab.dataset.tab;
-      if (t === 'changelog' || t === 'pending' || t === 'permissions') {
+      if (t === 'changelog' || t === 'pending' || t === 'permissions' || t === 'monthlyvars') {
         document.querySelector('.tab-btn[data-tab="employees"]').click();
       }
     }
@@ -2570,7 +2600,7 @@ function applyTabVisibilityByPerm() {
   };
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn) {
     var tab = btn.dataset.tab;
-    if (tab === 'pending' || tab === 'permissions') {
+    if (tab === 'pending' || tab === 'permissions' || tab === 'monthlyvars') {
       btn.style.display = isAdmin() ? '' : 'none';
       return;
     }
@@ -3137,6 +3167,7 @@ function renameCustomItemEverywhere(oldName, newName) {
       if (row && row.qty && row.qty[o] != null) {
         row.qty[n] = row.qty[o];
         delete row.qty[o];
+        if (row.qtyAuto && row.qtyAuto[o] !== undefined) { row.qtyAuto[n] = row.qtyAuto[o]; delete row.qtyAuto[o]; }
       }
     });
   });
@@ -3412,6 +3443,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       refreshCtApplyEmpList();
     }
     if (btn.dataset.tab==='salarygrade') { initSalaryGradePanel(); }
+    if (btn.dataset.tab==='monthlyvars') { renderMonthlyVars(); }
     if (btn.dataset.tab==='settings') loadSettingsToForm();
     if (btn.dataset.tab==='payroll') {
       renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()');
@@ -4797,7 +4829,8 @@ function loadDataEntry() {
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>روز کارکرد</th><th>روز مرخصی</th><th>مرخصی ساعتی</th><th>ساعات اضافه‌کار</th><th>ساعات شب‌کاری</th><th>نوع نوبت‌کاری</th><th>روز نوبت</th>';
-  qtyNames.forEach(n => head += '<th>تعداد ' + n + '</th>');
+  getMonthlyVars(true).forEach(v => head += '<th>' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>');
+  qtyNames.forEach(n => head += '<th>تعداد ' + mvEsc(n) + '</th>');
   head += '</tr>';
   thead.innerHTML = head;
   const tbody = document.getElementById('dataEntryBody');
@@ -4855,14 +4888,16 @@ function loadDataEntry() {
         '<option value="all"' + ((row.shiftType||'')==='all'?' selected':'') + '>سه‌نوبته ۱۵٪</option>' +
       '</select></td>' +
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.shiftDays||0) + '" title="تعداد روزهایی که نوبت‌کار بوده" onchange="updateDataField(\'' + emp.code + '\',\'shiftDays\',this.value)"></td>';
-    qtyNames.forEach(n => {
-      const val = (row.qty && row.qty[n] !== undefined) ? row.qty[n] : 0;
-      html += '<td><input class="data-input" type="number" value="' + val + '" onchange="updateDataQty(\'' + emp.code + '\',\'' + String(n).replace(/'/g,"\\'") + '\',this.value)"></td>';
+    getMonthlyVars(true).forEach(v => {
+      const vv = (row.vars && row.vars[v.id] !== undefined) ? row.vars[v.id] : 0;
+      html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(v.id) + "',this.value)") + '"></td>';
     });
+    qtyNames.forEach(n => { html += countCellHtml(emp, row, n, fd, monthDays); });
     html += '</tr>';
     return html;
   }).join('');
   document.getElementById('dataEntryArea').style.display = 'block';
+  renderCountAlarm();
 }
 
 function clampWorkDaysInput(el, maxAllowed) {
@@ -4900,19 +4935,26 @@ function updateDataField(code, field, value, el) {
     }
   }
   data.monthlyData[key][code][field] = num;
+  refreshCountCells(code);
 }
 function updateDataQty(code, name, value) {
   const key = getDataKey();
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
-  if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
-  if (!data.monthlyData[key][code].qty) data.monthlyData[key][code].qty = {};
-  data.monthlyData[key][code].qty[name] = Number(value)||0;
+  if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
+  const row = data.monthlyData[key][code];
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
+  if (String(value).trim() === '') { delete row.qty[name]; delete row.qtyAuto[name]; }
+  else { row.qty[name] = Number(value) || 0; delete row.qtyAuto[name]; }
+  refreshCountCells(code);
 }
 function updateFunctionalDays() {
   const key = getDataKey();
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key]._meta) data.monthlyData[key]._meta = {};
   data.monthlyData[key]._meta.functionalDays = Number(document.getElementById('dataFunctionalDays').value) || 22;
+  const area = document.getElementById('dataEntryArea');
+  if (area && area.style.display === 'block') loadDataEntry();
 }
 function saveDataEntry() {
   if (!requirePerm('data_entry', 'شما اجازه ورود داده ماهانه را ندارید.')) return;
@@ -4940,10 +4982,12 @@ function downloadDataTemplate() {
   syncEmployeeCustomsToAllowances();
   const qtyNames = getAllQuantityItemNames(year, month);
   let headers = ['کد پرسنلی','نام','روز کارکرد','روز مرخصی','مرخصی ساعتی','ساعات اضافه‌کار','ساعات شب‌کاری'];
+  getMonthlyVars(true).forEach(v => headers.push(v.name));
   qtyNames.forEach(n => headers.push('تعداد ' + n));
   // فقط هدر + یک ردیف راهنما
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
   const guide = ['10001', 'نام نمونه', getMonthDays(year, month) || 30, 0, 0, 0, 0];
+  getMonthlyVars(true).forEach(function() { guide.push(0); });
   qtyNames.forEach(function() { guide.push(0); });
   csv += guide.map(function(cell) { return '"' + String(cell).replace(/"/g,'""') + '"'; }).join(',') + '\n';
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -4968,14 +5012,18 @@ function importDataFromExcel(event) {
       if (!data.monthlyData[key]) data.monthlyData[key] = {};
       const parts = String(key).split('-');
       const qtyNames = getAllQuantityItemNames(parts[0], parts[1]);
+      const varNamesSet = new Set(getMonthlyVars(true).map(v => v.name));
+      const bh = headers.map(h => varNamesSet.has(h) ? '\u0000' : h);
       const idx = {
-        code: headers.findIndex(h => h.includes('کد')),
-        workDays: headers.findIndex(h => h.includes('روز کارکرد')),
-        leaveDays: headers.findIndex(h => h.includes('روز مرخصی') || (h.includes('مرخصی') && !h.includes('ساعتی'))),
-        hourlyLeave: headers.findIndex(h => h.includes('مرخصی ساعتی') || h.includes('ساعتی')),
-        otHours: headers.findIndex(h => h.includes('اضافه‌کار') || h.includes('اضافه کار')),
-        nightHours: headers.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار'))
+        code: bh.findIndex(h => h.includes('کد')),
+        workDays: bh.findIndex(h => h.includes('روز کارکرد')),
+        leaveDays: bh.findIndex(h => h.includes('روز مرخصی') || (h.includes('مرخصی') && !h.includes('ساعتی'))),
+        hourlyLeave: bh.findIndex(h => h.includes('مرخصی ساعتی') || h.includes('ساعتی')),
+        otHours: bh.findIndex(h => h.includes('اضافه‌کار') || h.includes('اضافه کار')),
+        nightHours: bh.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار'))
       };
+      const varIdx = {};
+      getMonthlyVars(true).forEach(v => { const i = headers.findIndex(h => h === v.name); if (i >= 0) varIdx[v.id] = i; });
       const qtyIdx = {};
       qtyNames.forEach(n => {
         const i = headers.findIndex(h => h === 'تعداد ' + n || h === n);
@@ -5008,10 +5056,13 @@ function importDataFromExcel(event) {
         if (idx.hourlyLeave >= 0) row.hourlyLeave = Number((cols[idx.hourlyLeave]||'').replace(/"/g,'')) || 0;
         if (idx.otHours >= 0) row.otHours = Number((cols[idx.otHours]||'').replace(/"/g,'')) || 0;
         if (idx.nightHours >= 0) row.nightHours = Number((cols[idx.nightHours]||'').replace(/"/g,'')) || 0;
+        if (!row.vars) row.vars = {};
+        Object.keys(varIdx).forEach(id => { row.vars[id] = Number(String(cols[varIdx[id]]||'').replace(/"/g,'')) || 0; });
         if (!row.qty) row.qty = {};
         Object.keys(qtyIdx).forEach(n => {
           const val = Number(String(cols[qtyIdx[n]]||'').replace(/"/g,'')) || 0;
           row.qty[n] = val;
+          if (row.qtyAuto) delete row.qtyAuto[n];
         });
         importedCount++;
       }
@@ -8374,6 +8425,321 @@ try {
   loadSettingsToForm();
   applyYearTheme(data.settings.currentYear || 1405);
 } catch (bootErr) { console.error('boot', bootErr); }
+/* ---- Monthly variables (work, leave, mission ...) and the suggested count for "تعداد" items ---- */
+var MV_HOURS_PER_DAY = 7.33; // the same hours-to-days conversion used for hourly leave
+
+function mvEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function mvJs(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]+/g, ' ');
+}
+
+function mvNum(x) {
+  var n = Number(x);
+  return isFinite(n) ? n : 0;
+}
+
+function mvFmt(x) {
+  return String(Math.round(x * 10) / 10);
+}
+
+function getMonthlyVars(onlyActive) {
+  var list = (data.settings && data.settings.monthlyVars) || [];
+  return list.filter(function(v) {
+    return v && String(v.name || '').trim() && (!onlyActive || v.active !== false);
+  });
+}
+
+function getCountRules() {
+  var r = (data.settings && data.settings.countRules) || {};
+  return { workShortfall: r.workShortfall !== false, leaveDays: r.leaveDays !== false, hourlyLeave: r.hourlyLeave !== false };
+}
+
+// What the count should be, from the worked days and the leave / mission entered for the month.
+// Returns null when no suggestion is made: daily-wage and hourly staff (their pay is worked out from days/hours and never uses the count items).
+function countExpected(emp, row, F, M) {
+  var contract = (emp && emp.contractType) || 'normal';
+  if (contract === 'hourly' || contract === 'daily') return null;
+  row = row || {};
+  var rules = getCountRules();
+  F = mvNum(F) > 0 ? mvNum(F) : 22;
+  M = mvNum(M) > 0 ? mvNum(M) : 30;
+  var W = Math.max(0, mvNum(row.workDays));
+  var parts = [];
+  var total = F;
+  if (rules.workShortfall) {
+    var missing = Math.max(0, M - W);
+    if (missing > 0) {
+      total -= missing;
+      parts.push('کارکرد ' + mvFmt(W) + ' از ' + mvFmt(M) + ' روز ماه (−' + mvFmt(missing) + ')');
+    }
+  }
+  var take = function(label, days) {
+    if (days > 0) {
+      total -= days;
+      parts.push(label + ' (−' + mvFmt(days) + ')');
+    }
+  };
+  if (rules.leaveDays) take('روز مرخصی', mvNum(row.leaveDays));
+  if (rules.hourlyLeave) take('مرخصی ساعتی', mvNum(row.hourlyLeave) / MV_HOURS_PER_DAY);
+  getMonthlyVars(true).forEach(function(v) {
+    if (!v.deductCounts) return;
+    var val = mvNum((row.vars || {})[v.id]);
+    take(v.name, v.unit === 'hour' ? val / MV_HOURS_PER_DAY : val);
+  });
+  var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
+  return { value: value, full: F, parts: parts };
+}
+
+// One "تعداد" cell: its value (suggested or typed), colour and the alarm text.
+function countCellView(emp, row, n, F, M) {
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
+  var exp = countExpected(emp, row, F, M);
+  // a cell that was never typed (or is still on "suggested") follows the suggestion
+  if (exp !== null && (row.qty[n] === undefined || row.qtyAuto[n] === true)) {
+    row.qty[n] = exp.value;
+    row.qtyAuto[n] = true;
+  }
+  var value = row.qty[n] !== undefined ? row.qty[n] : 0;
+  var view = { value: value, cls: 'qcell', title: '', note: '', expected: exp ? exp.value : null, auto: row.qtyAuto[n] === true };
+  if (exp === null) return view;
+  if (view.auto) {
+    if (exp.value < exp.full) {
+      view.cls += ' qcell-deducted';
+      view.title = 'پیشنهاد خودکار ' + mvFmt(exp.value) + ' از ' + mvFmt(exp.full) + ': ' + exp.parts.join('، ') + '. برای تغییر، عدد را ویرایش کنید.';
+    } else {
+      view.title = 'پیشنهاد خودکار (بدون کسر). برای تغییر، عدد را ویرایش کنید.';
+    }
+  } else if (Math.abs(mvNum(value) - exp.value) > 0.05) {
+    view.cls += ' qcell-differs';
+    view.title = 'به‌صورت دستی وارد شده و با محاسبه کارکرد و مرخصی فرق دارد. ' + (exp.parts.length ? exp.parts.join('، ') : 'بدون کسر');
+    view.note = '⚠ باید ' + mvFmt(exp.value) + ' باشد';
+  }
+  return view;
+}
+
+function countCellHtml(emp, row, n, F, M) {
+  var v = countCellView(emp, row, n, F, M);
+  var upd = "updateDataQty('" + mvJs(emp.code) + "','" + mvJs(n) + "',this.value)";
+  var app = "applyExpectedCount('" + mvJs(emp.code) + "','" + mvJs(n) + "')";
+  return '<td class="' + v.cls + '" data-qcell="' + mvEsc(emp.code) + '\u0001' + mvEsc(n) + '"' + (v.title ? ' title="' + mvEsc(v.title) + '"' : '') + '>' +
+    '<input class="data-input" type="number" step="any" value="' + mvEsc(v.value) + '" onchange="' + mvEsc(upd) + '">' +
+    '<div class="qnote"' + (v.note ? ' onclick="' + mvEsc(app) + '"' : '') + '>' + mvEsc(v.note ? v.note + ' — اعمال' : '') + '</div></td>';
+}
+
+function mvDataContext() {
+  var key = getDataKey();
+  var parts = String(key).split('-');
+  var y = Number(parts[0]) || Number(data.settings.currentYear) || 1405;
+  var m = Number(parts[1]) || 1;
+  var md = data.monthlyData ? data.monthlyData[key] : null;
+  var F = (md && md._meta && md._meta.functionalDays) || data.settings.defaultFunctionalDays || 22;
+  var M = getMonthDays(y, m) || 30;
+  return { key: key, y: y, m: m, md: md, F: F, M: M };
+}
+
+// Re-colour / re-fill the "تعداد" cells of one employee in place (so typing is never interrupted).
+function refreshCountCells(code) {
+  var c = mvDataContext();
+  if (!c.md || !c.md[code]) return;
+  var emp = (data.employees || []).find(function(e) { return String(e.code) === String(code); });
+  if (!emp) return;
+  var cells = document.querySelectorAll('td[data-qcell]');
+  for (var i = 0; i < cells.length; i++) {
+    var attr = cells[i].getAttribute('data-qcell') || '';
+    var sep = attr.indexOf('\u0001');
+    if (sep < 0 || attr.slice(0, sep) !== String(code)) continue;
+    var n = attr.slice(sep + 1);
+    var v = countCellView(emp, c.md[code], n, c.F, c.M);
+    cells[i].className = v.cls;
+    cells[i].title = v.title;
+    var inp = cells[i].querySelector('input');
+    if (inp && (document.activeElement !== inp || String(inp.value).trim() === '')) inp.value = v.value;
+    var note = cells[i].querySelector('.qnote');
+    if (note) {
+      note.textContent = v.note ? v.note + ' — اعمال' : '';
+      note.onclick = v.note ? (function(cc, nn) { return function() { applyExpectedCount(cc, nn); }; })(code, n) : null;
+    }
+  }
+  renderCountAlarm();
+}
+
+// The operator chose to follow the suggestion for this cell.
+function applyExpectedCount(code, n) {
+  var c = mvDataContext();
+  var row = c.md && c.md[code];
+  if (!row) return;
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
+  delete row.qty[n];
+  delete row.qtyAuto[n];
+  refreshCountCells(code);
+  saveToCache();
+}
+
+function applyAllExpectedCounts() {
+  var c = mvDataContext();
+  if (!c.md) return;
+  var names = getAllQuantityItemNames(c.y, c.m);
+  var todo = [];
+  getActiveEmployees().forEach(function(emp) {
+    var row = c.md[emp.code];
+    if (!row) return;
+    names.forEach(function(n) {
+      if (countCellView(emp, row, n, c.F, c.M).cls.indexOf('qcell-differs') >= 0) todo.push([emp, row, n]);
+    });
+  });
+  if (!todo.length) return;
+  if (!confirm(todo.length + ' خانه‌ی نارنجی به مقدار پیشنهادی تغییر کند؟\n(مقدارهایی که دستی وارد کرده‌اید عوض می‌شود)')) return;
+  todo.forEach(function(t) {
+    delete t[1].qty[t[2]];
+    delete t[1].qtyAuto[t[2]];
+  });
+  saveToCache();
+  loadDataEntry();
+}
+
+function renderCountAlarm() {
+  var box = document.getElementById('countAlarmSummary');
+  if (!box) return;
+  var c = mvDataContext();
+  if (!c.md) { box.style.display = 'none'; return; }
+  var names = getAllQuantityItemNames(c.y, c.m);
+  var differs = 0;
+  var deducted = 0;
+  getActiveEmployees().forEach(function(emp) {
+    var row = c.md[emp.code];
+    if (!row) return;
+    names.forEach(function(n) {
+      var cls = countCellView(emp, row, n, c.F, c.M).cls;
+      if (cls.indexOf('qcell-differs') >= 0) differs++;
+      else if (cls.indexOf('qcell-deducted') >= 0) deducted++;
+    });
+  });
+  if (!differs && !deducted) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  var html = '';
+  if (differs) {
+    html += '<b>⚠ ' + differs + ' خانه‌ی تعداد</b> با کارکرد و مرخصی هم‌خوان نیست (نارنجی؛ زیر آن نوشته شده چه عددی باید باشد). ' +
+      'اگر عمداً همین عدد را می‌خواهید، کاری لازم نیست. <button class="btn btn-outline btn-sm" onclick="applyAllExpectedCounts()">اعمال پیشنهاد برای همه‌ی نارنجی‌ها</button> ';
+  }
+  if (deducted) {
+    html += '<span style="color:#854d0e;">' + deducted + ' خانه‌ی زرد: تعداد به‌صورت خودکار با کسر غیبت/مرخصی محاسبه شده؛ با ویرایش عدد، دستی می‌شود (خالی کردن خانه = برگشت به پیشنهاد).</span>';
+  }
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function updateDataVar(code, id, value) {
+  var key = getDataKey();
+  if (!data.monthlyData[key]) data.monthlyData[key] = {};
+  if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays: 30, leaveDays: 0, hourlyLeave: 0, otHours: 0, nightHours: 0, shiftType: 'none', shiftDays: 0, vars: {}, qty: {} };
+  var row = data.monthlyData[key][code];
+  if (!row.vars) row.vars = {};
+  row.vars[id] = Number(value) || 0;
+  refreshCountCells(code);
+}
+
+// ---- the "متغیرهای ماهانه" tab (admin only) ----
+var MV_BUILTINS = [
+  { name: 'روز کارکرد', unit: 'روز', rule: 'workShortfall', label: 'کارکرد کمتر از روزهای ماه از تعدادها کم شود' },
+  { name: 'روز مرخصی', unit: 'روز', rule: 'leaveDays', label: 'از تعدادها کم شود' },
+  { name: 'مرخصی ساعتی', unit: 'ساعت', rule: 'hourlyLeave', label: 'از تعدادها کم شود (ساعت ÷ ۷٫۳۳)' },
+  { name: 'ساعات اضافه‌کار', unit: 'ساعت' },
+  { name: 'ساعات شب‌کاری', unit: 'ساعت' },
+  { name: 'نوع نوبت‌کاری', unit: 'انتخابی' },
+  { name: 'روز نوبت', unit: 'روز' }
+];
+
+var MV_GRID = 'display:grid;grid-template-columns:1.5fr .55fr .7fr 1.9fr .5fr 36px;gap:6px;align-items:center;margin-bottom:5px;font-size:0.8rem;';
+
+function renderMonthlyVars() {
+  var box = document.getElementById('monthlyVarsList');
+  if (!box) return;
+  var rules = getCountRules();
+  var html = '<div style="' + MV_GRID + 'font-weight:600;"><span>نام</span><span>واحد</span><span>نوع</span><span>اثر روی «تعداد» آیتم‌ها</span><span>فعال</span><span></span></div>';
+  MV_BUILTINS.forEach(function(b) {
+    var eff = b.rule
+      ? '<label class="check-label"><input type="checkbox"' + (rules[b.rule] ? ' checked' : '') + ' onchange="setCountRule(\'' + b.rule + '\', this.checked)"> ' + mvEsc(b.label) + '</label>'
+      : '<span style="color:#94a3b8;">—</span>';
+    html += '<div style="' + MV_GRID + '"><span>' + mvEsc(b.name) + '</span><span>' + mvEsc(b.unit) + '</span>' +
+      '<span style="color:#64748b;">سیستمی</span>' + eff + '<span>✓</span><span></span></div>';
+  });
+  getMonthlyVars(false).forEach(function(v) {
+    var idJs = mvEsc("'" + mvJs(v.id) + "'");
+    html += '<div style="' + MV_GRID + '">' +
+      '<input type="text" value="' + mvEsc(v.name) + '" onchange="updateMonthlyVar(' + idJs + ',\'name\',this.value)">' +
+      '<select onchange="updateMonthlyVar(' + idJs + ',\'unit\',this.value)"><option value="day"' + (v.unit !== 'hour' ? ' selected' : '') + '>روز</option><option value="hour"' + (v.unit === 'hour' ? ' selected' : '') + '>ساعت</option></select>' +
+      '<span style="color:#0f766e;">افزوده‌شده</span>' +
+      '<label class="check-label"><input type="checkbox"' + (v.deductCounts ? ' checked' : '') + ' onchange="updateMonthlyVar(' + idJs + ',\'deductCounts\',this.checked)"> از تعدادها کم شود</label>' +
+      '<input type="checkbox"' + (v.active !== false ? ' checked' : '') + ' onchange="updateMonthlyVar(' + idJs + ',\'active\',this.checked)">' +
+      '<button class="btn btn-danger btn-sm" onclick="deleteMonthlyVar(' + idJs + ')">✕</button></div>';
+  });
+  box.innerHTML = html;
+}
+
+function setCountRule(rule, checked) {
+  if (!isAdmin()) return;
+  data.settings.countRules = Object.assign({}, data.settings.countRules || {});
+  data.settings.countRules[rule] = !!checked;
+  saveToCache();
+}
+
+function mvFind(id) {
+  var list = (data.settings && data.settings.monthlyVars) || [];
+  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === id) return list[i]; }
+  return null;
+}
+
+function updateMonthlyVar(id, field, value) {
+  if (!isAdmin()) return;
+  var v = mvFind(id);
+  if (!v) return;
+  if (field === 'name') {
+    var nm = String(value || '').trim();
+    var clash = MV_BUILTINS.some(function(b) { return b.name === nm; }) ||
+      (data.settings.monthlyVars || []).some(function(o) { return o && o.id !== id && String(o.name).trim() === nm; });
+    if (!nm || clash) {
+      alert(!nm ? 'نام نمی‌تواند خالی باشد.' : 'این نام قبلاً استفاده شده است.');
+      renderMonthlyVars();
+      return;
+    }
+    v.name = nm;
+  } else if (field === 'unit') {
+    v.unit = value === 'hour' ? 'hour' : 'day';
+  } else if (field === 'deductCounts' || field === 'active') {
+    v[field] = !!value;
+  }
+  saveToCache();
+}
+
+function addMonthlyVar(presetName) {
+  if (!isAdmin()) { alert('فقط ادمین می‌تواند متغیر تعریف کند.'); return; }
+  var name = presetName || prompt('نام متغیر جدید را وارد کنید (مثلاً مرخصی استعلاجی):');
+  name = String(name || '').trim();
+  if (!name) return;
+  var list = data.settings.monthlyVars = data.settings.monthlyVars || [];
+  var clash = MV_BUILTINS.some(function(b) { return b.name === name; }) || list.some(function(o) { return o && String(o.name).trim() === name; });
+  if (clash) { alert('این نام قبلاً وجود دارد.'); return; }
+  list.push({ id: 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), name: name, unit: 'day', deductCounts: true, active: true });
+  try { addChangeLog('متغیر ماهانه', '-', 'افزودن متغیر: ' + name); } catch (e) {}
+  saveToCache();
+  renderMonthlyVars();
+}
+
+function deleteMonthlyVar(id) {
+  if (!isAdmin()) return;
+  var v = mvFind(id);
+  if (!v) return;
+  if (!confirm('متغیر «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
+  data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
+  try { addChangeLog('متغیر ماهانه', '-', 'حذف متغیر: ' + v.name); } catch (e) {}
+  saveToCache();
+  renderMonthlyVars();
+}
+
 /* ---- Central sync: the Cloudflare server keeps the master copy; every computer follows it automatically ---- */
 var SYNC_DOCS = ['settings', 'data', 'log'];
 var syncOn = false;          // true when the server master copy is available
