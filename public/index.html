@@ -287,9 +287,9 @@
 </head>
 <body>
 <div class="container">
-  <header class="no-print app-top-header">
-    <div>
-      <h1 id="appTitle">سیستم حقوق و دستمزد پارسپهر - <span id="appYearLabel">1405</span></h1>
+  <header class="no-print app-top-header" style="background:linear-gradient(135deg,#0f766e 0%,#0d9488 55%,#0891b2 100%)!important;display:flex!important;justify-content:center!important;align-items:center!important;text-align:center!important;min-height:58px;padding:16px 18px;border-radius:12px;margin-bottom:12px;box-shadow:0 4px 14px rgba(15,118,110,.22);">
+    <div style="width:100%;text-align:center;">
+      <h1 id="appTitle" style="color:#ffffff!important;font-size:1.3rem;font-weight:800;margin:0;text-align:center;width:100%;">سیستم حقوق و دستمزد پارسپهر - <span id="appYearLabel" style="color:#ecfdf5!important;">1405</span></h1>
     </div>
   </header>
 
@@ -1356,6 +1356,10 @@
         <button type="button" class="btn btn-outline btn-sm" onclick="selectAllUserAccounts(false)">لغو انتخاب</button>
         <button type="button" class="btn btn-primary btn-sm" onclick="saveOperatorAccounts()">ذخیره حساب‌ها</button>
       </div>
+      <p style="font-size:0.75rem;color:#64748b;margin:-6px 0 14px;">
+        اگر ورود از <b>Cloudflare (SITE_USERS)</b> است: اینجا فقط همان <b>نام کاربری</b> را بسازید تا ماتریس دسترسی به او وصل شود؛
+        رمز را می‌توانید خالی بگذارید. ساخت کاربر واقعی (رمز ورود سایت) در Cloudflare انجام می‌شود.
+      </p>
 
       <div class="section-title" style="font-size:0.95rem;">ماتریس دسترسی (برای حساب‌های انتخاب‌شده)</div>
       <p id="permTargetHint" style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
@@ -2206,8 +2210,8 @@ function syncOperatorAccountsFromForm(requireComplete) {
     var o = byIndex[id];
     var prev = oldList[Number(id)] || {};
     if (!o.username && !o.password) return;
-    if (requireComplete && (!o.username || !o.password)) {
-      alert('هر حساب سفارشی باید نام کاربری و رمز داشته باشد.');
+    if (requireComplete && !o.username) {
+      alert('برای حساب جدید نام کاربری الزامی است (همان نام Cloudflare / SITE_USERS).\nرمز در این صفحه اختیاری است اگر ورود از طریق Cloudflare انجام می‌شود.');
       throw new Error('incomplete');
     }
     rows.push({
@@ -3210,9 +3214,12 @@ function renderCustomTemplates() {
     box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
     return;
   }
-  // ثابت‌های ماهانه در این شیت نمایش داده نمی‌شوند
+  // ثابت‌های ماهانه در این شیت نمایش داده نمی‌شوند؛ ردیف خالی (آیتم تازه‌افزوده‌شده) نمایش داده می‌شود
   var templatesForUi = (data.customItemTemplates || []).filter(function(t) {
-    return t && String(t.name || '').trim() && !(typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(t.name));
+    if (!t) return false;
+    var nm = String(t.name || '').trim();
+    if (nm && typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(nm)) return false;
+    return true;
   });
   if (!templatesForUi.length) {
     box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
