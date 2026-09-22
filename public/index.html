@@ -209,9 +209,11 @@
   @media print {
     @page { size: A4 portrait; margin: 8mm; }
     html, body { background: #fff !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
-    .toolbar, .tabs, .no-print, .app-top-header, header, .footer-note,
+    .toolbar, .tabs, .no-print, .app-top-header, header, header.app-top-header, .footer-note,
     .panel > .card > .section-title, .panel > .card > .form-grid, .panel > .card > p,
-    #loginOverlay, #welcomeToast, #syncBanner, #bootLoading { display: none !important; }
+    #loginOverlay, #welcomeToast, #syncBanner, #bootLoading, #yearWatermark {
+      display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important;
+    }
     .container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
     .panel { display: none !important; }
     .panel.active { display: block !important; }
@@ -221,8 +223,10 @@
       padding: 0 !important; margin: 0 auto !important; max-width: 100% !important; border-radius: 0 !important;
       background: #fff !important;
     }
+    /* مخفی کردن نوار انتخاب کارمند/سال/ماه و عنوان شیت هنگام چاپ */
     #panel-payslip .card > .section-title,
     #panel-payslip .card > .form-grid,
+    #panel-payslip .card > p,
     #panel-eid .card > .section-title,
     #panel-eid .card > .form-grid,
     #panel-eid .card > p { display: none !important; }
@@ -230,14 +234,13 @@
     #eidPayslipContainer > div { display: block !important; }
     #eidPayslipContainer > div > div:first-child { display: none !important; }
     #eidPayslipPrintArea { display: block !important; }
-    .payslip { max-width: 100% !important; page-break-inside: avoid; break-inside: avoid; }
+    .payslip { max-width: 100% !important; page-break-inside: avoid; break-inside: avoid; margin-top: 0 !important; }
     .payslip-header { margin-bottom: 6px !important; }
-    .payslip-header h2 { font-size: 1.05rem !important; margin: 0 0 2px !important; }
-    .payslip-header p { font-size: 0.85rem !important; margin: 0 !important; }
+    .payslip-header h2 { font-size: 1.05rem !important; margin: 0 0 2px !important; color: #000 !important; }
+    .payslip-header p { font-size: 0.85rem !important; margin: 0 !important; color: #000 !important; }
     .payslip table { width: 100%; border-collapse: collapse; font-size: 0.78rem !important; }
-    .payslip td, .payslip th { border: 1px solid #999; padding: 3px 5px !important; }
-    .net-pay { margin-top: 8px !important; padding: 8px !important; font-size: 1rem !important; page-break-inside: avoid; }
-    /* جلوگیری از صفحه دوم خالی */
+    .payslip td, .payslip th { border: 1px solid #999; padding: 3px 5px !important; color: #000 !important; background: #fff !important; }
+    .net-pay { margin-top: 8px !important; padding: 8px !important; font-size: 1rem !important; page-break-inside: avoid; color: #000 !important; background: #f5f5f5 !important; }
     body * { box-shadow: none !important; }
   }
 
@@ -885,8 +888,8 @@
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
         این‌ها ستون‌های عددی ثابت «ورود داده‌های ماهانه» هستند (بدون مبلغ — فقط عدد).
         همه نام‌ها قابل ویرایش‌اند. با «+ افزودن» ستون تازه در شیت ورود داده ساخته می‌شود.
-        <b>منبع ستون‌ها در ورود داده:</b> آیتم‌های ثبت‌شده در همین شیت (ثابت‌های ماهانه) — نه آیتم‌های حقوق و مزایا و نه آیتم‌های سفارشی.
-        این ثابت‌ها در شیت «آیتم‌های حقوق و مزایا» و «آیتم‌های سفارشی» نمایش داده نمی‌شوند.
+        <b>منبع ستون‌های عددی ثابت در ورود داده:</b> آیتم‌های ثبت‌شده در همین شیت.
+        ساخت خودکار در «آیتم‌های سفارشی / حقوق و مزایا» انجام نمی‌شود؛ اما اگر بخواهید همان نام را دستی در آیتم‌های سفارشی بسازید (برای محاسبه حقوق) مجاز است — دو شیت مستقل‌اند.
         تیک <b>اثر روی تعداد خالص</b> مشخص می‌کند آیا این ستون در پیشنهاد خودکار آیتم‌های «تعداد خالص» کسر شود یا نه.
       </p>
       <div id="monthlyVarsList"></div>
@@ -3193,7 +3196,6 @@ function seedCustomTemplatesFromEmployees() {
       if (isDeductionOrArrearsItem(ci)) return;
       const name = String(ci.name || '').trim();
       if (!name || byName[name]) return;
-      if (typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(name)) return;
       byName[name] = {
         name: name,
         entryType: ci.entryType || 'workdays',
@@ -3214,12 +3216,9 @@ function renderCustomTemplates() {
     box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
     return;
   }
-  // ثابت‌های ماهانه در این شیت نمایش داده نمی‌شوند؛ ردیف خالی (آیتم تازه‌افزوده‌شده) نمایش داده می‌شود
+  // ردیف خالی (آیتم تازه‌افزوده‌شده) هم نمایش داده می‌شود؛ هم‌نام با ثابت ماهانه مجاز است
   var templatesForUi = (data.customItemTemplates || []).filter(function(t) {
-    if (!t) return false;
-    var nm = String(t.name || '').trim();
-    if (nm && typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(nm)) return false;
-    return true;
+    return !!t;
   });
   if (!templatesForUi.length) {
     box.innerHTML = '<div class="empty">آیتمی تعریف نشده. با دکمه افزودن شروع کنید.</div>';
@@ -3321,7 +3320,6 @@ function saveCustomTemplates(applyToAll) {
   // پاک‌سازی نام‌های خالی
   data.customItemTemplates = (data.customItemTemplates || []).filter(function(t) {
     if (!t || !String(t.name || '').trim()) return false;
-    if (typeof isFixedMonthlyName === 'function' && isFixedMonthlyName(t.name)) return false;
     return true;
   }).map(function(t) {
     return {
@@ -3536,7 +3534,6 @@ function syncEmployeeCustomsToAllowances() {
     (emp.customItems || []).forEach(ci => {
       if (!ci.name || !ci.name.trim()) return;
       if (isDeductionOrArrearsItem(ci)) return;
-      if (isFixedMonthlyName(ci.name)) return;
       const name = ci.name.trim();
       if (!byName[name]) {
         const row = {
@@ -3561,7 +3558,6 @@ function syncEmployeeCustomsToAllowances() {
   });
   data.allowances = (data.allowances || []).filter(function(a) {
     if (!a) return false;
-    if (isFixedMonthlyName(a.name)) return false;
     if (!a.fromEmployee) return true;
     return stillUsed.has(String(a.name || '').trim());
   });
@@ -4689,10 +4685,17 @@ function empBaseHeaders() {
 }
 
 function downloadEmployeeTemplate() {
-  // فقط هدر + یک ردیف راهنما (بدون داده واقعی کارکنان)
+  // هدر پویا: پایه + همه آیتم‌های سفارشی/قالب (مبلغ + نحوه + ثابت + مدت)
   const baseHeaders = empBaseHeaders();
   const customNames = getAllCustomItemNames();
-  const headers = baseHeaders.concat(customNames);
+  const extra = [];
+  customNames.forEach(function(n) {
+    extra.push(n);
+    extra.push('نحوه:' + n);
+    extra.push('ثابت:' + n);
+    extra.push('مدت:' + n);
+  });
+  const headers = baseHeaders.concat(extra);
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
 
   function pushRow(cells) {
@@ -4706,7 +4709,14 @@ function downloadEmployeeTemplate() {
     '0','مجرد','هیچ‌کدام','100','فعال','خیر',
     '0','0','0','توضیح نمونه'
   ];
-  pushRow(sampleBase.concat(customNames.map(function() { return 0; })));
+  const sampleExtra = [];
+  customNames.forEach(function() {
+    sampleExtra.push(0);           // مبلغ
+    sampleExtra.push('کارکرد');    // نحوه
+    sampleExtra.push('خیر');       // ثابت
+    sampleExtra.push('همیشه');     // مدت
+  });
+  pushRow(sampleBase.concat(sampleExtra));
 
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -5182,10 +5192,8 @@ function loadDataEntry() {
   fixedVars.forEach(function(v) {
     head += '<th title="ثابت ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
   });
-  // ستون‌های «تعداد …» فقط برای آیتم‌های حقوقی تعدادی که در ثابت‌های ماهانه ثبت نشده‌اند
+  // ستون‌های «تعداد …» از آیتم‌های حقوقی (quantity / qty_flat) — مستقل از ثابت‌های ماهانه
   qtyNames.forEach(function(n) {
-    var bare = String(n).trim().replace(/^تعداد\s*/,'');
-    if (fixedNameSet[String(n).trim()] || fixedNameSet[bare]) return;
     head += '<th title="آیتم حقوقی بر اساس تعداد / تعداد خالص">' + 'تعداد ' + mvEsc(n) + '</th>';
   });
   head += '</tr>';
@@ -5250,8 +5258,6 @@ function loadDataEntry() {
       html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(v.id) + "',this.value)") + '"></td>';
     });
     qtyNames.forEach(function(n) {
-      var bare = String(n).trim().replace(/^تعداد\s*/,'');
-      if (fixedNameSet[String(n).trim()] || fixedNameSet[bare]) return;
       html += countCellHtml(emp, row, n, fd, monthDays);
     });
     html += '</tr>';
@@ -5343,12 +5349,12 @@ function downloadDataTemplate() {
   pruneExpiredCustomItems(year, month);
   syncEmployeeCustomsToAllowances();
   const qtyNames = getAllQuantityItemNames(year, month);
-  let headers = ['کد پرسنلی','نام','روز کارکرد','روز مرخصی','مرخصی ساعتی','ساعات اضافه‌کار','ساعات شب‌کاری'];
+  let headers = ['کد پرسنلی','نام','روز کارکرد','روز مرخصی','مرخصی ساعتی','ساعات اضافه‌کار','ساعات شب‌کاری','نوع نوبت‌کاری','روز نوبت'];
   getMonthlyVars(true).forEach(v => headers.push(v.name));
   qtyNames.forEach(n => headers.push('تعداد ' + n));
-  // فقط هدر + یک ردیف راهنما
+  // هدر پویا از ثابت‌های ماهانه + آیتم‌های تعدادی فعلی
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
-  const guide = ['10001', 'نام نمونه', getMonthDays(year, month) || 30, 0, 0, 0, 0];
+  const guide = ['10001', 'نام نمونه', getMonthDays(year, month) || 30, 0, 0, 0, 0, 'ندارد', 0];
   getMonthlyVars(true).forEach(function() { guide.push(0); });
   qtyNames.forEach(function() { guide.push(0); });
   csv += guide.map(function(cell) { return '"' + String(cell).replace(/"/g,'""') + '"'; }).join(',') + '\n';
