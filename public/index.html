@@ -5477,12 +5477,14 @@ function loadDataEntry() {
         '<option value="all"' + ((row.shiftType||'')==='all'?' selected':'') + '>سه‌نوبته ۱۵٪</option>' +
       '</select></td>' +
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.shiftDays||0) + '" title="تعداد روزهایی که نوبت‌کار بوده" onchange="updateDataField(\'' + emp.code + '\',\'shiftDays\',this.value)"></td>';
-    fixedVars.forEach(function(v) {
-      const vv = (row.vars && row.vars[v.id] !== undefined) ? row.vars[v.id] : 0;
-      html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(v.id) + "',this.value)") + '"></td>';
-    });
-    qtyNames.forEach(function(n) {
-      html += countCellHtml(emp, row, n, fd, monthDays);
+    // همان ترتیب ستون‌های هدر (orderedCols) تا هشدار تعداد خالص زیر ستون درست بنشیند
+    orderedCols.forEach(function(c) {
+      if (c.type === 'monthly_fixed') {
+        var vv = (row.vars && row.vars[c.id] !== undefined) ? row.vars[c.id] : 0;
+        html += '<td><input class="data-input" type="number" min="0" step="0.5" value="' + mvEsc(vv) + '" onchange="' + mvEsc("updateDataVar('" + mvJs(emp.code) + "','" + mvJs(c.id) + "',this.value)") + '"></td>';
+      } else if (c.type === 'qty') {
+        html += countCellHtml(emp, row, c.name, fd, monthDays);
+      }
     });
     html += '</tr>';
     return html;
