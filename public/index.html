@@ -207,40 +207,66 @@
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
   .log-change { color: #64748b; margin-top: 4px; white-space: pre-wrap; }
   @media print {
-    @page { size: A4 portrait; margin: 8mm; }
-    html, body { background: #fff !important; padding: 0 !important; margin: 0 !important; height: auto !important; }
+    @page { size: A4 portrait; margin: 6mm; }
+    html, body {
+      background: #fff !important; padding: 0 !important; margin: 0 !important;
+      height: auto !important; min-height: 0 !important;
+    }
     .toolbar, .tabs, .no-print, .app-top-header, header, header.app-top-header, .footer-note,
     .panel > .card > .section-title, .panel > .card > .form-grid, .panel > .card > p,
-    #loginOverlay, #welcomeToast, #syncBanner, #bootLoading, #yearWatermark {
-      display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important;
+    #loginOverlay, #welcomeToast, #syncBanner, #bootLoading, #yearWatermark,
+    #eidSheetFilters, .sheet-org-filters {
+      display: none !important; visibility: hidden !important;
+      height: 0 !important; max-height: 0 !important; overflow: hidden !important;
+      margin: 0 !important; padding: 0 !important; border: none !important;
     }
     .container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
     .panel { display: none !important; }
-    .panel.active { display: block !important; }
+    .panel.active { display: block !important; margin: 0 !important; padding: 0 !important; }
+    .card { box-shadow: none !important; border: none !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
     #panel-payslip, #panel-payslip .card, #payslipContainer, .payslip,
     #panel-eid, #panel-eid .card, #eidPayslipContainer, #eidPayslipPrintArea {
       display: block !important; border: none !important; box-shadow: none !important;
       padding: 0 !important; margin: 0 auto !important; max-width: 100% !important; border-radius: 0 !important;
       background: #fff !important;
     }
-    /* مخفی کردن نوار انتخاب کارمند/سال/ماه و عنوان شیت هنگام چاپ */
+    /* همه کنترل‌های بالای فیش (انتخاب کارمند، دکمه‌ها، فیلترها) */
     #panel-payslip .card > .section-title,
     #panel-payslip .card > .form-grid,
     #panel-payslip .card > p,
     #panel-eid .card > .section-title,
     #panel-eid .card > .form-grid,
-    #panel-eid .card > p { display: none !important; }
+    #panel-eid .card > p,
+    #panel-eid .card > div:not(#eidPayslipContainer):not(#eidResultArea) {
+      display: none !important;
+    }
     #eidResultArea { display: none !important; }
-    #eidPayslipContainer > div { display: block !important; }
-    #eidPayslipContainer > div > div:first-child { display: none !important; }
+    #eidPayslipContainer { display: block !important; margin: 0 !important; }
     #eidPayslipPrintArea { display: block !important; }
-    .payslip { max-width: 100% !important; page-break-inside: avoid; break-inside: avoid; margin-top: 0 !important; }
-    .payslip-header { margin-bottom: 6px !important; }
+    .payslip {
+      max-width: 100% !important; page-break-inside: avoid; break-inside: avoid;
+      margin: 0 !important; padding: 0 !important;
+    }
+    .payslip-header { margin: 0 0 6px 0 !important; padding: 0 !important; }
     .payslip-header h2 { font-size: 1.05rem !important; margin: 0 0 2px !important; color: #000 !important; }
     .payslip-header p { font-size: 0.85rem !important; margin: 0 !important; color: #000 !important; }
-    .payslip table { width: 100%; border-collapse: collapse; font-size: 0.78rem !important; }
-    .payslip td, .payslip th { border: 1px solid #999; padding: 3px 5px !important; color: #000 !important; background: #fff !important; }
-    .net-pay { margin-top: 8px !important; padding: 8px !important; font-size: 1rem !important; page-break-inside: avoid; color: #000 !important; background: #f5f5f5 !important; }
+    /* خط راست جدول در پرینت */
+    .payslip table {
+      width: 100% !important; border-collapse: collapse !important;
+      border: 1px solid #333 !important; font-size: 0.78rem !important;
+      table-layout: fixed !important;
+    }
+    .payslip td, .payslip th {
+      border: 1px solid #333 !important; padding: 3px 5px !important;
+      color: #000 !important; background: #fff !important;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .net-pay {
+      margin-top: 8px !important; padding: 8px !important; font-size: 1rem !important;
+      page-break-inside: avoid; color: #000 !important; background: #f5f5f5 !important;
+      border: 1px solid #333 !important;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
     body * { box-shadow: none !important; }
   }
 
@@ -311,6 +337,7 @@
     <button class="tab-btn" data-tab="settings">نرخ بیمه و مالیات</button>
     <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
     <button class="tab-btn" data-tab="monthlyvars">ثابت‌های ماهانه</button>
+    <button class="tab-btn" data-tab="colorder">ترتیب ستون‌های ورود داده</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
     <button class="tab-btn" data-tab="dashboard">داشبورد هزینه‌ها</button>
@@ -906,6 +933,36 @@
       </div>
     </div>
   </div>
+  <div class="panel" id="panel-colorder">
+    <div class="card">
+      <div class="section-title">ترتیب ستون‌های ورود داده‌های ماهانه</div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;">
+        همه اقلام قابل‌نمایش در شیت ورود داده و نمونه اکسل اینجا جمع می‌شوند:
+        <b>ثابت‌های ماهانه</b>، <b>آیتم‌های سفارشی تعدادی</b>، <b>کسورات/معوقه تعدادی</b>.
+        با دکمه‌های ▲ ▼ اولویت را عوض کنید. ذخیره روی ورود داده و دانلود نمونه اکسل اعمال می‌شود.
+        ستون‌های پایه (کد، نام، کارکرد، مرخصی، …) همیشه اول می‌مانند.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveDataEntryColOrder()">ذخیره ترتیب</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="resetDataEntryColOrder()">بازگشت به پیش‌فرض</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="renderColOrderSheet()">بروزرسانی لیست</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:50px;">#</th>
+              <th>نام ستون</th>
+              <th>نوع</th>
+              <th style="width:120px;">جابجایی</th>
+            </tr>
+          </thead>
+          <tbody id="colOrderBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="panel" id="panel-dataentry">
     <div class="card">
       <div class="section-title">ورود داده‌های ماهانه (فقط کارکنان فعال)</div>
@@ -1189,14 +1246,14 @@
         </div>
       </div>
       <div id="eidSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+      <div class="no-print" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
         <div class="form-group" style="min-width:220px;">
           <label>کارمند برای فیش عیدی / سنوات / مرخصی</label>
           <select id="eidSlipEmployee" style="min-width:200px;"></select>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-primary" onclick="generateEidPayslip()">نمایش فیش عیدی / سنوات / مرخصی</button>
-          <button class="btn btn-outline no-print" onclick="window.print()">چاپ فیش</button>
+          <button class="btn btn-outline" onclick="window.print()">چاپ فیش</button>
         </div>
       </div>
       <div id="eidPayslipContainer" style="margin-bottom:16px;"></div>
@@ -2700,6 +2757,7 @@ function applyTabVisibilityByPerm() {
     customitems: 'custom_templates',
     settings: 'settings_view',
     dataentry: 'data_entry',
+    colorder: 'data_entry',
     monthlyvars: 'monthly_vars',
     payroll: 'payroll_run',
     payslip: 'payslip',
@@ -3587,6 +3645,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     }
     if (btn.dataset.tab==='salarygrade') { initSalaryGradePanel(); }
     if (btn.dataset.tab==='monthlyvars') { renderMonthlyVars(); }
+    if (btn.dataset.tab==='colorder') { renderColOrderSheet(); }
     if (btn.dataset.tab==='settings') loadSettingsToForm();
     if (btn.dataset.tab==='payroll') {
       renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()');
@@ -5158,6 +5217,133 @@ function isQtyFlatItemName(name, year, month) {
   return found;
 }
 
+
+/** ---- ترتیب ستون‌های پویا در ورود داده / نمونه اکسل ---- */
+function collectDataEntryDynamicCols() {
+  var cols = [];
+  // ثابت‌های ماهانه
+  getMonthlyVars(true).forEach(function(v) {
+    if (!v || !v.name) return;
+    cols.push({
+      key: 'mv:' + v.id,
+      type: 'monthly_fixed',
+      typeLabel: 'ثابت ماهانه',
+      name: v.name,
+      unit: v.unit || 'day',
+      id: v.id
+    });
+  });
+  // آیتم‌های تعدادی / تعداد خالص از کارکنان + قالب‌ها (شامل کسورات و معوقه)
+  var seen = {};
+  function addQty(name, entryType, isDed) {
+    var n = String(name || '').trim();
+    if (!n || seen[n]) return;
+    seen[n] = true;
+    var tLabel = 'سفارشی';
+    if (isDed || /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'کسورات';
+    else if (/^معوقه(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'معوقه';
+    else if (entryType === 'qty_flat') tLabel = 'تعداد خالص';
+    else tLabel = 'بر اساس تعداد';
+    cols.push({
+      key: 'qty:' + n,
+      type: 'qty',
+      typeLabel: tLabel,
+      name: n,
+      entryType: entryType || 'quantity'
+    });
+  }
+  (data.customItemTemplates || []).forEach(function(t) {
+    if (!t || !t.name) return;
+    if (t.entryType !== 'quantity' && t.entryType !== 'qty_flat') return;
+    if (t.enabled === false) return;
+    addQty(t.name, t.entryType, !!t.isDeduction);
+  });
+  (data.employees || []).forEach(function(emp) {
+    (emp.customItems || []).forEach(function(ci) {
+      if (!ci || !ci.name) return;
+      if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') return;
+      addQty(ci.name, ci.entryType, !!ci.isDeduction || (typeof isNameDeductionItem === 'function' && isNameDeductionItem(ci.name)));
+    });
+  });
+  return cols;
+}
+
+function getDataEntryColOrder() {
+  if (!data.settings) data.settings = {};
+  if (!Array.isArray(data.settings.dataEntryColOrder)) data.settings.dataEntryColOrder = [];
+  return data.settings.dataEntryColOrder;
+}
+
+/** ادغام ترتیب ذخیره‌شده با اقلام فعلی */
+function resolveDataEntryColOrder() {
+  var current = collectDataEntryDynamicCols();
+  var byKey = {};
+  current.forEach(function(c) { byKey[c.key] = c; });
+  var saved = getDataEntryColOrder();
+  var ordered = [];
+  var used = {};
+  saved.forEach(function(key) {
+    if (byKey[key]) {
+      ordered.push(byKey[key]);
+      used[key] = true;
+    }
+  });
+  current.forEach(function(c) {
+    if (!used[c.key]) ordered.push(c);
+  });
+  return ordered;
+}
+
+function renderColOrderSheet() {
+  var body = document.getElementById('colOrderBody');
+  if (!body) return;
+  var ordered = resolveDataEntryColOrder();
+  if (!ordered.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty">هنوز ستون پویایی تعریف نشده. از ثابت‌های ماهانه یا آیتم‌های تعدادی اضافه کنید.</td></tr>';
+    return;
+  }
+  body.innerHTML = ordered.map(function(c, i) {
+    return '<tr data-col-key="' + String(c.key).replace(/"/g, '&quot;') + '">' +
+      '<td>' + (i + 1) + '</td>' +
+      '<td>' + (c.type === 'qty' ? ('تعداد ' + c.name) : c.name) + '</td>' +
+      '<td>' + (c.typeLabel || c.type) + '</td>' +
+      '<td>' +
+        '<button type="button" class="btn btn-outline btn-sm" onclick="moveDataEntryCol(' + i + ',-1)" title="بالا">▲</button> ' +
+        '<button type="button" class="btn btn-outline btn-sm" onclick="moveDataEntryCol(' + i + ',1)" title="پایین">▼</button>' +
+      '</td></tr>';
+  }).join('');
+}
+
+function moveDataEntryCol(index, dir) {
+  var ordered = resolveDataEntryColOrder();
+  var j = index + dir;
+  if (j < 0 || j >= ordered.length) return;
+  var tmp = ordered[index];
+  ordered[index] = ordered[j];
+  ordered[j] = tmp;
+  data.settings.dataEntryColOrder = ordered.map(function(c) { return c.key; });
+  renderColOrderSheet();
+}
+
+function saveDataEntryColOrder() {
+  var ordered = resolveDataEntryColOrder();
+  data.settings.dataEntryColOrder = ordered.map(function(c) { return c.key; });
+  try { saveToCache(); } catch (e) {}
+  alert('ترتیب ذخیره شد. در ورود داده و نمونه اکسل اعمال می‌شود.');
+  try {
+    if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+      loadDataEntry();
+  } catch (e2) {}
+}
+
+function resetDataEntryColOrder() {
+  if (!confirm('ترتیب به پیش‌فرض (ثابت‌های ماهانه سپس تعدادی‌ها) برگردد؟')) return;
+  data.settings.dataEntryColOrder = [];
+  try { saveToCache(); } catch (e) {}
+  renderColOrderSheet();
+}
+
+
 function loadDataEntry() {
   const key = getDataKey();
   const parts = String(key).split('-');
@@ -5179,23 +5365,20 @@ function loadDataEntry() {
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
-  // ستون‌های ثابت‌های ماهانه — منبع همین تب (همیشه نمایش)
-  var fixedVars = getMonthlyVars(true);
-  var fixedNameSet = {};
-  fixedVars.forEach(function(v) {
-    var nm = String(v.name || '').trim();
-    if (nm) {
-      fixedNameSet[nm] = true;
-      fixedNameSet[nm.replace(/^تعداد\s*/,'')] = true;
+  // ستون‌های پویا با ترتیب ذخیره‌شده (ثابت ماهانه + تعدادی / کسورات / معوقه)
+  var orderedCols = resolveDataEntryColOrder();
+  var fixedVars = [];
+  var qtyNamesOrdered = [];
+  orderedCols.forEach(function(c) {
+    if (c.type === 'monthly_fixed') {
+      fixedVars.push({ id: c.id, name: c.name, unit: c.unit || 'day' });
+      head += '<th title="ثابت ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(c.name) + ' (' + (c.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
+    } else if (c.type === 'qty') {
+      qtyNamesOrdered.push(c.name);
+      head += '<th title="' + mvEsc(c.typeLabel || 'تعداد') + '">' + 'تعداد ' + mvEsc(c.name) + '</th>';
     }
   });
-  fixedVars.forEach(function(v) {
-    head += '<th title="ثابت ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(v.name) + ' (' + (v.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
-  });
-  // ستون‌های «تعداد …» از آیتم‌های حقوقی (quantity / qty_flat) — مستقل از ثابت‌های ماهانه
-  qtyNames.forEach(function(n) {
-    head += '<th title="آیتم حقوقی بر اساس تعداد / تعداد خالص">' + 'تعداد ' + mvEsc(n) + '</th>';
-  });
+  var qtyNames = qtyNamesOrdered;
   head += '</tr>';
   thead.innerHTML = head;
   const tbody = document.getElementById('dataEntryBody');
@@ -5348,15 +5531,15 @@ function downloadDataTemplate() {
   const month = document.getElementById('dataMonth').value;
   pruneExpiredCustomItems(year, month);
   syncEmployeeCustomsToAllowances();
-  const qtyNames = getAllQuantityItemNames(year, month);
+  const orderedCols = (typeof resolveDataEntryColOrder === 'function') ? resolveDataEntryColOrder() : [];
   let headers = ['کد پرسنلی','نام','روز کارکرد','روز مرخصی','مرخصی ساعتی','ساعات اضافه‌کار','ساعات شب‌کاری','نوع نوبت‌کاری','روز نوبت'];
-  getMonthlyVars(true).forEach(v => headers.push(v.name));
-  qtyNames.forEach(n => headers.push('تعداد ' + n));
-  // هدر پویا از ثابت‌های ماهانه + آیتم‌های تعدادی فعلی
+  orderedCols.forEach(function(c) {
+    if (c.type === 'monthly_fixed') headers.push(c.name);
+    else if (c.type === 'qty') headers.push('تعداد ' + c.name);
+  });
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
   const guide = ['10001', 'نام نمونه', getMonthDays(year, month) || 30, 0, 0, 0, 0, 'ندارد', 0];
-  getMonthlyVars(true).forEach(function() { guide.push(0); });
-  qtyNames.forEach(function() { guide.push(0); });
+  orderedCols.forEach(function() { guide.push(0); });
   csv += guide.map(function(cell) { return '"' + String(cell).replace(/"/g,'""') + '"'; }).join(',') + '\n';
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
