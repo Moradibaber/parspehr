@@ -453,7 +453,7 @@
   <div class="panel" id="panel-allowances">
     <div class="card">
       <div class="section-title">آیتم‌های حقوق و مزایا</div>
-      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، سنوات و …). حقوق پایه اینجا نیست و فقط در کارت کارمند تعریف می‌شود. با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، پایه سنوات و …). <b>حقوق پایه</b> و <b>مبلغ پایه سنوات</b> در کارت هر کارمند تعریف می‌شوند؛ اینجا فقط نام و تیک بیمه/مالیات برای پایه سنوات نگه داشته می‌شود. با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
       <div style="font-weight:600;display:grid;grid-template-columns:2fr 1fr 80px 80px 36px;gap:7px;margin-bottom:5px;font-size:0.8rem;">
         <span>نام آیتم</span><span>مبلغ ثابت</span><span>مشمول بیمه</span><span>مشمول مالیات</span><span></span>
       </div>
@@ -1576,6 +1576,7 @@
           </select>
         </div>
         <div class="form-group" id="grp_basicSalary"><label>حقوق پایه ماهانه *</label><input type="number" id="e_basicSalary" min="0" value="0"></div>
+        <div class="form-group" id="grp_seniorityBase"><label>پایه سنوات ماهانه</label><input type="number" id="e_seniorityBase" min="0" value="0" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا"></div>
         <div class="form-group" id="grp_dailyRate" style="display:none;">
           <label>مزد یک روز (جمع)</label>
           <input type="number" id="e_dailyRate" min="0" value="0" title="شامل مسکن، بن، اولاد، تأهل، سنوات و ... به عنوان مزد یک روز">
@@ -3743,14 +3744,25 @@ function parseFormattedNumber(v) {
   return isNaN(n) ? 0 : n;
 }
 
+function isSeniorityAllowance(a) {
+  if (!a) return false;
+  if (a.id === 'seniority') return true;
+  var n = String(a.name || '').trim();
+  return n === 'پایه سنوات' || n.indexOf('پایه سنوات') === 0 || n === 'سنوات';
+}
+
 function renderAllowances() {
   stripBasicSalaryFromAllowances();
   document.getElementById('allowancesList').innerHTML = data.allowances.map((a, idx) => {
     if (!a._prevName) a._prevName = a.name || '';
+    var isSen = isSeniorityAllowance(a);
+    var amtField = isSen
+      ? '<input type="text" value="(از کارت کارمند)" disabled title="مبلغ پایه سنوات برای هر نفر در کارکنان فعال / کارت کارمند وارد می‌شود" style="opacity:0.75;cursor:not-allowed;">'
+      : '<input type="text" inputmode="numeric" value="' + formatNumber(a.amount) + '" onfocus="this.value=String(parseFormattedNumber(this.value)||\'\');" onblur="var n=parseFormattedNumber(this.value);data.allowances[' + idx + '].amount=n;this.value=formatNumber(n);">';
     return `
     <div class="allowance-row">
       <input type="text" value="${a.name || ''}" onchange="onAllowanceNameChange(${idx}, this.value)">
-      <input type="text" inputmode="numeric" value="${formatNumber(a.amount)}" onfocus="this.value=String(parseFormattedNumber(this.value)||'');" onblur="var n=parseFormattedNumber(this.value);data.allowances[${idx}].amount=n;this.value=formatNumber(n);">
+      ${amtField}
       <label class="check-label"><input type="checkbox" ${a.ins?'checked':''} onchange="data.allowances[${idx}].ins=this.checked"> بیمه</label>
       <label class="check-label"><input type="checkbox" ${a.tax?'checked':''} onchange="data.allowances[${idx}].tax=this.checked"> مالیات</label>
       <button type="button" class="btn btn-danger btn-sm" onclick="deleteAllowance(${idx})">×</button>
@@ -4255,6 +4267,8 @@ function onContractTypeChange() {
   const t = document.getElementById('e_contractType').value;
   const isN = t === 'normal', isD = t === 'daily', isH = t === 'hourly';
   document.getElementById('grp_basicSalary').style.display = isN ? '' : 'none';
+  var grpSen = document.getElementById('grp_seniorityBase');
+  if (grpSen) grpSen.style.display = isN ? '' : 'none';
   document.getElementById('grp_dailyRate').style.display = isD ? '' : 'none';
   document.getElementById('grp_hourlyRate').style.display = isH ? '' : 'none';
   document.getElementById('grp_optTax10').style.display = (isD || isH) ? '' : 'none';
@@ -4313,6 +4327,7 @@ function openEmployeeModal(editId = null) {
   // حقوق پایه / نرخ‌ها بر اساس دسترسی
   var canSalary = hasPerm('emp_basic_salary');
   document.getElementById('e_basicSalary').disabled = !canSalary;
+  var esb = document.getElementById('e_seniorityBase'); if (esb) esb.disabled = !canSalary;
   var dr = document.getElementById('e_dailyRate');
   var hr = document.getElementById('e_hourlyRate');
   if (dr) dr.disabled = !canSalary;
@@ -4345,7 +4360,7 @@ function openEmployeeModal(editId = null) {
       fullName:'e_fullName', position:'e_position', management:'e_management', unit:'e_unit', group:'e_group', workplace:'e_workplace',
       province:'e_province', city:'e_city',
       hireDate:'e_hireDate', endDate:'e_endDate', endReason:'e_endReason',
-      basicSalary:'e_basicSalary',
+      basicSalary:'e_basicSalary', seniorityBase:'e_seniorityBase',
       bankName:'e_bankName', accountNumber:'e_accountNumber', insuranceNo:'e_insuranceNo',
       children:'e_children', gender:'e_gender', marital:'e_marital', exemption:'e_exemption', status:'e_status', statusStart:'e_statusStart', statusEnd:'e_statusEnd',
       loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining',
@@ -4355,7 +4370,7 @@ function openEmployeeModal(editId = null) {
       const el = document.getElementById(map[k]);
       if (!el) return;
       if (k === 'taxPercent') el.value = (emp.taxPercent === 50 ? '50' : '100');
-      else el.value = emp[k] ?? (['basicSalary','children','loanAmount','loanInstallments','loanRemaining'].includes(k) ? 0 : (k==='status'?'active':''));
+      else el.value = emp[k] ?? (['basicSalary','seniorityBase','children','loanAmount','loanInstallments','loanRemaining'].includes(k) ? 0 : (k==='status'?'active':''));
     });
     document.getElementById('e_contractType').value = emp.contractType || 'normal';
     document.getElementById('e_dailyRate').value = emp.dailyRate || 0;
@@ -4483,6 +4498,7 @@ function saveEmployee(e) {
       basicSalary = Number(old.basicSalary) || 0;
       dailyRate = Number(old.dailyRate) || 0;
       hourlyRate = Number(old.hourlyRate) || 0;
+      if (document.getElementById('e_seniorityBase')) document.getElementById('e_seniorityBase').value = Number(old.seniorityBase) || 0;
     } else {
       // بدون دسترسی به حقوق پایه، کارمند جدید با پایه ۰ ثبت می‌شود (بعداً ادمین می‌تواند تکمیل کند)
       basicSalary = 0; dailyRate = 0; hourlyRate = 0;
@@ -4515,6 +4531,9 @@ function saveEmployee(e) {
     endDate: document.getElementById('e_endDate').value.trim(),
     endReason: document.getElementById('e_endReason').value || '',
     basicSalary: basicSalary,
+    seniorityBase: (!hasPerm('emp_basic_salary') && old)
+      ? (Number(old.seniorityBase) || 0)
+      : (Number(document.getElementById('e_seniorityBase') && document.getElementById('e_seniorityBase').value) || 0),
     contractType: document.getElementById('e_contractType').value || 'normal',
     dailyRate: Number(document.getElementById('e_dailyRate').value) || 0,
     hourlyRate: Number(document.getElementById('e_hourlyRate').value) || 0,
@@ -4741,7 +4760,7 @@ function empBaseHeaders() {
   return [
     'کد پرسنلی','کد ملی','نام','نام خانوادگی','سمت','مدیریت/معاونت','واحد','گروه','محل کار','استان محل سکونت','شهر محل سکونت',
     'تاریخ استخدام','تاریخ پایان همکاری','دلیل پایان همکاری',
-    'نوع قرارداد','حقوق پایه ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
+    'نوع قرارداد','حقوق پایه ماهانه','پایه سنوات ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
     'تعداد اولاد','وضعیت تأهل','معافیت','مالیات','وضعیت','کسر بیمه تکمیلی',
     'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','توضیحات'
   ];
@@ -4768,7 +4787,7 @@ function downloadEmployeeTemplate() {
   const sampleBase = [
     '10001','0012345678','نام','خانوادگی','سمت نمونه','مدیریت نمونه','واحد نمونه','گروه نمونه','محل کار','استان','شهر',
     '1405/01/01','','',
-    'عادی','0','0','0','نام بانک','شماره حساب','شماره بیمه',
+    'عادی','0','0','0','0','نام بانک','شماره حساب','شماره بیمه',
     '0','مجرد','هیچ‌کدام','100','فعال','خیر',
     '0','0','0','توضیح نمونه'
   ];
@@ -4810,7 +4829,8 @@ function importEmployeesFromExcel(event) {
         hireDate: find(['تاریخ استخدام','استخدام']), endDate: find(['تاریخ پایان','پایان همکاری']),
         endReason: find(['دلیل پایان']),
         contractType: find(['نوع قرارداد','قرارداد']),
-        basicSalary: find(['حقوق پایه']), dailyRate: find(['مزد یک روز','مزد روز']),
+        basicSalary: find(['حقوق پایه']), seniorityBase: find(['پایه سنوات']),
+        dailyRate: find(['مزد یک روز','مزد روز']),
         hourlyRate: find(['مبلغ یک ساعت','یک ساعت']),
         optTax10: find(['مالیات ۱۰','مالیات 10']), optInsNormal: find(['بیمه عادی','بیمه (نرخ']),
         bankName: find(['نام بانک']), accountNumber: find(['شماره حساب','شبا']),
@@ -7886,11 +7906,12 @@ async function exportBonusBank() {
 
 function downloadEmpFieldUpdateTemplate() {
   // فقط کد + فیلدهایی که اغلب به‌روز می‌شوند
-  let csv = 'کد پرسنلی,حقوق پایه,نرخ روزانه,نرخ ساعتی,سمت,مدیریت/معاونت,واحد,گروه,محل کار,بانک,شماره حساب,شبا,وضعیت تأهل,تعداد اولاد\n';
+  let csv = 'کد پرسنلی,حقوق پایه,پایه سنوات,نرخ روزانه,نرخ ساعتی,سمت,مدیریت/معاونت,واحد,گروه,محل کار,بانک,شماره حساب,شبا,وضعیت تأهل,تعداد اولاد\n';
   getActiveEmployees().forEach(function(emp) {
     csv += [
       emp.code,
       emp.basicSalary || '',
+      emp.seniorityBase || '',
       emp.dailyRate || '',
       emp.hourlyRate || '',
       '"' + (emp.position || '') + '"',
@@ -7931,7 +7952,8 @@ function importEmpFieldUpdates(ev) {
     const idxCode = col(['کد']);
     if (idxCode < 0) { alert('ستون کد پرسنلی یافت نشد'); return; }
     const map = {
-      basicSalary: col(['حقوق پایه','پایه']),
+      basicSalary: col(['حقوق پایه']),
+      seniorityBase: col(['پایه سنوات','سنوات']),
       dailyRate: col(['نرخ روزانه','روزانه']),
       hourlyRate: col(['نرخ ساعتی','ساعتی']),
       position: col(['سمت']),
@@ -7970,6 +7992,7 @@ function importEmpFieldUpdates(ev) {
         emp[field] = cols[ci];
       }
       setNum('basicSalary', map.basicSalary);
+      setNum('seniorityBase', map.seniorityBase);
       setNum('dailyRate', map.dailyRate);
       setNum('hourlyRate', map.hourlyRate);
       setStr('position', map.position);
