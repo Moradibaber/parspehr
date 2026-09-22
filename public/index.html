@@ -939,13 +939,16 @@
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;">
         همه اقلام قابل‌نمایش در شیت ورود داده و نمونه اکسل اینجا جمع می‌شوند:
         <b>ثابت‌های ماهانه</b>، <b>آیتم‌های سفارشی تعدادی</b>، <b>کسورات/معوقه تعدادی</b>.
-        با دکمه‌های ▲ ▼ اولویت را عوض کنید. ذخیره روی ورود داده و دانلود نمونه اکسل اعمال می‌شود.
+        با دکمه‌های ▲ ▼ اولویت را عوض کنید. تیک <b>اکسل</b> مشخص می‌کند ستون در «نمونه اکسل ورود داده» باشد یا نه.
+        ذخیره روی ورود داده و دانلود نمونه اکسل اعمال می‌شود.
         ستون‌های پایه (کد، نام، کارکرد، مرخصی، …) همیشه اول می‌مانند.
       </p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <button type="button" class="btn btn-primary btn-sm" onclick="saveDataEntryColOrder()">ذخیره ترتیب</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="resetDataEntryColOrder()">بازگشت به پیش‌فرض</button>
         <button type="button" class="btn btn-outline btn-sm" onclick="renderColOrderSheet()">بروزرسانی لیست</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setAllDataEntryColExcel(true)">همه در اکسل</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setAllDataEntryColExcel(false)">هیچ‌کدام در اکسل</button>
       </div>
       <div style="overflow-x:auto;">
         <table>
@@ -954,6 +957,7 @@
               <th style="width:50px;">#</th>
               <th>نام ستون</th>
               <th>نوع</th>
+              <th style="width:90px;" title="نمایش در نمونه اکسل ورود داده">اکسل</th>
               <th style="width:120px;">جابجایی</th>
             </tr>
           </thead>
@@ -5274,6 +5278,26 @@ function getDataEntryColOrder() {
   return data.settings.dataEntryColOrder;
 }
 
+function getDataEntryColExcelMap() {
+  if (!data.settings) data.settings = {};
+  if (!data.settings.dataEntryColExcel || typeof data.settings.dataEntryColExcel !== 'object') {
+    data.settings.dataEntryColExcel = {};
+  }
+  return data.settings.dataEntryColExcel;
+}
+
+/** آیا این ستون در نمونه اکسل باشد؟ پیش‌فرض: بله */
+function isDataEntryColInExcel(key) {
+  var map = getDataEntryColExcelMap();
+  if (map[key] === false) return false;
+  return true;
+}
+
+function setDataEntryColExcel(key, checked) {
+  var map = getDataEntryColExcelMap();
+  map[key] = !!checked;
+}
+
 /** ادغام ترتیب ذخیره‌شده با اقلام فعلی */
 function resolveDataEntryColOrder() {
   var current = collectDataEntryDynamicCols();
@@ -5299,14 +5323,23 @@ function renderColOrderSheet() {
   if (!body) return;
   var ordered = resolveDataEntryColOrder();
   if (!ordered.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty">هنوز ستون پویایی تعریف نشده. از ثابت‌های ماهانه یا آیتم‌های تعدادی اضافه کنید.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty">هنوز ستون پویایی تعریف نشده. از ثابت‌های ماهانه یا آیتم‌های تعدادی اضافه کنید.</td></tr>';
     return;
   }
   body.innerHTML = ordered.map(function(c, i) {
-    return '<tr data-col-key="' + String(c.key).replace(/"/g, '&quot;') + '">' +
+    var inExcel = isDataEntryColInExcel(c.key);
+    var keyAttr = String(c.key).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    var keyJs = String(c.key).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<tr data-col-key="' + keyAttr + '">' +
       '<td>' + (i + 1) + '</td>' +
       '<td>' + (c.type === 'qty' ? ('تعداد ' + c.name) : c.name) + '</td>' +
       '<td>' + (c.typeLabel || c.type) + '</td>' +
+      '<td style="text-align:center;">' +
+        '<label class="check-label" style="justify-content:center;margin:0;">' +
+          '<input type="checkbox" ' + (inExcel ? 'checked' : '') +
+          ' onchange="setDataEntryColExcel(\'' + keyJs + '\', this.checked)" title="در نمونه اکسل ورود داده">' +
+        '</label>' +
+      '</td>' +
       '<td>' +
         '<button type="button" class="btn btn-outline btn-sm" onclick="moveDataEntryCol(' + i + ',-1)" title="بالا">▲</button> ' +
         '<button type="button" class="btn btn-outline btn-sm" onclick="moveDataEntryCol(' + i + ',1)" title="پایین">▼</button>' +
@@ -5325,11 +5358,19 @@ function moveDataEntryCol(index, dir) {
   renderColOrderSheet();
 }
 
+function setAllDataEntryColExcel(flag) {
+  var ordered = resolveDataEntryColOrder();
+  var map = getDataEntryColExcelMap();
+  ordered.forEach(function(c) { map[c.key] = !!flag; });
+  renderColOrderSheet();
+}
+
 function saveDataEntryColOrder() {
   var ordered = resolveDataEntryColOrder();
   data.settings.dataEntryColOrder = ordered.map(function(c) { return c.key; });
+  // map already updated live via checkboxes
   try { saveToCache(); } catch (e) {}
-  alert('ترتیب ذخیره شد. در ورود داده و نمونه اکسل اعمال می‌شود.');
+  alert('ترتیب و تیک اکسل ذخیره شد.');
   try {
     if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
       loadDataEntry();
@@ -5337,8 +5378,9 @@ function saveDataEntryColOrder() {
 }
 
 function resetDataEntryColOrder() {
-  if (!confirm('ترتیب به پیش‌فرض (ثابت‌های ماهانه سپس تعدادی‌ها) برگردد؟')) return;
+  if (!confirm('ترتیب و تیک اکسل به پیش‌فرض برگردد؟')) return;
   data.settings.dataEntryColOrder = [];
+  data.settings.dataEntryColExcel = {};
   try { saveToCache(); } catch (e) {}
   renderColOrderSheet();
 }
@@ -5531,14 +5573,17 @@ function downloadDataTemplate() {
   pruneExpiredCustomItems(year, month);
   syncEmployeeCustomsToAllowances();
   const orderedCols = (typeof resolveDataEntryColOrder === 'function') ? resolveDataEntryColOrder() : [];
+  const excelCols = orderedCols.filter(function(c) {
+    return typeof isDataEntryColInExcel !== 'function' || isDataEntryColInExcel(c.key);
+  });
   let headers = ['کد پرسنلی','نام','روز کارکرد','روز مرخصی','مرخصی ساعتی','ساعات اضافه‌کار','ساعات شب‌کاری','نوع نوبت‌کاری','روز نوبت'];
-  orderedCols.forEach(function(c) {
+  excelCols.forEach(function(c) {
     if (c.type === 'monthly_fixed') headers.push(c.name);
     else if (c.type === 'qty') headers.push('تعداد ' + c.name);
   });
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
   const guide = ['10001', 'نام نمونه', getMonthDays(year, month) || 30, 0, 0, 0, 0, 'ندارد', 0];
-  orderedCols.forEach(function() { guide.push(0); });
+  excelCols.forEach(function() { guide.push(0); });
   csv += guide.map(function(cell) { return '"' + String(cell).replace(/"/g,'""') + '"'; }).join(',') + '\n';
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
