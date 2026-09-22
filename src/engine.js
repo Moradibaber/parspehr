@@ -513,7 +513,9 @@ export function makeEngine(data) {
         let maritalM = (emp.marital === 'married' || emp.marital === 'provider') ? monthlyAllow('marital', 'تأهل') : 0;
         let seniorityM = 0;
         if (yearsOfService(emp.hireDate, year, month) >= 1) {
-          seniorityM = monthlyAllow('seniority', 'سنوات');
+          const empSen = Number(emp.seniorityBase);
+          if (!isNaN(empSen) && empSen > 0) seniorityM = empSen;
+          else seniorityM = monthlyAllow('seniority', 'سنوات');
         }
   
         const unitHousing = housingM / divisor;
@@ -611,9 +613,13 @@ export function makeEngine(data) {
         let raw = Number(a.amount)||0;
         if (raw === 0) return;
         if (a.id === 'seniority' || a.name.includes('سنوات')) {
-          // پایه سنوات: مثل حقوق پایه — مبنا ۳۰ روز
+          // پایه سنوات: مبلغ از کارت کارمند؛ بیمه/مالیات از این آیتم؛ مبنا ۳۰ روز
           if (yearsOfService(emp.hireDate, year, month) < 1) return;
-          const val = Math.round(raw * ratioBase);
+          const empSen = Number(emp.seniorityBase);
+          const baseAmt = (!isNaN(empSen) && empSen >= 0 && emp.seniorityBase !== undefined && emp.seniorityBase !== null && emp.seniorityBase !== '')
+            ? empSen
+            : raw;
+          const val = Math.round(baseAmt * ratioBase);
           if (val === 0) return;
           totalAllow += val;
           itemDetails.push({ name: a.name, amount: val });
@@ -995,7 +1001,12 @@ export function makeEngine(data) {
         }
         if (a.id === 'seniority' || n.indexOf('سنوات') >= 0) {
           if (yearsOfService(emp.hireDate, year, month) < 1) amt = 0;
-          else amt = Number(a.amount) || 0;
+          else {
+            const empSen = Number(emp.seniorityBase);
+            if (!isNaN(empSen) && emp.seniorityBase !== undefined && emp.seniorityBase !== null && emp.seniorityBase !== '')
+              amt = empSen;
+            else amt = Number(a.amount) || 0;
+          }
         }
         entries.push({ code: emp.code, name: n, amount: amt });
       });
