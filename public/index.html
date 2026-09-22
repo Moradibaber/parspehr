@@ -5359,26 +5359,25 @@ function loadDataEntry() {
   const fd = data.monthlyData[key]._meta.functionalDays || data.settings.defaultFunctionalDays || 22;
   document.getElementById('dataFunctionalDays').value = fd;
   const activeEmps = getActiveEmployees();
-  const qtyNames = getAllQuantityItemNames(y, m);
+  const allQtyNames = getAllQuantityItemNames(y, m);
   // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
-  pruneOrphanQtyKeys(key, qtyNames);
+  pruneOrphanQtyKeys(key, allQtyNames);
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
   // ستون‌های پویا با ترتیب ذخیره‌شده (ثابت ماهانه + تعدادی / کسورات / معوقه)
   var orderedCols = resolveDataEntryColOrder();
   var fixedVars = [];
-  var qtyNamesOrdered = [];
+  var qtyNames = [];
   orderedCols.forEach(function(c) {
     if (c.type === 'monthly_fixed') {
       fixedVars.push({ id: c.id, name: c.name, unit: c.unit || 'day' });
       head += '<th title="ثابت ماهانه (ورود عددی، بدون مبلغ)">' + mvEsc(c.name) + ' (' + (c.unit === 'hour' ? 'ساعت' : 'روز') + ')</th>';
     } else if (c.type === 'qty') {
-      qtyNamesOrdered.push(c.name);
+      qtyNames.push(c.name);
       head += '<th title="' + mvEsc(c.typeLabel || 'تعداد') + '">' + 'تعداد ' + mvEsc(c.name) + '</th>';
     }
   });
-  var qtyNames = qtyNamesOrdered;
   head += '</tr>';
   thead.innerHTML = head;
   const tbody = document.getElementById('dataEntryBody');
@@ -9978,37 +9977,80 @@ function syncClassicNote(w) {
   } catch (e) {}
 }
 
-async function ssoBoot() {
-  var w = await syncApi('GET', '/api/whoami');
-  if (w.status === 401) { try { window.location.href = '/login?expired=1'; } catch (e) {} return true; } // session ended: go to the login page
-  if (!w.ok || !w.out || !w.out.user) { syncClassicNote(w); return false; } // no server login: the classic login screen stays
-  ssoActive = true;
-  syncWho = { user: w.out.user, role: w.out.role === 'admin' ? 'admin' : 'operator', adminConfigured: w.out.adminConfigured !== false };
-  syncShapes = {};
-  Object.keys(data).forEach(function(k) {
-    syncShapes[k] = Array.isArray(data[k]) ? 'a' : ((data[k] && typeof data[k] === 'object') ? 'o' : 'p');
-  });
-  var cloud = !!w.out.syncConfigured;
-  if (cloud) {
-    syncOn = true;
-    await syncTick('boot');
-  }
-  if (!syncApplyIdentity(true)) return true;
-  syncEnsureBanner();
+function clearBootLoading() {
   try {
-    var cloudTab = document.querySelector('.tab-btn[data-tab="cloud"]');
-    if (cloudTab) cloudTab.style.display = 'none';
+    var boot = document.getElementById('bootLoading');
+    if (boot) boot.style.display = 'none';
   } catch (e) {}
-  if (cloud) { syncNote(syncProblem || 'ok'); syncStartTimers(); }
-  else syncNote('unconfigured');
-  return true;
+}
+
+async function ssoBoot() {
+  try {
+    var w = await Promise.race([
+      syncApi('GET', '/api/whoami'),
+      new Promise(function(resolve) {
+        setTimeout(function() { resolve({ ok: false, offline: true, status: 0, out: null }); }, 12000);
+      })
+    ]);
+    if (w.status === 401) { try { window.location.href = '/login?expired=1'; } catch (e) {} return true; }
+    if (!w.ok || !w.out || !w.out.user) { syncClassicNote(w); return false; }
+    ssoActive = true;
+    syncWho = { user: w.out.user, role: w.out.role === 'admin' ? 'admin' : 'operator', adminConfigured: w.out.adminConfigured !== false };
+    syncShapes = {};
+    Object.keys(data).forEach(function(k) {
+      syncShapes[k] = Array.isArray(data[k]) ? 'a' : ((data[k] && typeof data[k] === 'object') ? 'o' : 'p');
+    });
+    var cloud = !!w.out.syncConfigured;
+    if (cloud) {
+      syncOn = true;
+      try {
+        await Promise.race([
+          syncTick('boot'),
+          new Promise(function(_, reject) {
+            setTimeout(function() { reject(new Error('boot_sync_timeout')); }, 20000);
+          })
+        ]);
+      } catch (eSync) {
+        console.warn('boot sync', eSync);
+        if (!syncProblem) syncProblem = 'offline';
+      }
+    }
+    if (!syncApplyIdentity(true)) return true;
+    syncEnsureBanner();
+    try {
+      var cloudTab = document.querySelector('.tab-btn[data-tab="cloud"]');
+      if (cloudTab) cloudTab.style.display = 'none';
+    } catch (e) {}
+    if (cloud) { syncNote(syncProblem || 'ok'); syncStartTimers(); }
+    else syncNote('unconfigured');
+    return true;
+  } finally {
+    clearBootLoading();
+  }
 }
 
 try { updateRoleUI(); } catch (e2) {}
 try {
-  ssoBoot().then(function(ok) { if (!ok) { try { showLogin(); } catch (e1) { console.error(e1); } } })
-    .catch(function(e3) { console.error('sso', e3); try { showLogin(); } catch (e1) { console.error(e1); } });
-} catch (e4) { console.error(e4); try { showLogin(); } catch (e5) {} }
+  ssoBoot().then(function(ok) {
+    clearBootLoading();
+    if (!ok) {
+      try { showLogin(); } catch (e1) { console.error(e1); }
+    } else if (currentRole) {
+      try {
+        var ov = document.getElementById('loginOverlay');
+        if (ov) ov.style.display = 'none';
+      } catch (e2) {}
+    }
+  }).catch(function(e3) {
+    console.error('sso', e3);
+    clearBootLoading();
+    try { showLogin(); } catch (e1) { console.error(e1); }
+  });
+} catch (e4) {
+  console.error(e4);
+  clearBootLoading();
+  try { showLogin(); } catch (e5) {}
+}
 
 </script>
 </body>
