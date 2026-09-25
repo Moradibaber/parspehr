@@ -1509,28 +1509,15 @@ export default {
     if (url.pathname === '/login') return handleLogin(request, env, users);
     if (url.pathname === '/logout') return handleLogout();
 
-    // Employee HTML page is public
+    // Employee portal (always from worker so leave/mission UI is up to date)
     if (url.pathname === '/employee' || url.pathname === '/employee/') {
-      const h = new Headers(request.headers);
-      h.delete('If-None-Match');
-      h.delete('If-Modified-Since');
-      // try to serve employee.html from assets
-      const assetReq = new Request(new URL('/employee.html', request.url), { headers: h });
-      let res = await env.ASSETS.fetch(assetReq);
-      if (res.status === 404) {
-        // fallback: try /employee/index.html style
-        res = await env.ASSETS.fetch(new Request(new URL('/employee/index.html', request.url), { headers: h }));
-      }
-      if (res.status === 200) {
-        const headers = new Headers(res.headers);
-        headers.set('Cache-Control', 'no-store');
-        headers.set('X-Robots-Tag', 'noindex, nofollow');
-        return new Response(res.body, { status: 200, headers });
-      }
-      // if file not found, return a minimal built-in page
       return new Response(BUILTIN_EMPLOYEE_HTML, {
         status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Robots-Tag': 'noindex, nofollow'
+        }
       });
     }
 
@@ -1551,155 +1538,226 @@ export default {
 const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>فیش حقوقی — پارسپهر</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>پرتال کارکنان — پارسپهر</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap');
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Vazirmatn,Tahoma,sans-serif;background:#f0fdfa;color:#134e4a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
-.card{background:#fff;border-radius:14px;padding:28px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(15,118,110,.12)}
-h1{font-size:1.2rem;color:#0f766e;text-align:center;margin-bottom:6px}
-.sub{text-align:center;font-size:.85rem;color:#64748b;margin-bottom:18px}
-label{display:block;font-size:.82rem;font-weight:600;margin:10px 0 4px;color:#0f766e}
-input,select{width:100%;padding:9px 11px;border:1px solid #99f6e4;border-radius:8px;font-family:inherit;font-size:.95rem}
-button{width:100%;margin-top:14px;padding:11px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit}
-button:hover{background:#0d9488}
-.err{color:#b91c1c;font-size:.85rem;text-align:center;margin-top:10px;min-height:1.2em}
-.hidden{display:none}
-.payslip{margin-top:16px;border:1px solid #99f6e4;border-radius:10px;padding:14px;font-size:.85rem}
-.payslip h2{font-size:1rem;text-align:center;margin-bottom:8px}
-.payslip table{width:100%;border-collapse:collapse;margin-top:8px}
-.payslip td,.payslip th{border:1px solid #cbd5e1;padding:5px 7px;text-align:right}
-.net{font-size:1.1rem;font-weight:700;color:#0f766e;text-align:center;margin-top:10px;padding:8px;background:#f0fdfa;border-radius:8px}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:.85rem}
-.link{color:#0f766e;cursor:pointer;text-decoration:underline;background:none;border:0;font-family:inherit;font-size:.82rem;width:auto;padding:0;margin:0}
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 16px; direction: rtl; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 14px; padding: 22px 18px; box-shadow: 0 8px 30px rgba(15,118,110,0.10); margin-bottom: 14px; }
+  h1 { font-size: 1.2rem; color: #0f766e; text-align: center; margin-bottom: 4px; }
+  h2 { font-size: 1rem; color: #0f766e; margin: 0 0 10px; }
+  .sub { text-align: center; font-size: 0.82rem; color: #64748b; margin-bottom: 16px; }
+  label { display: block; font-size: 0.8rem; font-weight: 600; margin: 8px 0 4px; color: #0f766e; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #99f6e4; border-radius: 8px; font-family: inherit; font-size: 0.92rem; }
+  textarea { min-height: 64px; resize: vertical; }
+  button.primary { width: 100%; margin-top: 12px; padding: 10px; border: 0; border-radius: 8px; background: #0f766e; color: #fff; font-size: 0.95rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button.sm { padding: 6px 10px; border: 1px solid #99f6e4; border-radius: 7px; background: #fff; color: #0f766e; font-size: 0.78rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button.danger { background: #fee2e2; border-color: #fecaca; color: #b91c1c; }
+  button.ok { background: #dcfce7; border-color: #bbf7d0; color: #15803d; }
+  .err { color: #b91c1c; font-size: 0.82rem; text-align: center; margin-top: 8px; min-height: 1.1em; }
+  .okmsg { color: #16a34a; }
+  .hidden { display: none !important; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.85rem; gap: 8px; flex-wrap: wrap; }
+  .link { color: #0f766e; cursor: pointer; background: none; border: 0; font-family: inherit; font-size: 0.82rem; text-decoration: underline; padding: 0; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; background: #fff; padding: 6px; border-radius: 10px; }
+  .tab { padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; font-size: 0.78rem; font-weight: 600; color: #0f766e; cursor: pointer; font-family: inherit; }
+  .tab.active { background: #0f766e; color: #fff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+  .payslip, .box { margin-top: 12px; border: 1px solid #99f6e4; border-radius: 10px; padding: 12px; font-size: 0.85rem; background: #fafafa; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th, td { border: 1px solid #cbd5e1; padding: 5px 6px; text-align: right; }
+  th { background: #f0fdfa; }
+  .net { font-size: 1.1rem; font-weight: 700; color: #0f766e; text-align: center; margin-top: 10px; padding: 8px; background: #f0fdfa; border-radius: 8px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+  .b-pending { background: #fef3c7; color: #92400e; }
+  .b-approved { background: #dcfce7; color: #166534; }
+  .b-rejected { background: #fee2e2; color: #991b1b; }
+  .req-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: #fff; font-size: 0.82rem; }
+  .req-card .meta { color: #64748b; font-size: 0.75rem; margin-top: 4px; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  @media print { body { background: #fff; padding: 0; } .no-print { display: none !important; } .card { box-shadow: none; } }
 </style>
 </head>
 <body>
+<div class="wrap">
 <div class="card" id="loginCard">
-  <h1>مشاهده فیش حقوقی</h1>
-  <p class="sub">کد پرسنلی و رمز عبور خود را وارد کنید</p>
-  <label>کد پرسنلی</label>
-  <input id="code" autocomplete="username">
-  <label>رمز عبور</label>
-  <input id="pass" type="password" autocomplete="current-password">
-  <button onclick="doLogin()">ورود</button>
+  <h1>پرتال کارکنان پارسپهر</h1>
+  <p class="sub">کد پرسنلی و رمز عبور<br><span style="font-size:0.78rem;color:#0f766e">رمز اولیه = همان کد پرسنلی</span></p>
+  <label>کد پرسنلی</label><input id="code" autocomplete="username" autofocus>
+  <label>رمز عبور</label><input id="pass" type="password" autocomplete="current-password">
+  <button class="primary" onclick="doLogin()">ورود</button>
   <div class="err" id="loginErr"></div>
 </div>
-
-<div class="card hidden" id="appCard">
-  <div class="topbar">
-    <span id="whoLabel"></span>
-    <button class="link" onclick="doLogout()">خروج</button>
-  </div>
-  <h1>فیش حقوقی</h1>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-    <div><label>سال</label><input type="number" id="year" value="1405"></div>
-    <div><label>ماه</label>
-      <select id="month">
-        <option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option>
-        <option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option>
-        <option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option>
-        <option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option>
-      </select>
+<div class="hidden" id="appCard">
+  <div class="card no-print">
+    <div class="topbar"><span id="whoLabel" style="font-weight:600;"></span><button class="link" onclick="doLogout()">خروج</button></div>
+    <div class="tabs">
+      <button class="tab active" data-tab="payslip" onclick="showTab('payslip')">فیش حقوقی</button>
+      <button class="tab" data-tab="request" onclick="showTab('request')">درخواست مرخصی/مأموریت</button>
+      <button class="tab" data-tab="mine" onclick="showTab('mine')">درخواست‌های من</button>
+      <button class="tab" data-tab="approve" id="tabApprove" onclick="showTab('approve')">تأیید درخواست‌ها</button>
+      <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
+      <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
   </div>
-  <button onclick="loadPayslip()">نمایش فیش</button>
-  <div class="err" id="appErr"></div>
-  <div id="payslipBox"></div>
-
-  <hr style="margin:20px 0;border:0;border-top:1px solid #e2e8f0">
-  <h1 style="font-size:1rem">تغییر رمز عبور</h1>
-  <label>رمز فعلی</label><input id="oldPass" type="password">
-  <label>رمز جدید (حداقل ۶ کاراکتر)</label><input id="newPass" type="password">
-  <label>تکرار رمز جدید</label><input id="newPass2" type="password">
-  <button onclick="changePass()">ثبت رمز جدید</button>
-  <div class="err" id="passErr"></div>
+  <div class="card panel" id="panel-payslip">
+    <h2 class="no-print">فیش حقوقی</h2>
+    <div class="grid2 no-print"><div><label>سال</label><input type="number" id="year" value="1405"></div>
+    <div><label>ماه</label><select id="month"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
+    <button class="primary no-print" onclick="loadPayslip()">نمایش فیش</button>
+    <button class="sm no-print" style="margin-top:8px;width:auto;" onclick="window.print()">چاپ</button>
+    <div class="err no-print" id="appErr"></div><div id="payslipBox"></div>
+  </div>
+  <div class="card panel hidden" id="panel-request">
+    <h2>ثبت درخواست مرخصی / مأموریت</h2>
+    <div class="grid2">
+      <div><label>نوع</label><select id="rqKind" onchange="syncRequestForm()"><option value="leave">مرخصی</option><option value="mission">مأموریت</option></select></div>
+      <div><label>روزانه / ساعتی</label><select id="rqMode" onchange="syncRequestForm()"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
+    </div>
+    <div class="grid2">
+      <div><label>از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr"></div>
+      <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr"></div>
+    </div>
+    <div class="grid2 hidden" id="rqTimeWrap">
+      <div><label>از ساعت</label><input id="rqFrom" type="time" value="08:00"></div>
+      <div><label>تا ساعت</label><input id="rqTo" type="time" value="10:00"></div>
+    </div>
+    <div id="rqPlaceWrap" class="hidden"><label>محل مأموریت</label><input id="rqPlace" placeholder="شهر / سازمان مقصد"></div>
+    <label>توضیح / دلیل</label><textarea id="rqReason"></textarea>
+    <button class="primary" onclick="submitRequest()">ارسال برای تأیید مدیر</button>
+    <div class="err" id="rqErr"></div>
+  </div>
+  <div class="card panel hidden" id="panel-mine"><h2>درخواست‌های من</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="mineList" style="margin-top:10px;"></div></div>
+  <div class="card panel hidden" id="panel-approve"><h2>درخواست‌های در انتظار تأیید</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="pendingList" style="margin-top:10px;"></div></div>
+  <div class="card panel hidden" id="panel-timesheet">
+    <h2>تایم‌شیت</h2>
+    <div class="grid2"><div><label>سال</label><input type="number" id="tsYear" value="1405"></div>
+    <div><label>ماه</label><select id="tsMonth"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
+    <button class="primary" onclick="loadTimesheet()">نمایش</button>
+    <div class="err" id="tsErr"></div><div id="tsBox"></div>
+  </div>
+  <div class="card panel hidden" id="panel-password">
+    <h2>تغییر رمز عبور</h2>
+    <label>رمز فعلی</label><input id="oldPass" type="password">
+    <label>رمز جدید (حداقل ۶ کاراکتر)</label><input id="newPass" type="password">
+    <label>تکرار رمز جدید</label><input id="newPass2" type="password">
+    <button class="primary" onclick="changePass()">ثبت رمز جدید</button>
+    <div class="err" id="passErr"></div>
+  </div>
 </div>
-
+</div>
 <script>
+var monthsFa=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
 function fmt(n){return (Number(n)||0).toLocaleString('fa-IR')}
+function showTab(name){
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.getAttribute('data-tab')===name)});
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.add('hidden')});
+  var el=document.getElementById('panel-'+name); if(el) el.classList.remove('hidden');
+  if(name==='mine'||name==='approve') loadRequests();
+}
+function syncRequestForm(){
+  var mode=document.getElementById('rqMode').value, kind=document.getElementById('rqKind').value;
+  document.getElementById('rqTimeWrap').classList.toggle('hidden', mode!=='hourly');
+  document.getElementById('rqEndWrap').classList.toggle('hidden', mode==='hourly');
+  document.getElementById('rqPlaceWrap').classList.toggle('hidden', kind!=='mission');
+}
 async function doLogin(){
-  document.getElementById('loginErr').textContent='';
-  const code=document.getElementById('code').value.trim();
-  const password=document.getElementById('pass').value;
+  var err=document.getElementById('loginErr'); err.textContent='';
+  var code=document.getElementById('code').value.trim(), password=document.getElementById('pass').value;
+  if(!code||!password){err.textContent='کد و رمز را وارد کنید.';return}
   try{
-    const r=await fetch('/api/emp/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,password}),credentials:'same-origin'});
-    const j=await r.json();
-    if(!j.ok){document.getElementById('loginErr').textContent='کد یا رمز اشتباه است یا دسترسی فعال نیست.';return}
+    var r=await fetch('/api/emp/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,password:password}),credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){err.textContent='کد یا رمز اشتباه است یا دسترسی غیرفعال است.';return}
     showApp(j);
-  }catch(e){document.getElementById('loginErr').textContent='خطا در ارتباط با سرور';}
+    if(j.mustChangePassword) setTimeout(function(){alert('رمز فعلی همان کد پرسنلی است. از بخش تغییر رمز عوض کنید.');},300);
+  }catch(e){err.textContent='خطا در ارتباط با سرور.'}
 }
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  loadRequests();
 }
-async function checkSession(){
+async function checkSession(){try{var r=await fetch('/api/emp/whoami',{credentials:'same-origin'});var j=await r.json();if(j.ok)showApp(j)}catch(e){}}
+async function doLogout(){try{await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'})}catch(e){}location.reload()}
+async function loadPayslip(){
+  var err=document.getElementById('appErr'); err.textContent=''; document.getElementById('payslipBox').innerHTML='';
+  var year=Number(document.getElementById('year').value), month=Number(document.getElementById('month').value);
   try{
-    const r=await fetch('/api/emp/whoami',{credentials:'same-origin'});
-    const j=await r.json();
-    if(j.ok) showApp(j);
+    var r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){err.textContent=j.message||'فیشی یافت نشد.';return}
+    var p=j.payslip, items='';
+    (p.itemDetails||[]).forEach(function(it){items+='<tr><td>'+it.name+(it.qty!=null&&it.qty!==''?' ('+it.qty+')':'')+'</td><td>'+fmt(it.amount)+'</td></tr>'});
+    var companyName=(j.company&&j.company.name)?j.company.name:'فیش حقوقی';
+    document.getElementById('payslipBox').innerHTML='<div class="payslip"><h2 style="text-align:center;color:#0f766e">'+companyName+'</h2><div style="text-align:center;font-size:0.82rem;color:#64748b">'+p.fullName+(p.position?' — '+p.position:'')+'<br>'+monthsFa[month]+' '+year+' — کارکرد: '+p.workDays+' روز</div><table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr><tr><td>حقوق پایه</td><td>'+fmt(p.basicAmount)+'</td></tr>'+(p.otAmount?'<tr><td>اضافه‌کار</td><td>'+fmt(p.otAmount)+'</td></tr>':'')+(p.nightAmount?'<tr><td>شب‌کاری</td><td>'+fmt(p.nightAmount)+'</td></tr>':'')+(p.shiftAmount?'<tr><td>نوبت‌کاری</td><td>'+fmt(p.shiftAmount)+'</td></tr>':'')+items+'<tr><td><b>جمع ناخالص</b></td><td><b>'+fmt(p.gross)+'</b></td></tr><tr><td>بیمه</td><td>'+fmt(p.insurance)+'</td></tr><tr><td>مالیات</td><td>'+fmt(p.tax)+'</td></tr>'+(p.loanDeduction?'<tr><td>کسر وام</td><td>'+fmt(p.loanDeduction)+'</td></tr>':'')+(p.totalDeductions?'<tr><td>سایر کسورات</td><td>'+fmt(p.totalDeductions)+'</td></tr>':'')+'</table><div class="net">خالص: '+fmt(p.net)+' ریال</div></div>';
+  }catch(e){err.textContent='خطا در دریافت فیش.'}
+}
+async function submitRequest(){
+  var err=document.getElementById('rqErr'); err.textContent=''; err.classList.remove('okmsg');
+  var body={kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
+  try{
+    var r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){err.textContent=j.message||j.error||'خطا';return}
+    err.classList.add('okmsg'); err.textContent='درخواست ثبت و برای مدیر ارسال شد.'; loadRequests();
+  }catch(e){err.textContent='خطا در ارتباط'}
+}
+function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید شده</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
+function reqHtml(x,forManager){
+  var title=(x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه');
+  var dates=x.mode==='hourly'?(x.startDate+' از '+x.fromTime+' تا '+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:''));
+  var extra=''; if(x.place)extra+='<div>محل: '+x.place+'</div>'; if(x.reason)extra+='<div>دلیل: '+x.reason+'</div>'; if(x.status==='rejected'&&x.rejectReason)extra+='<div style="color:#b91c1c">دلیل رد: '+x.rejectReason+'</div>';
+  var actions=''; if(forManager&&x.status==='pending') actions='<div class="actions"><button class="sm ok" onclick="decide(\\''+x.id+'\\',\\'approved\\')">تأیید</button><button class="sm danger" onclick="decide(\\''+x.id+'\\',\\'rejected\\')">رد</button></div>';
+  return '<div class="req-card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>'+title+'</b>'+statusBadge(x.status)+'</div><div class="meta">'+(forManager?(x.empName+' — کد '+x.empCode+'<br>'):'')+dates+'</div>'+extra+actions+'</div>';
+}
+async function loadRequests(){
+  try{
+    var r=await fetch('/api/emp/requests',{credentials:'same-origin'}); var j=await r.json(); if(!j.ok)return;
+    var mine=document.getElementById('mineList');
+    mine.innerHTML=!(j.mine||[]).length?'<div class="sub">درخواستی ندارید.</div>':j.mine.map(function(x){return reqHtml(x,false)}).join('');
+    var pending=j.pendingForMe||[]; var tab=document.getElementById('tabApprove');
+    if(pending.length) tab.classList.remove('hidden');
+    document.getElementById('pendingList').innerHTML=!pending.length?'<div class="sub">درخواست در انتظاری نیست.</div>':pending.map(function(x){return reqHtml(x,true)}).join('');
   }catch(e){}
 }
-async function doLogout(){
-  await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'});
-  location.reload();
-}
-async function loadPayslip(){
-  document.getElementById('appErr').textContent='';
-  document.getElementById('payslipBox').innerHTML='';
-  const year=Number(document.getElementById('year').value);
-  const month=Number(document.getElementById('month').value);
+async function decide(id,decision){
+  var rejectReason='';
+  if(decision==='rejected'){rejectReason=prompt('دلیل رد درخواست:'); if(rejectReason===null)return; if(!String(rejectReason).trim()){alert('دلیل رد الزامی است.');return}}
+  else if(!confirm('تأیید شود؟ مرخصی در تایم‌شیت ثبت می‌شود.')) return;
   try{
-    const r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year,month}),credentials:'same-origin'});
-    const j=await r.json();
-    if(!j.ok){document.getElementById('appErr').textContent=j.message||'فیشی برای این ماه یافت نشد.';return}
-    const p=j.payslip;
-    const months=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
-    let items='';
-    (p.itemDetails||[]).forEach(it=>{
-      items+='<tr><td>'+it.name+(it.qty!=null?' ('+it.qty+')':'')+'</td><td>'+fmt(it.amount)+'</td></tr>';
-    });
-    document.getElementById('payslipBox').innerHTML=\`
-      <div class="payslip">
-        <h2>\${j.company&&j.company.name?j.company.name:'فیش حقوقی'}</h2>
-        <p style="text-align:center">\${p.fullName} — \${months[month]} \${year}</p>
-        <table>
-          <tr><th>شرح</th><th>مبلغ</th></tr>
-          <tr><td>حقوق پایه</td><td>\${fmt(p.basicAmount)}</td></tr>
-          \${p.otAmount?\`<tr><td>اضافه‌کار</td><td>\${fmt(p.otAmount)}</td></tr>\`:''}
-          \${p.nightAmount?\`<tr><td>شب‌کاری</td><td>\${fmt(p.nightAmount)}</td></tr>\`:''}
-          \${p.shiftAmount?\`<tr><td>نوبت‌کاری</td><td>\${fmt(p.shiftAmount)}</td></tr>\`:''}
-          \${items}
-          <tr><td><b>جمع ناخالص</b></td><td><b>\${fmt(p.gross)}</b></td></tr>
-          <tr><td>بیمه سهم کارمند</td><td>\${fmt(p.insurance)}</td></tr>
-          <tr><td>مالیات</td><td>\${fmt(p.tax)}</td></tr>
-          \${p.loanDeduction?\`<tr><td>کسر وام</td><td>\${fmt(p.loanDeduction)}</td></tr>\`:''}
-          \${p.totalDeductions?\`<tr><td>سایر کسورات</td><td>\${fmt(p.totalDeductions)}</td></tr>\`:''}
-        </table>
-        <div class="net">خالص پرداختی: \${fmt(p.net)} ریال</div>
-      </div>\`;
-  }catch(e){document.getElementById('appErr').textContent='خطا در دریافت فیش';}
+    var r=await fetch('/api/emp/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,decision:decision,rejectReason:rejectReason}),credentials:'same-origin'});
+    var j=await r.json(); if(!j.ok){alert(j.message||j.error||'خطا');return} loadRequests();
+  }catch(e){alert('خطا در ارتباط')}
+}
+async function loadTimesheet(){
+  var err=document.getElementById('tsErr'); err.textContent='';
+  var year=Number(document.getElementById('tsYear').value), month=Number(document.getElementById('tsMonth').value);
+  try{
+    var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
+    var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    var reqRows=(j.requests||[]).map(function(x){var t=(x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه'); var d=x.mode==='hourly'?(x.startDate+' '+x.fromTime+'-'+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:'')); return '<tr><td>'+t+'</td><td>'+d+'</td><td>'+(x.place||'—')+'</td><td>'+(x.reason||'—')+'</td></tr>'}).join('');
+    document.getElementById('tsBox').innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year+'<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th></tr><tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>'+(reqRows?'<h2 style="margin-top:12px">مرخصی/مأموریت تأییدشده</h2><table><tr><th>نوع</th><th>بازه</th><th>محل</th><th>دلیل</th></tr>'+reqRows+'</table>':'')+'</div>';
+  }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
 }
 async function changePass(){
-  document.getElementById('passErr').textContent='';
-  const oldPassword=document.getElementById('oldPass').value;
-  const newPassword=document.getElementById('newPass').value;
-  const n2=document.getElementById('newPass2').value;
-  if(newPassword!==n2){document.getElementById('passErr').textContent='رمز جدید و تکرار آن یکسان نیست.';return}
+  var err=document.getElementById('passErr'); err.textContent=''; err.classList.remove('okmsg');
+  var oldPassword=document.getElementById('oldPass').value, newPassword=document.getElementById('newPass').value, n2=document.getElementById('newPass2').value;
+  if(newPassword!==n2){err.textContent='رمز جدید و تکرار یکسان نیست.';return}
+  if(newPassword.length<6){err.textContent='رمز حداقل ۶ کاراکتر باشد.';return}
   try{
-    const r=await fetch('/api/emp/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({oldPassword,newPassword}),credentials:'same-origin'});
-    const j=await r.json();
-    if(!j.ok){document.getElementById('passErr').textContent=j.message||'خطا در تغییر رمز';return}
-    document.getElementById('passErr').style.color='#16a34a';
-    document.getElementById('passErr').textContent='رمز با موفقیت تغییر کرد.';
-    document.getElementById('oldPass').value='';
-    document.getElementById('newPass').value='';
-    document.getElementById('newPass2').value='';
-  }catch(e){document.getElementById('passErr').textContent='خطا در ارتباط';}
+    var r=await fetch('/api/emp/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({oldPassword:oldPassword,newPassword:newPassword}),credentials:'same-origin'});
+    var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    err.classList.add('okmsg'); err.textContent='رمز تغییر کرد.'; document.getElementById('oldPass').value=''; document.getElementById('newPass').value=''; document.getElementById('newPass2').value='';
+  }catch(e){err.textContent='خطا در ارتباط'}
 }
-checkSession();
+syncRequestForm(); checkSession();
 </script>
 </body>
-</html>`;
+</html>
+`;
