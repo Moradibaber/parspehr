@@ -62,7 +62,7 @@
       <button class="tab active" data-tab="payslip" onclick="showTab('payslip')">فیش حقوقی</button>
       <button class="tab" data-tab="request" onclick="showTab('request')">درخواست مرخصی/مأموریت</button>
       <button class="tab" data-tab="mine" onclick="showTab('mine')">درخواست‌های من</button>
-      <button class="tab hidden" data-tab="approve" id="tabApprove" onclick="showTab('approve')">تأیید درخواست‌ها</button>
+      <button class="tab" data-tab="approve" id="tabApprove" onclick="showTab('approve')">تأیید درخواست‌ها</button>
       <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
