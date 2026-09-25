@@ -94,14 +94,14 @@ async function stamp(html, user, env) {
       'ورود از <b>/employee</b> — رمز اولیه = کد پرسنلی. مدیر مستقیم درخواست‌های مرخصی/مأموریت را تأیید می‌کند.' +
       '</p>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">' +
-      '<label style="font-size:0.78rem;">کد مدیر مستقیم:</label>' +
-      '<input type="text" id="pspManagerCode" placeholder="کد پرسنلی مدیر" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:140px;font-family:inherit;">' +
+      '<label style="font-size:0.78rem;">مدیر مستقیم:</label>' +
+      '<select id="pspManagerCode" autocomplete="off" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:260px;font-family:inherit;"><option value="">— بدون مدیر —</option></select>' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspManagerSaveBtn">ذخیره مدیر</button>' +
       '<span id="pspManagerStatus" style="font-size:0.75rem;color:#0f766e;"></span>' +
       '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">' +
       '<label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="pspPortalEnabled" checked> دسترسی پرتال فعال</label>' +
-      '<input type="password" id="pspPortalPass" placeholder="رمز جدید (خالی = رمز اولیه = کد)" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:200px;font-family:inherit;">' +
+      '<input type="text" id="pspPortalPass" autocomplete="new-password" data-lpignore="true" data-form-type="other" placeholder="رمز جدید (خالی = رمز اولیه = کد)" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:200px;font-family:inherit;-webkit-text-security:disc;">' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspPortalSaveBtn">ذخیره / ریست رمز پرتال</button>' +
       '<span id="pspPortalStatus" style="font-size:0.75rem;color:#0f766e;"></span>' +
       '</div>';
@@ -184,6 +184,8 @@ async function stamp(html, user, env) {
         ensurePortalBox();
         var st = document.getElementById('pspPortalStatus');
         if (st) st.textContent = '';
+        var ms = document.getElementById('pspManagerStatus');
+        if (ms) ms.textContent = '';
         var pe = document.getElementById('pspPortalEnabled');
         if (pe) pe.checked = true;
         var pp = document.getElementById('pspPortalPass');
@@ -192,12 +194,42 @@ async function stamp(html, user, env) {
           var codeEl = document.getElementById('e_code') || document.getElementById('editEmpId');
           var code = codeEl ? String(codeEl.value || '').trim() : '';
           var mc = document.getElementById('pspManagerCode');
-          if (mc && code && typeof data !== 'undefined' && data.employees) {
-            var emp = data.employees.find(function(e){ return String(e.code) === code; });
-            mc.value = emp && emp.managerCode ? emp.managerCode : '';
-          } else if (mc) mc.value = '';
+          if (mc) {
+            // rebuild options from employees list (select avoids browser autofill)
+            var keep = '';
+            try {
+              if (code && typeof data !== 'undefined' && data.employees) {
+                var emp0 = data.employees.find(function(e){ return String(e.code) === code; });
+                keep = emp0 && emp0.managerCode ? String(emp0.managerCode) : '';
+              }
+            } catch (e) {}
+            mc.innerHTML = '<option value=\"\">— بدون مدیر —</option>';
+            try {
+              if (typeof data !== 'undefined' && data.employees) {
+                data.employees.slice().sort(function(a,b){
+                  return String(a.fullName||'').localeCompare(String(b.fullName||''), 'fa');
+                }).forEach(function(e){
+                  if (String(e.code) === code) return; // cannot be own manager
+                  if (e.status === 'inactive') return;
+                  var opt = document.createElement('option');
+                  opt.value = String(e.code);
+                  opt.textContent = (e.fullName || '') + ' (' + e.code + ')';
+                  mc.appendChild(opt);
+                });
+              }
+            } catch (e) {}
+            mc.value = keep;
+            // if keep not in list, add a temporary option
+            if (keep && mc.value !== keep) {
+              var opt2 = document.createElement('option');
+              opt2.value = keep;
+              opt2.textContent = keep + ' (ذخیره‌شده)';
+              mc.appendChild(opt2);
+              mc.value = keep;
+            }
+          }
         } catch (e) {}
-      }, 80);
+      }, 100);
       return r;
     };
   } else {
@@ -1190,7 +1222,9 @@ async function handleEmpDecideRequest(request, env) {
     req.rejectReason = decision === 'rejected' ? rejectReason : '';
     req.decidedAt = new Date().toISOString();
     req.decidedBy = sess.code;
-    if (decision === 'approved') applyApprovedRequestToTimesheet(gd.obj, req);
+    // NOTE: approved leave/mission is stored on the request only.
+    // Payroll calc stays manual / Excel for now — do NOT write into monthlyData.leaveDays yet.
+    // Future: optional applyApprovedRequestToTimesheet(gd.obj, req);
     const put = await storePutData(cfg, gd.version, gd.obj, 'mgr:' + sess.code);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
