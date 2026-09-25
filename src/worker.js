@@ -74,7 +74,136 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bottom = '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
+  // Inject employee-portal admin UI into the main app (no need to edit index.html)
+  const portalAdminScript = `
+<script>
+(function(){
+  if (window.__pspPortalAdmin) return;
+  window.__pspPortalAdmin = true;
+
+  function ensurePortalBox() {
+    if (document.getElementById('pspPortalBox')) return;
+    var modal = document.getElementById('empModal');
+    if (!modal) return;
+    var form = modal.querySelector('form') || modal;
+    var box = document.createElement('div');
+    box.id = 'pspPortalBox';
+    box.style.cssText = 'margin-top:14px;padding:12px 14px;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;';
+    box.innerHTML = '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;font-size:0.9rem;">پرتال فیش حقوقی کارکنان</div>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;line-height:1.5;">' +
+      'ورود کارکنان از آدرس <b>/employee</b> — نام کاربری = کد پرسنلی، رمز اولیه = همان کد پرسنلی.<br>' +
+      'اگر رمز را فراموش کردند، با دکمه زیر به حالت اولیه برگردانید یا رمز جدید بگذارید.' +
+      '</p>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">' +
+      '<label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="pspPortalEnabled" checked> دسترسی فعال</label>' +
+      '<input type="password" id="pspPortalPass" placeholder="رمز جدید (خالی = رمز اولیه = کد)" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:200px;font-family:inherit;">' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspPortalSaveBtn">ذخیره / ریست رمز پرتال</button>' +
+      '<span id="pspPortalStatus" style="font-size:0.75rem;color:#0f766e;"></span>' +
+      '</div>';
+    // insert before custom items section or at end of form
+    var customTitle = null;
+    var titles = form.querySelectorAll('.section-title');
+    for (var i = 0; i < titles.length; i++) {
+      if ((titles[i].textContent || '').indexOf('آیتم') >= 0) { customTitle = titles[i]; break; }
+    }
+    if (customTitle && customTitle.parentNode) {
+      customTitle.parentNode.insertBefore(box, customTitle);
+    } else {
+      form.appendChild(box);
+    }
+    document.getElementById('pspPortalSaveBtn').onclick = function() {
+      var codeEl = document.getElementById('e_code') || document.getElementById('editEmpId');
+      var code = codeEl ? String(codeEl.value || '').trim() : '';
+      if (!code) { alert('ابتدا کد پرسنلی را مشخص کنید (حالت ویرایش کارمند).'); return; }
+      var enabled = document.getElementById('pspPortalEnabled').checked;
+      var password = document.getElementById('pspPortalPass').value || '';
+      var st = document.getElementById('pspPortalStatus');
+      st.textContent = 'در حال ذخیره…';
+      fetch('/api/admin/set-emp-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ code: code, password: password, enabled: enabled })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) {
+          st.style.color = '#16a34a';
+          st.textContent = enabled
+            ? (password ? 'رمز جدید ذخیره شد.' : 'رمز به حالت اولیه (همان کد پرسنلی) برگشت.')
+            : 'دسترسی پرتال غیرفعال شد.';
+          document.getElementById('pspPortalPass').value = '';
+        } else {
+          st.style.color = '#b91c1c';
+          st.textContent = 'خطا: ' + (j.message || j.error || 'نامشخص');
+        }
+      }).catch(function(){
+        st.style.color = '#b91c1c';
+        st.textContent = 'خطا در ارتباط با سرور';
+      });
+    };
+  }
+
+  // when employee modal opens, ensure box exists and reset status
+  var _origOpen = window.openEmployeeModal;
+  if (typeof _origOpen === 'function') {
+    window.openEmployeeModal = function() {
+      var r = _origOpen.apply(this, arguments);
+      setTimeout(function(){
+        ensurePortalBox();
+        var st = document.getElementById('pspPortalStatus');
+        if (st) st.textContent = '';
+        var pe = document.getElementById('pspPortalEnabled');
+        if (pe) pe.checked = true;
+        var pp = document.getElementById('pspPortalPass');
+        if (pp) pp.value = '';
+      }, 50);
+      return r;
+    };
+  } else {
+    // fallback: watch for modal display
+    setInterval(function(){
+      var m = document.getElementById('empModal');
+      if (m && m.style.display === 'flex') ensurePortalBox();
+    }, 800);
+  }
+
+  // quick reset button on each row in employee table
+  function addResetButtons() {
+    var table = document.getElementById('empTable');
+    if (!table) return;
+    table.querySelectorAll('tbody tr').forEach(function(tr){
+      if (tr.querySelector('.psp-reset-btn')) return;
+      var tds = tr.querySelectorAll('td');
+      if (!tds.length) return;
+      var code = (tds[0].textContent || '').trim();
+      if (!code) return;
+      var actions = tds[tds.length - 1];
+      if (!actions) return;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline btn-sm psp-reset-btn';
+      btn.textContent = 'ریست رمز پرتال';
+      btn.title = 'رمز پرتال را به همان کد پرسنلی برمی‌گرداند';
+      btn.style.marginRight = '4px';
+      btn.onclick = function(ev){
+        ev.stopPropagation();
+        if (!confirm('رمز پرتال کد ' + code + ' به حالت اولیه (همان کد پرسنلی) برگردد؟')) return;
+        fetch('/api/admin/set-emp-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ code: code, password: '', enabled: true })
+        }).then(function(r){ return r.json(); }).then(function(j){
+          alert(j.ok ? 'رمز پرتال «' + code + '» ریست شد (رمز = کد پرسنلی).' : ('خطا: ' + (j.error || '')));
+        }).catch(function(){ alert('خطا در ارتباط'); });
+      };
+      actions.insertBefore(btn, actions.firstChild);
+    });
+  }
+  setInterval(addResetButtons, 1500);
+  setTimeout(addResetButtons, 2000);
+})();
+</script>`;
+  const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
     : html + top;
@@ -489,25 +618,49 @@ async function handleEmpLogin(request, env) {
   }
 
   const emp = gd.obj.employees.find(e => String(e.code) === code);
-  if (!emp || emp.status === 'inactive' || !emp.portalEnabled || !emp.portalPassHash) {
+  // inactive or explicitly disabled → reject
+  if (!emp || emp.status === 'inactive' || emp.portalEnabled === false) {
     await new Promise(r => setTimeout(r, 600));
     return jsonResponse({ ok: false, error: 'invalid' }, 401);
   }
 
-  const ok = await checkPassword(password, emp.portalPassHash);
+  // Password rules:
+  // 1) If a custom hash exists → must match that hash
+  // 2) If no hash yet → default password is the employee code itself (auto account)
+  let ok = false;
+  let usedDefault = false;
+  if (emp.portalPassHash) {
+    ok = await checkPassword(password, emp.portalPassHash);
+  } else {
+    // default: password === code
+    ok = (password === code);
+    usedDefault = ok;
+  }
   if (!ok) {
     await new Promise(r => setTimeout(r, 600));
     return jsonResponse({ ok: false, error: 'invalid' }, 401);
   }
 
+  // On first successful login with default password, store the hash so it is explicit
+  // (optional; keeps data consistent). Soft write — ignore conflict.
+  if (usedDefault && !emp.portalPassHash) {
+    try {
+      emp.portalEnabled = true;
+      emp.portalPassHash = await hashPassword(code);
+      emp.portalPassChangedAt = new Date().toISOString();
+      await storePutData(cfg, gd.version, gd.obj, 'emp-auto:' + code);
+    } catch (e) { /* non-fatal */ }
+  }
+
   const exp = Math.floor(Date.now() / 1000) + SESSION_IDLE_SECONDS;
   const token = await makeEmpToken(env, emp.code, emp.fullName || '', exp);
-  console.log(JSON.stringify({ event: 'emp_login', code: emp.code }));
+  console.log(JSON.stringify({ event: 'emp_login', code: emp.code, defaultPass: usedDefault }));
   return new Response(JSON.stringify({
     ok: true,
     code: emp.code,
     fullName: emp.fullName || '',
-    position: emp.position || ''
+    position: emp.position || '',
+    mustChangePassword: usedDefault // UI can hint them to change it
   }), {
     status: 200,
     headers: {
@@ -655,16 +808,23 @@ async function handleEmpChangePassword(request, env) {
     if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
     const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
-    if (!emp || !emp.portalEnabled || !emp.portalPassHash) {
+    if (!emp || emp.status === 'inactive' || emp.portalEnabled === false) {
       return jsonResponse({ ok: false, error: 'disabled' }, 403);
     }
 
-    const ok = await checkPassword(oldPass, emp.portalPassHash);
-    if (!ok) {
+    // accept either stored hash OR default (code as password)
+    let oldOk = false;
+    if (emp.portalPassHash) {
+      oldOk = await checkPassword(oldPass, emp.portalPassHash);
+    } else {
+      oldOk = (oldPass === String(emp.code));
+    }
+    if (!oldOk) {
       await new Promise(r => setTimeout(r, 400));
       return jsonResponse({ ok: false, error: 'wrong_old', message: 'رمز فعلی اشتباه است.' }, 401);
     }
 
+    emp.portalEnabled = true;
     emp.portalPassHash = await hashPassword(newPass);
     emp.portalPassChangedAt = new Date().toISOString();
 
@@ -705,21 +865,28 @@ async function handleAdminSetEmpPassword(request, who, env) {
     if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
 
     emp.portalEnabled = !!enabled;
-    if (newPass) {
+    if (!enabled) {
+      // disabled — keep hash in case re-enabled later
+    } else if (newPass === '' || newPass == null) {
+      // empty password = reset to default (employee code as password)
+      emp.portalPassHash = null;
+      emp.portalPassChangedAt = new Date().toISOString();
+    } else {
       emp.portalPassHash = await hashPassword(newPass);
       emp.portalPassChangedAt = new Date().toISOString();
-    }
-    if (!enabled) {
-      // keep hash so re-enable is easy, or clear if you prefer:
-      // emp.portalPassHash = null;
     }
 
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
 
-    console.log(JSON.stringify({ event: 'admin_set_emp_portal', by: who.name, code: code, enabled: enabled }));
-    return jsonResponse({ ok: true, enabled: emp.portalEnabled, hasPassword: !!emp.portalPassHash });
+    console.log(JSON.stringify({ event: 'admin_set_emp_portal', by: who.name, code: code, enabled: enabled, resetDefault: !newPass }));
+    return jsonResponse({
+      ok: true,
+      enabled: emp.portalEnabled,
+      hasPassword: !!emp.portalPassHash,
+      defaultPassword: !emp.portalPassHash
+    });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
