@@ -75,7 +75,7 @@
 <!-- Login -->
 <div class="card" id="loginCard">
   <h1>مشاهده فیش حقوقی</h1>
-  <p class="sub">کد پرسنلی و رمز عبور خود را وارد کنید</p>
+  <p class="sub">کد پرسنلی و رمز عبور<br><span style="font-size:0.78rem;color:#0f766e">رمز اولیه = همان کد پرسنلی (تا وقتی عوض نکرده باشید)</span></p>
   <label for="code">کد پرسنلی</label>
   <input id="code" autocomplete="username" autofocus>
   <label for="pass">رمز عبور</label>
@@ -160,10 +160,15 @@ async function doLogin() {
     });
     const j = await r.json();
     if (!j.ok) {
-      err.textContent = 'کد یا رمز اشتباه است، یا دسترسی پرتال برای شما فعال نشده.';
+      err.textContent = 'کد یا رمز اشتباه است، یا دسترسی غیرفعال است.';
       return;
     }
     showApp(j);
+    if (j.mustChangePassword) {
+      setTimeout(function () {
+        alert('رمز فعلی همان کد پرسنلی شماست.\nبرای امنیت، از بخش پایین صفحه رمز را عوض کنید.');
+      }, 300);
+    }
   } catch (e) {
     err.textContent = 'خطا در ارتباط با سرور.';
   }
