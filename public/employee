@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فیش حقوقی — پارسپهر</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Vazirmatn', Tahoma, sans-serif;
+    background: #f0fdfa; color: #134e4a;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 16px; direction: rtl;
+  }
+  .card {
+    background: #fff; border-radius: 14px; padding: 28px 24px;
+    max-width: 480px; width: 100%;
+    box-shadow: 0 8px 30px rgba(15,118,110,0.12);
+  }
+  h1 { font-size: 1.25rem; color: #0f766e; text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; font-size: 0.85rem; color: #64748b; margin-bottom: 18px; }
+  label { display: block; font-size: 0.82rem; font-weight: 600; margin: 10px 0 4px; color: #0f766e; }
+  input, select {
+    width: 100%; padding: 9px 11px; border: 1px solid #99f6e4;
+    border-radius: 8px; font-family: inherit; font-size: 0.95rem;
+  }
+  input:focus, select:focus { outline: none; border-color: #0f766e; }
+  button.primary {
+    width: 100%; margin-top: 14px; padding: 11px; border: 0; border-radius: 8px;
+    background: #0f766e; color: #fff; font-size: 1rem; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  button.primary:hover { background: #0d9488; }
+  .err { color: #b91c1c; font-size: 0.85rem; text-align: center; margin-top: 10px; min-height: 1.2em; }
+  .ok { color: #16a34a; }
+  .hidden { display: none !important; }
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; font-size: 0.85rem; gap: 8px; flex-wrap: wrap;
+  }
+  .link {
+    color: #0f766e; cursor: pointer; background: none; border: 0;
+    font-family: inherit; font-size: 0.82rem; text-decoration: underline; padding: 0;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .payslip {
+    margin-top: 16px; border: 1px solid #99f6e4; border-radius: 10px;
+    padding: 14px; font-size: 0.85rem; background: #fafafa;
+  }
+  .payslip h2 { font-size: 1.05rem; text-align: center; margin-bottom: 4px; color: #0f766e; }
+  .payslip .meta { text-align: center; font-size: 0.82rem; color: #64748b; margin-bottom: 10px; }
+  .payslip table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .payslip td, .payslip th {
+    border: 1px solid #cbd5e1; padding: 5px 7px; text-align: right;
+  }
+  .payslip th { background: #f0fdfa; font-size: 0.78rem; }
+  .net {
+    font-size: 1.15rem; font-weight: 700; color: #0f766e;
+    text-align: center; margin-top: 12px; padding: 10px;
+    background: #f0fdfa; border-radius: 8px;
+  }
+  hr { margin: 22px 0; border: 0; border-top: 1px solid #e2e8f0; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .no-print { display: none !important; }
+    .card { box-shadow: none; max-width: 100%; padding: 0; }
+    .payslip { border-color: #333; }
+    .payslip td, .payslip th { border-color: #333; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="card" id="loginCard">
+  <h1>مشاهده فیش حقوقی</h1>
+  <p class="sub">کد پرسنلی و رمز عبور خود را وارد کنید</p>
+  <label for="code">کد پرسنلی</label>
+  <input id="code" autocomplete="username" autofocus>
+  <label for="pass">رمز عبور</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <button class="primary" onclick="doLogin()">ورود</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- Main app after login -->
+<div class="card hidden" id="appCard">
+  <div class="topbar no-print">
+    <span id="whoLabel" style="font-weight:600;"></span>
+    <div>
+      <button class="link" onclick="window.print()" style="margin-left:12px;">چاپ فیش</button>
+      <button class="link" onclick="doLogout()">خروج</button>
+    </div>
+  </div>
+
+  <h1 class="no-print">فیش حقوقی من</h1>
+  <div class="grid2 no-print">
+    <div>
+      <label>سال</label>
+      <input type="number" id="year" value="1405">
+    </div>
+    <div>
+      <label>ماه</label>
+      <select id="month">
+        <option value="1">فروردین</option>
+        <option value="2">اردیبهشت</option>
+        <option value="3">خرداد</option>
+        <option value="4">تیر</option>
+        <option value="5">مرداد</option>
+        <option value="6">شهریور</option>
+        <option value="7">مهر</option>
+        <option value="8">آبان</option>
+        <option value="9">آذر</option>
+        <option value="10">دی</option>
+        <option value="11">بهمن</option>
+        <option value="12">اسفند</option>
+      </select>
+    </div>
+  </div>
+  <button class="primary no-print" onclick="loadPayslip()">نمایش فیش</button>
+  <div class="err no-print" id="appErr"></div>
+  <div id="payslipBox"></div>
+
+  <hr class="no-print">
+  <h1 class="no-print" style="font-size:1.05rem;">تغییر رمز عبور</h1>
+  <div class="no-print">
+    <label>رمز فعلی</label>
+    <input id="oldPass" type="password" autocomplete="current-password">
+    <label>رمز جدید (حداقل ۶ کاراکتر)</label>
+    <input id="newPass" type="password" autocomplete="new-password">
+    <label>تکرار رمز جدید</label>
+    <input id="newPass2" type="password" autocomplete="new-password">
+    <button class="primary" onclick="changePass()">ثبت رمز جدید</button>
+    <div class="err" id="passErr"></div>
+  </div>
+</div>
+
+<script>
+function fmt(n) {
+  return (Number(n) || 0).toLocaleString('fa-IR');
+}
+
+async function doLogin() {
+  const err = document.getElementById('loginErr');
+  err.textContent = '';
+  err.classList.remove('ok');
+  const code = document.getElementById('code').value.trim();
+  const password = document.getElementById('pass').value;
+  if (!code || !password) {
+    err.textContent = 'کد پرسنلی و رمز را وارد کنید.';
+    return;
+  }
+  try {
+    const r = await fetch('/api/emp/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, password }),
+      credentials: 'same-origin'
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      err.textContent = 'کد یا رمز اشتباه است، یا دسترسی پرتال برای شما فعال نشده.';
+      return;
+    }
+    showApp(j);
+  } catch (e) {
+    err.textContent = 'خطا در ارتباط با سرور.';
+  }
+}
+
+function showApp(j) {
+  document.getElementById('loginCard').classList.add('hidden');
+  document.getElementById('appCard').classList.remove('hidden');
+  document.getElementById('whoLabel').textContent = (j.fullName || '') + ' — کد ' + j.code;
+}
+
+async function checkSession() {
+  try {
+    const r = await fetch('/api/emp/whoami', { credentials: 'same-origin' });
+    const j = await r.json();
+    if (j.ok) showApp(j);
+  } catch (e) {}
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/emp/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (e) {}
+  location.reload();
+}
+
+async function loadPayslip() {
+  const err = document.getElementById('appErr');
+  err.textContent = '';
+  document.getElementById('payslipBox').innerHTML = '';
+  const year = Number(document.getElementById('year').value);
+  const month = Number(document.getElementById('month').value);
+  try {
+    const r = await fetch('/api/emp/payslip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year, month }),
+      credentials: 'same-origin'
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      err.textContent = j.message || 'فیشی برای این ماه یافت نشد. ابتدا محاسبه حقوق در سیستم اصلی انجام شده باشد.';
+      return;
+    }
+    const p = j.payslip;
+    const months = ['', 'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+    let items = '';
+    (p.itemDetails || []).forEach(function (it) {
+      items += '<tr><td>' + it.name + (it.qty != null && it.qty !== '' ? ' (' + it.qty + ')' : '') +
+        '</td><td>' + fmt(it.amount) + '</td></tr>';
+    });
+    const companyName = (j.company && j.company.name) ? j.company.name : 'فیش حقوقی';
+    document.getElementById('payslipBox').innerHTML =
+      '<div class="payslip">' +
+        '<h2>' + companyName + '</h2>' +
+        '<div class="meta">' + p.fullName + (p.position ? ' — ' + p.position : '') + '<br>' +
+          months[month] + ' ' + year + ' — کارکرد: ' + p.workDays + ' روز</div>' +
+        '<table>' +
+          '<tr><th>شرح</th><th>مبلغ (ریال)</th></tr>' +
+          '<tr><td>حقوق پایه</td><td>' + fmt(p.basicAmount) + '</td></tr>' +
+          (p.otAmount ? '<tr><td>اضافه‌کار</td><td>' + fmt(p.otAmount) + '</td></tr>' : '') +
+          (p.nightAmount ? '<tr><td>شب‌کاری</td><td>' + fmt(p.nightAmount) + '</td></tr>' : '') +
+          (p.shiftAmount ? '<tr><td>نوبت‌کاری</td><td>' + fmt(p.shiftAmount) + '</td></tr>' : '') +
+          items +
+          '<tr><td><b>جمع ناخالص</b></td><td><b>' + fmt(p.gross) + '</b></td></tr>' +
+          '<tr><td>بیمه سهم کارمند</td><td>' + fmt(p.insurance) + '</td></tr>' +
+          '<tr><td>مالیات</td><td>' + fmt(p.tax) + '</td></tr>' +
+          (p.loanDeduction ? '<tr><td>کسر وام</td><td>' + fmt(p.loanDeduction) + '</td></tr>' : '') +
+          (p.totalDeductions ? '<tr><td>سایر کسورات</td><td>' + fmt(p.totalDeductions) + '</td></tr>' : '') +
+        '</table>' +
+        '<div class="net">خالص پرداختی: ' + fmt(p.net) + ' ریال</div>' +
+      '</div>';
+  } catch (e) {
+    err.textContent = 'خطا در دریافت فیش.';
+  }
+}
+
+async function changePass() {
+  const err = document.getElementById('passErr');
+  err.textContent = '';
+  err.classList.remove('ok');
+  const oldPassword = document.getElementById('oldPass').value;
+  const newPassword = document.getElementById('newPass').value;
+  const n2 = document.getElementById('newPass2').value;
+  if (newPassword !== n2) {
+    err.textContent = 'رمز جدید و تکرار آن یکسان نیست.';
+    return;
+  }
+  if (newPassword.length < 6) {
+    err.textContent = 'رمز جدید حداقل ۶ کاراکتر باشد.';
+    return;
+  }
+  try {
+    const r = await fetch('/api/emp/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword, newPassword }),
+      credentials: 'same-origin'
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      err.textContent = j.message || 'خطا در تغییر رمز.';
+      return;
+    }
+    err.classList.add('ok');
+    err.textContent = 'رمز با موفقیت تغییر کرد.';
+    document.getElementById('oldPass').value = '';
+    document.getElementById('newPass').value = '';
+    document.getElementById('newPass2').value = '';
+  } catch (e) {
+    err.textContent = 'خطا در ارتباط با سرور.';
+  }
+}
+
+checkSession();
+</script>
+</body>
+</html>
