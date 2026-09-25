@@ -1,4 +1,4 @@
-// parspehr gate: a personal login for every person + a hidden per-person watermark + the payroll calculation API.
+// parspehr gate: personal login + watermark + payroll API + employee self-service portal
 import { makeEngine } from './engine.js';
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 
@@ -20,7 +20,6 @@ async function hmacHex(key, message) {
   return Array.from(sig).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
 }
 
-// Hides text inside invisible characters (zero-width) so it survives copy/paste.
 function zwEncode(text) {
   const bytes = new TextEncoder().encode(text);
   let out = '\u2060';
@@ -31,7 +30,7 @@ function zwEncode(text) {
 }
 
 function parseUsers(env) {
-  const users = {}; // name -> { password, role }
+  const users = {};
   if (env.SITE_USERS) {
     const parsed = JSON.parse(env.SITE_USERS);
     for (const name of Object.keys(parsed)) {
@@ -43,7 +42,6 @@ function parseUsers(env) {
       }
     }
   }
-  // Old shared login (treated as admin). Delete SITE_USER and SITE_PASSWORD in Cloudflare when everyone has a personal login.
   if (env.SITE_USER && env.SITE_PASSWORD) users[env.SITE_USER] = { password: env.SITE_PASSWORD, role: 'admin' };
   return users;
 }
@@ -87,6 +85,11 @@ async function stamp(html, user, env) {
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_ITEMS = 5000;
+const MAX_DOC_BYTES = 8 * 1024 * 1024;
+const STATE_DOCS = ['settings', 'data', 'log'];
+const SESSION_IDLE_SECONDS = 60 * 60;
+const COOKIE_NAME = 'psp_session';
+const EMP_COOKIE_NAME = 'psp_emp';
 
 function jsonResponse(obj, status) {
   return new Response(JSON.stringify(obj), {
@@ -98,13 +101,11 @@ function jsonResponse(obj, status) {
 function isPlainObject(x) {
   return x !== null && typeof x === 'object' && !Array.isArray(x);
 }
-
 function arrOf(x) { return Array.isArray(x) ? x : []; }
 function objOf(x) { return isPlainObject(x) ? x : {}; }
 function isInt(x, lo, hi) { return Number.isInteger(x) && x >= lo && x <= hi; }
 function isNum(x) { return typeof x === 'number' && Number.isFinite(x); }
 
-// Common checks for every calculation request. Returns { body } or { error: Response }.
 async function readBody(request) {
   if (request.method !== 'POST') return { error: jsonResponse({ ok: false, error: 'method_not_allowed' }, 405) };
   const site = request.headers.get('Sec-Fetch-Site');
@@ -123,7 +124,182 @@ async function readBody(request) {
   }
 }
 
-// Monthly payroll. Runs only here on the server; the browser sends the inputs and shows the answer.
+// ---------- Supabase helpers ----------
+function storeConfig(env) {
+  const url = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = String(env.SUPABASE_SERVICE_KEY || '').trim();
+  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(url) || !key) return null;
+  return { url: url, key: key };
+}
+
+function storeHeaders(cfg, extra) {
+  const h = { apikey: cfg.key };
+  if (/^eyJ/.test(cfg.key)) h.Authorization = 'Bearer ' + cfg.key;
+  return Object.assign(h, extra || {});
+}
+
+async function storeFail(r) {
+  let code = '';
+  try { code = String(JSON.parse((await r.text()).slice(0, 2000)).code || ''); } catch (e) {}
+  let reason = 'store_error';
+  if (r.status === 404 || code === 'PGRST205' || code === '42P01') reason = 'table_missing';
+  else if (r.status === 401 || r.status === 403 || code === '42501') reason = 'bad_key';
+  return { reason: reason, status: r.status };
+}
+
+function storeFailResponse(f) {
+  return jsonResponse({ ok: false, error: 'store_error', reason: f.reason, upstream: f.status }, 502);
+}
+
+async function storeVersions(cfg) {
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?select=name,version', { headers: storeHeaders(cfg) });
+  if (!r.ok) return { fail: await storeFail(r) };
+  const rows = await r.json();
+  const v = { settings: 0, data: 0, log: 0 };
+  rows.forEach(function (x) { if (x && STATE_DOCS.indexOf(x.name) >= 0) v[x.name] = Number(x.version) || 0; });
+  return { versions: v };
+}
+
+async function storeGetData(cfg) {
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.data&select=version,data',
+    { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+  if (r.status === 406) return { version: 0, obj: null };
+  if (!r.ok) return { fail: await storeFail(r) };
+  const row = await r.json();
+  let obj = null;
+  if (row && row.data) {
+    try { obj = JSON.parse(row.data); } catch (e) { return { fail: { reason: 'bad_json', status: 502 } }; }
+  }
+  return { version: Number(row.version) || 0, obj: obj };
+}
+
+async function storePutData(cfg, baseVersion, obj, updatedBy) {
+  const text = JSON.stringify(obj);
+  if (text.length > MAX_DOC_BYTES) return { fail: { reason: 'too_large', status: 413 } };
+  if (baseVersion === 0) {
+    await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+      method: 'POST',
+      headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
+      body: JSON.stringify([{ name: 'data', version: 0 }])
+    });
+  }
+  const payload = JSON.stringify({
+    version: baseVersion + 1,
+    updated_by: updatedBy || 'system',
+    updated_at: new Date().toISOString(),
+    data: text
+  });
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.data&version=eq.' + baseVersion + '&select=version', {
+    method: 'PATCH',
+    headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: payload
+  });
+  if (!r.ok) return { fail: await storeFail(r) };
+  const rows = await r.json();
+  if (Array.isArray(rows) && rows.length === 1) return { version: baseVersion + 1 };
+  return { conflict: true };
+}
+
+// ---------- Password helpers (SHA-256 hex, same style as existing auth) ----------
+async function hashPassword(pass) {
+  const bytes = await sha256(String(pass || ''));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkPassword(plain, storedHash) {
+  if (!storedHash || !plain) return false;
+  const h = await hashPassword(plain);
+  const a = new TextEncoder().encode(h);
+  const b = new TextEncoder().encode(String(storedHash));
+  return sameBytes(a, b);
+}
+
+// ---------- Session (admin/operator) ----------
+function b64urlEncode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64urlDecode(str) {
+  const b = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+  return out;
+}
+
+async function sessionKey(env) {
+  const material = 'psp-session|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|' +
+    String(env.SITE_USER || '') + '|' + String(env.SITE_PASSWORD || '');
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function makeToken(env, name, exp) {
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ u: name, e: exp })));
+  const sig = await crypto.subtle.sign('HMAC', await sessionKey(env), new TextEncoder().encode(payload));
+  return payload + '.' + b64urlEncode(new Uint8Array(sig));
+}
+
+function sessionCookie(token) {
+  return COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
+}
+
+const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
+async function readSession(request, env, users) {
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_session=([^;]+)/);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  if (parts.length !== 2) return null;
+  try {
+    const good = await crypto.subtle.verify('HMAC', await sessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
+    if (!good) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    if (!p || typeof p.u !== 'string' || !Number.isFinite(p.e)) return null;
+    if (p.e < Math.floor(Date.now() / 1000)) return null;
+    if (!Object.prototype.hasOwnProperty.call(users, p.u)) return null;
+    return { name: p.u, role: users[p.u].role, exp: p.e };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---------- Employee session (separate cookie) ----------
+async function empSessionKey(env) {
+  const material = 'psp-emp|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|emp-portal';
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function makeEmpToken(env, code, fullName, exp) {
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ c: String(code), n: fullName || '', e: exp })));
+  const sig = await crypto.subtle.sign('HMAC', await empSessionKey(env), new TextEncoder().encode(payload));
+  return payload + '.' + b64urlEncode(new Uint8Array(sig));
+}
+
+function empCookie(token) {
+  return EMP_COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
+}
+
+const CLEAR_EMP_COOKIE = EMP_COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
+async function readEmpSession(request, env) {
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_emp=([^;]+)/);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  if (parts.length !== 2) return null;
+  try {
+    const good = await crypto.subtle.verify('HMAC', await empSessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
+    if (!good) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    if (!p || typeof p.c !== 'string' || !Number.isFinite(p.e)) return null;
+    if (p.e < Math.floor(Date.now() / 1000)) return null;
+    return { code: p.c, fullName: p.n || '', exp: p.e };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---------- Payroll calculation (unchanged) ----------
 async function handlePayroll(request, user) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -156,7 +332,6 @@ async function handlePayroll(request, user) {
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
-// Eid / severance / leave pay, annual tax settlement, bonus and decree transfer.
 async function handleCalc(request, user) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -214,54 +389,12 @@ async function handleCalc(request, user) {
   return jsonResponse(result);
 }
 
-// ---------- Central master copy (stored in Supabase; browsers never talk to Supabase) ----------
-const STATE_DOCS = ['settings', 'data', 'log'];
-const MAX_DOC_BYTES = 8 * 1024 * 1024;
-
-function storeConfig(env) {
-  const url = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
-  const key = String(env.SUPABASE_SERVICE_KEY || '').trim();
-  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(url) || !key) return null;
-  return { url: url, key: key };
-}
-
-function storeHeaders(cfg, extra) {
-  // Older "service_role" keys are JWTs (start with eyJ) and are also sent as a Bearer token; newer "secret" keys go in apikey only.
-  const h = { apikey: cfg.key };
-  if (/^eyJ/.test(cfg.key)) h.Authorization = 'Bearer ' + cfg.key;
-  return Object.assign(h, extra || {});
-}
-
-// Explain WHY the database refused, so the screen can tell the person what to fix.
-async function storeFail(r) {
-  let code = '';
-  try { code = String(JSON.parse((await r.text()).slice(0, 2000)).code || ''); } catch (e) {}
-  let reason = 'store_error';
-  if (r.status === 404 || code === 'PGRST205' || code === '42P01') reason = 'table_missing';
-  else if (r.status === 401 || r.status === 403 || code === '42501') reason = 'bad_key';
-  return { reason: reason, status: r.status };
-}
-
-function storeFailResponse(f) {
-  return jsonResponse({ ok: false, error: 'store_error', reason: f.reason, upstream: f.status }, 502);
-}
-
-async function storeVersions(cfg) {
-  const r = await fetch(cfg.url + '/rest/v1/app_docs?select=name,version', { headers: storeHeaders(cfg) });
-  if (!r.ok) return { fail: await storeFail(r) };
-  const rows = await r.json();
-  const v = { settings: 0, data: 0, log: 0 };
-  rows.forEach(function (x) { if (x && STATE_DOCS.indexOf(x.name) >= 0) v[x.name] = Number(x.version) || 0; });
-  return { versions: v };
-}
-
 function handleWhoami(request, who, adminConfigured, env) {
   if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   return jsonResponse({ ok: true, user: who.name, role: who.role, adminConfigured: adminConfigured, syncConfigured: !!storeConfig(env) });
 }
 
 async function handleState(request, who, env, path) {
-  // Requests must come from the app itself. Typing an address in the browser ("none") is allowed for reading only.
   const site = request.headers.get('Sec-Fetch-Site');
   if (site && site !== 'same-origin' && !(site === 'none' && request.method === 'GET')) return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -305,7 +438,6 @@ async function handleState(request, who, env, path) {
           body: JSON.stringify([{ name: rest, version: 0 }])
         });
       }
-      // The document is stored as text (JSON-encoded), so nothing inside it can ever change other columns.
       const payload = '{"version":' + (base + 1) + ',"updated_by":' + JSON.stringify(who.name) +
         ',"updated_at":' + JSON.stringify(new Date().toISOString()) + ',"data":' + JSON.stringify(text) + '}';
       const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.' + rest + '&version=eq.' + base + '&select=version', {
@@ -329,61 +461,270 @@ async function handleState(request, who, env, path) {
   }
 }
 
-// ---------- Login sessions: a real login page (instead of the browser's remembered login box) ----------
-const SESSION_IDLE_SECONDS = 60 * 60; // logged out after 60 minutes without use
-const COOKIE_NAME = 'psp_session';
+// ---------- Employee portal APIs ----------
 
-function b64urlEncode(bytes) {
-  let s = '';
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+async function handleEmpLogin(request, env) {
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
 
-function b64urlDecode(str) {
-  const b = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
-  const out = new Uint8Array(b.length);
-  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
-  return out;
-}
-
-// The signing key is built from your secrets: changing any login or password ends every open session.
-async function sessionKey(env) {
-  const material = 'psp-session|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|' +
-    String(env.SITE_USER || '') + '|' + String(env.SITE_PASSWORD || '');
-  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-}
-
-async function makeToken(env, name, exp) {
-  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ u: name, e: exp })));
-  const sig = await crypto.subtle.sign('HMAC', await sessionKey(env), new TextEncoder().encode(payload));
-  return payload + '.' + b64urlEncode(new Uint8Array(sig));
-}
-
-function sessionCookie(token) {
-  return COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
-}
-
-const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
-
-async function readSession(request, env, users) {
-  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_session=([^;]+)/);
-  if (!m) return null;
-  const parts = m[1].split('.');
-  if (parts.length !== 2) return null;
+  let code = '', password = '';
   try {
-    const good = await crypto.subtle.verify('HMAC', await sessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
-    if (!good) return null;
-    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
-    if (!p || typeof p.u !== 'string' || !Number.isFinite(p.e)) return null;
-    if (p.e < Math.floor(Date.now() / 1000)) return null;
-    // the person must still exist; the role is always taken from the current list
-    if (!Object.prototype.hasOwnProperty.call(users, p.u)) return null;
-    return { name: p.u, role: users[p.u].role, exp: p.e };
+    const body = await request.json();
+    code = String(body.code || '').trim();
+    password = String(body.password || '');
   } catch (e) {
-    return null;
+    return jsonResponse({ ok: false, error: 'bad_json' }, 400);
   }
+  if (!code || !password) return jsonResponse({ ok: false, error: 'empty' }, 400);
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj || !Array.isArray(gd.obj.employees)) {
+    await new Promise(r => setTimeout(r, 500));
+    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+  }
+
+  const emp = gd.obj.employees.find(e => String(e.code) === code);
+  if (!emp || emp.status === 'inactive' || !emp.portalEnabled || !emp.portalPassHash) {
+    await new Promise(r => setTimeout(r, 600));
+    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+  }
+
+  const ok = await checkPassword(password, emp.portalPassHash);
+  if (!ok) {
+    await new Promise(r => setTimeout(r, 600));
+    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+  }
+
+  const exp = Math.floor(Date.now() / 1000) + SESSION_IDLE_SECONDS;
+  const token = await makeEmpToken(env, emp.code, emp.fullName || '', exp);
+  console.log(JSON.stringify({ event: 'emp_login', code: emp.code }));
+  return new Response(JSON.stringify({
+    ok: true,
+    code: emp.code,
+    fullName: emp.fullName || '',
+    position: emp.position || ''
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': empCookie(token)
+    }
+  });
 }
 
+async function handleEmpLogout() {
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': CLEAR_EMP_COOKIE
+    }
+  });
+}
+
+async function handleEmpWhoami(request, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  // extend session
+  const now = Math.floor(Date.now() / 1000);
+  const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
+    ? empCookie(await makeEmpToken(env, sess.code, sess.fullName, now + SESSION_IDLE_SECONDS)) : null;
+  const body = { ok: true, code: sess.code, fullName: sess.fullName };
+  if (renew) {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': renew }
+    });
+  }
+  return jsonResponse(body);
+}
+
+async function handleMyPayslip(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12)) {
+    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  }
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+
+  const key = year + '-' + month;
+  const rows = (gd.obj.payrolls && gd.obj.payrolls[key]) || [];
+  const rec = rows.find(x => String(x.code) === String(sess.code));
+  if (!rec) {
+    return jsonResponse({ ok: false, error: 'not_found', message: 'برای این ماه فیشی ثبت نشده است.' }, 404);
+  }
+
+  // company info (from settings if available)
+  let company = {};
+  try {
+    const sr = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings&select=data',
+      { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+    if (sr.ok) {
+      const srow = await sr.json();
+      if (srow && srow.data) {
+        const sobj = JSON.parse(srow.data);
+        company = sobj.company || {};
+      }
+    }
+  } catch (e) {}
+
+  // only return safe fields
+  const safe = {
+    code: rec.code,
+    fullName: rec.fullName,
+    position: rec.position || '',
+    unit: rec.unit || '',
+    workplace: rec.workplace || '',
+    workDays: rec.workDays,
+    leaveDays: rec.leaveDays || 0,
+    basicAmount: rec.basicAmount,
+    otAmount: rec.otAmount || 0,
+    nightAmount: rec.nightAmount || 0,
+    shiftAmount: rec.shiftAmount || 0,
+    totalAllow: rec.totalAllow || 0,
+    totalDeductions: rec.totalDeductions || 0,
+    itemDetails: (rec.itemDetails || []).map(it => ({
+      name: it.name,
+      amount: it.amount,
+      isDeduction: !!it.isDeduction,
+      qty: it.qty
+    })),
+    gross: rec.gross,
+    insurance: rec.insurance,
+    tax: rec.tax,
+    loanDeduction: rec.loanDeduction || 0,
+    net: rec.net,
+    bankName: rec.bankName || '',
+    accountNumber: rec.accountNumber || '',
+    contractType: rec.contractType || 'normal',
+    hideOtNight: !!rec.hideOtNight
+  };
+
+  console.log(JSON.stringify({ event: 'emp_payslip', code: sess.code, year: year, month: month }));
+  return jsonResponse({
+    ok: true,
+    year: year,
+    month: month,
+    company: {
+      name: company.name || company.companyName || '',
+      address: company.address || '',
+      economicCode: company.economicCode || ''
+    },
+    payslip: safe
+  });
+}
+
+async function handleEmpChangePassword(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const oldPass = String(r.body.oldPassword || '');
+  const newPass = String(r.body.newPassword || '');
+  if (!oldPass || !newPass || newPass.length < 6) {
+    return jsonResponse({ ok: false, error: 'weak_password', message: 'رمز جدید حداقل ۶ کاراکتر باشد.' }, 400);
+  }
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  // retry a few times on version conflict
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+
+    const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
+    if (!emp || !emp.portalEnabled || !emp.portalPassHash) {
+      return jsonResponse({ ok: false, error: 'disabled' }, 403);
+    }
+
+    const ok = await checkPassword(oldPass, emp.portalPassHash);
+    if (!ok) {
+      await new Promise(r => setTimeout(r, 400));
+      return jsonResponse({ ok: false, error: 'wrong_old', message: 'رمز فعلی اشتباه است.' }, 401);
+    }
+
+    emp.portalPassHash = await hashPassword(newPass);
+    emp.portalPassChangedAt = new Date().toISOString();
+
+    const put = await storePutData(cfg, gd.version, gd.obj, 'emp:' + sess.code);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue; // retry
+
+    console.log(JSON.stringify({ event: 'emp_password_change', code: sess.code }));
+    return jsonResponse({ ok: true, message: 'رمز با موفقیت تغییر کرد.' });
+  }
+  return jsonResponse({ ok: false, error: 'conflict', message: 'لطفاً دوباره تلاش کنید.' }, 409);
+}
+
+// Admin helper: set / reset employee portal password (called from main app while admin is logged in)
+async function handleAdminSetEmpPassword(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const code = String(r.body.code || '').trim();
+  const newPass = String(r.body.password || '');
+  const enabled = r.body.enabled !== false;
+  if (!code) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  if (enabled && newPass && newPass.length < 6) {
+    return jsonResponse({ ok: false, error: 'weak_password' }, 400);
+  }
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+
+    const emp = gd.obj.employees.find(e => String(e.code) === code);
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+    emp.portalEnabled = !!enabled;
+    if (newPass) {
+      emp.portalPassHash = await hashPassword(newPass);
+      emp.portalPassChangedAt = new Date().toISOString();
+    }
+    if (!enabled) {
+      // keep hash so re-enable is easy, or clear if you prefer:
+      // emp.portalPassHash = null;
+    }
+
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+
+    console.log(JSON.stringify({ event: 'admin_set_emp_portal', by: who.name, code: code, enabled: enabled }));
+    return jsonResponse({ ok: true, enabled: emp.portalEnabled, hasPassword: !!emp.portalPassHash });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+// ---------- Login page (admin/operator) ----------
 async function checkLogin(name, pass, users) {
   const nh = await sha256(name);
   const ph = await sha256(pass);
@@ -412,13 +753,15 @@ function loginPage(opts) {
     'h1{font-size:1.1rem;color:#0f766e;text-align:center;margin:0 0 6px}p.s{font-size:.85rem;color:#64748b;text-align:center;margin:0 0 16px}' +
     'label{display:block;font-size:.85rem;margin:10px 0 4px;color:#0f172a}input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #99f6e4;border-radius:8px;font-size:1rem}' +
     'button{width:100%;margin-top:16px;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-size:1rem;cursor:pointer}' +
-    '.m{color:#b91c1c;font-size:.85rem;text-align:center;margin-bottom:8px;min-height:1em}</style></head><body><div class="c">' +
+    '.m{color:#b91c1c;font-size:.85rem;text-align:center;margin-bottom:8px;min-height:1em}' +
+    'a.emp{display:block;text-align:center;margin-top:14px;font-size:.8rem;color:#0f766e}</style></head><body><div class="c">' +
     '<h1>ورود به سیستم حقوق و دستمزد پارسپهر</h1><p class="s">نام کاربری و رمز عبور خود را وارد کنید</p>' +
     '<div class="m">' + msg + '</div>' +
     '<form method="post" action="' + action + '"><label for="u">نام کاربری</label>' +
     '<input id="u" name="username" autocomplete="username" autofocus required>' +
     '<label for="p">رمز عبور</label><input id="p" name="password" type="password" autocomplete="current-password" required>' +
-    '<button type="submit">ورود</button></form></div></body></html>';
+    '<button type="submit">ورود</button></form>' +
+    '<a class="emp" href="/employee">ورود کارکنان (مشاهده فیش)</a></div></body></html>';
   return new Response(html, {
     status: opts.error ? 401 : 200,
     headers: {
@@ -448,7 +791,7 @@ async function handleLogin(request, env, users) {
   } catch (e) {}
   const found = await checkLogin(name, pass, users);
   if (!found) {
-    await new Promise(function (r) { setTimeout(r, 600); }); // slows down guessing
+    await new Promise(function (r) { setTimeout(r, 600); });
     return loginPage({ next: next, popup: popup, error: true });
   }
   const cookie = sessionCookie(await makeToken(env, found.name, Math.floor(Date.now() / 1000) + SESSION_IDLE_SECONDS));
@@ -467,6 +810,10 @@ function handleLogout() {
 }
 
 function notLoggedIn(request, url) {
+  // employee portal pages are public (they handle their own auth)
+  if (url.pathname === '/employee' || url.pathname.indexOf('/employee/') === 0) {
+    return null; // signal to continue
+  }
   const dest = request.headers.get('Sec-Fetch-Dest');
   const accept = request.headers.get('Accept') || '';
   const isPage = request.method === 'GET' && url.pathname.indexOf('/api/') !== 0 &&
@@ -485,22 +832,15 @@ function withCookie(res, cookie) {
 
 async function route(request, env, users, found) {
   const user = found.name;
-  // If nobody is marked as admin yet, everybody is treated as admin (so nobody is locked out). Mark one admin in SITE_USERS.
   const adminConfigured = Object.keys(users).some(function (n) { return users[n].role === 'admin'; });
   const who = { name: user, role: adminConfigured ? found.role : 'admin' };
   const path = new URL(request.url).pathname;
-  if (path === '/api/whoami') {
-    return handleWhoami(request, who, adminConfigured, env);
-  }
-  if (path.indexOf('/api/state/') === 0) {
-    return handleState(request, who, env, path);
-  }
-  if (path === '/api/payroll') {
-    return handlePayroll(request, user);
-  }
-  if (path === '/api/calc') {
-    return handleCalc(request, user);
-  }
+
+  if (path === '/api/whoami') return handleWhoami(request, who, adminConfigured, env);
+  if (path.indexOf('/api/state/') === 0) return handleState(request, who, env, path);
+  if (path === '/api/payroll') return handlePayroll(request, user);
+  if (path === '/api/calc') return handleCalc(request, user);
+  if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
 
   const h = new Headers(request.headers);
   h.delete('If-None-Match');
@@ -537,7 +877,14 @@ export default {
     }
     const url = new URL(request.url);
 
-    // LOGIN_MODE = basic switches back to the browser's own login box (an emergency way back; not needed normally).
+    // ---- Employee portal routes (no admin session required) ----
+    if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
+    if (url.pathname === '/api/emp/logout') return handleEmpLogout();
+    if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
+    if (url.pathname === '/api/emp/payslip') return handleMyPayslip(request, env);
+    if (url.pathname === '/api/emp/change-password') return handleEmpChangePassword(request, env);
+
+    // LOGIN_MODE = basic (emergency)
     if (env.LOGIN_MODE === 'basic') {
       const b = await authenticate(request, users);
       if (b === null) {
@@ -551,13 +898,198 @@ export default {
 
     if (url.pathname === '/login') return handleLogin(request, env, users);
     if (url.pathname === '/logout') return handleLogout();
+
+    // Employee HTML page is public
+    if (url.pathname === '/employee' || url.pathname === '/employee/') {
+      const h = new Headers(request.headers);
+      h.delete('If-None-Match');
+      h.delete('If-Modified-Since');
+      // try to serve employee.html from assets
+      const assetReq = new Request(new URL('/employee.html', request.url), { headers: h });
+      let res = await env.ASSETS.fetch(assetReq);
+      if (res.status === 404) {
+        // fallback: try /employee/index.html style
+        res = await env.ASSETS.fetch(new Request(new URL('/employee/index.html', request.url), { headers: h }));
+      }
+      if (res.status === 200) {
+        const headers = new Headers(res.headers);
+        headers.set('Cache-Control', 'no-store');
+        headers.set('X-Robots-Tag', 'noindex, nofollow');
+        return new Response(res.body, { status: 200, headers });
+      }
+      // if file not found, return a minimal built-in page
+      return new Response(BUILTIN_EMPLOYEE_HTML, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
+    }
+
     const sess = await readSession(request, env, users);
-    if (sess === null) return notLoggedIn(request, url);
-    // every use extends the session; it ends after 60 idle minutes or when the browser is closed
+    if (sess === null) {
+      const nl = notLoggedIn(request, url);
+      if (nl !== null) return nl;
+    }
     const now = Math.floor(Date.now() / 1000);
-    const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
+    const renew = sess && (sess.exp - now < SESSION_IDLE_SECONDS / 2)
       ? sessionCookie(await makeToken(env, sess.name, now + SESSION_IDLE_SECONDS)) : null;
-    const res = await route(request, env, users, { name: sess.name, role: sess.role });
+    const res = await route(request, env, users, sess ? { name: sess.name, role: sess.role } : { name: 'guest', role: 'operator' });
     return renew ? withCookie(res, renew) : res;
   }
 };
+
+// Minimal fallback if employee.html is missing from assets
+const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>فیش حقوقی — پارسپهر</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Vazirmatn,Tahoma,sans-serif;background:#f0fdfa;color:#134e4a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:#fff;border-radius:14px;padding:28px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(15,118,110,.12)}
+h1{font-size:1.2rem;color:#0f766e;text-align:center;margin-bottom:6px}
+.sub{text-align:center;font-size:.85rem;color:#64748b;margin-bottom:18px}
+label{display:block;font-size:.82rem;font-weight:600;margin:10px 0 4px;color:#0f766e}
+input,select{width:100%;padding:9px 11px;border:1px solid #99f6e4;border-radius:8px;font-family:inherit;font-size:.95rem}
+button{width:100%;margin-top:14px;padding:11px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit}
+button:hover{background:#0d9488}
+.err{color:#b91c1c;font-size:.85rem;text-align:center;margin-top:10px;min-height:1.2em}
+.hidden{display:none}
+.payslip{margin-top:16px;border:1px solid #99f6e4;border-radius:10px;padding:14px;font-size:.85rem}
+.payslip h2{font-size:1rem;text-align:center;margin-bottom:8px}
+.payslip table{width:100%;border-collapse:collapse;margin-top:8px}
+.payslip td,.payslip th{border:1px solid #cbd5e1;padding:5px 7px;text-align:right}
+.net{font-size:1.1rem;font-weight:700;color:#0f766e;text-align:center;margin-top:10px;padding:8px;background:#f0fdfa;border-radius:8px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:.85rem}
+.link{color:#0f766e;cursor:pointer;text-decoration:underline;background:none;border:0;font-family:inherit;font-size:.82rem;width:auto;padding:0;margin:0}
+</style>
+</head>
+<body>
+<div class="card" id="loginCard">
+  <h1>مشاهده فیش حقوقی</h1>
+  <p class="sub">کد پرسنلی و رمز عبور خود را وارد کنید</p>
+  <label>کد پرسنلی</label>
+  <input id="code" autocomplete="username">
+  <label>رمز عبور</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <button onclick="doLogin()">ورود</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div class="card hidden" id="appCard">
+  <div class="topbar">
+    <span id="whoLabel"></span>
+    <button class="link" onclick="doLogout()">خروج</button>
+  </div>
+  <h1>فیش حقوقی</h1>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+    <div><label>سال</label><input type="number" id="year" value="1405"></div>
+    <div><label>ماه</label>
+      <select id="month">
+        <option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option>
+        <option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option>
+        <option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option>
+        <option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option>
+      </select>
+    </div>
+  </div>
+  <button onclick="loadPayslip()">نمایش فیش</button>
+  <div class="err" id="appErr"></div>
+  <div id="payslipBox"></div>
+
+  <hr style="margin:20px 0;border:0;border-top:1px solid #e2e8f0">
+  <h1 style="font-size:1rem">تغییر رمز عبور</h1>
+  <label>رمز فعلی</label><input id="oldPass" type="password">
+  <label>رمز جدید (حداقل ۶ کاراکتر)</label><input id="newPass" type="password">
+  <label>تکرار رمز جدید</label><input id="newPass2" type="password">
+  <button onclick="changePass()">ثبت رمز جدید</button>
+  <div class="err" id="passErr"></div>
+</div>
+
+<script>
+function fmt(n){return (Number(n)||0).toLocaleString('fa-IR')}
+async function doLogin(){
+  document.getElementById('loginErr').textContent='';
+  const code=document.getElementById('code').value.trim();
+  const password=document.getElementById('pass').value;
+  try{
+    const r=await fetch('/api/emp/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,password}),credentials:'same-origin'});
+    const j=await r.json();
+    if(!j.ok){document.getElementById('loginErr').textContent='کد یا رمز اشتباه است یا دسترسی فعال نیست.';return}
+    showApp(j);
+  }catch(e){document.getElementById('loginErr').textContent='خطا در ارتباط با سرور';}
+}
+function showApp(j){
+  document.getElementById('loginCard').classList.add('hidden');
+  document.getElementById('appCard').classList.remove('hidden');
+  document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+}
+async function checkSession(){
+  try{
+    const r=await fetch('/api/emp/whoami',{credentials:'same-origin'});
+    const j=await r.json();
+    if(j.ok) showApp(j);
+  }catch(e){}
+}
+async function doLogout(){
+  await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'});
+  location.reload();
+}
+async function loadPayslip(){
+  document.getElementById('appErr').textContent='';
+  document.getElementById('payslipBox').innerHTML='';
+  const year=Number(document.getElementById('year').value);
+  const month=Number(document.getElementById('month').value);
+  try{
+    const r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year,month}),credentials:'same-origin'});
+    const j=await r.json();
+    if(!j.ok){document.getElementById('appErr').textContent=j.message||'فیشی برای این ماه یافت نشد.';return}
+    const p=j.payslip;
+    const months=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+    let items='';
+    (p.itemDetails||[]).forEach(it=>{
+      items+='<tr><td>'+it.name+(it.qty!=null?' ('+it.qty+')':'')+'</td><td>'+fmt(it.amount)+'</td></tr>';
+    });
+    document.getElementById('payslipBox').innerHTML=\`
+      <div class="payslip">
+        <h2>\${j.company&&j.company.name?j.company.name:'فیش حقوقی'}</h2>
+        <p style="text-align:center">\${p.fullName} — \${months[month]} \${year}</p>
+        <table>
+          <tr><th>شرح</th><th>مبلغ</th></tr>
+          <tr><td>حقوق پایه</td><td>\${fmt(p.basicAmount)}</td></tr>
+          \${p.otAmount?\`<tr><td>اضافه‌کار</td><td>\${fmt(p.otAmount)}</td></tr>\`:''}
+          \${p.nightAmount?\`<tr><td>شب‌کاری</td><td>\${fmt(p.nightAmount)}</td></tr>\`:''}
+          \${p.shiftAmount?\`<tr><td>نوبت‌کاری</td><td>\${fmt(p.shiftAmount)}</td></tr>\`:''}
+          \${items}
+          <tr><td><b>جمع ناخالص</b></td><td><b>\${fmt(p.gross)}</b></td></tr>
+          <tr><td>بیمه سهم کارمند</td><td>\${fmt(p.insurance)}</td></tr>
+          <tr><td>مالیات</td><td>\${fmt(p.tax)}</td></tr>
+          \${p.loanDeduction?\`<tr><td>کسر وام</td><td>\${fmt(p.loanDeduction)}</td></tr>\`:''}
+          \${p.totalDeductions?\`<tr><td>سایر کسورات</td><td>\${fmt(p.totalDeductions)}</td></tr>\`:''}
+        </table>
+        <div class="net">خالص پرداختی: \${fmt(p.net)} ریال</div>
+      </div>\`;
+  }catch(e){document.getElementById('appErr').textContent='خطا در دریافت فیش';}
+}
+async function changePass(){
+  document.getElementById('passErr').textContent='';
+  const oldPassword=document.getElementById('oldPass').value;
+  const newPassword=document.getElementById('newPass').value;
+  const n2=document.getElementById('newPass2').value;
+  if(newPassword!==n2){document.getElementById('passErr').textContent='رمز جدید و تکرار آن یکسان نیست.';return}
+  try{
+    const r=await fetch('/api/emp/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({oldPassword,newPassword}),credentials:'same-origin'});
+    const j=await r.json();
+    if(!j.ok){document.getElementById('passErr').textContent=j.message||'خطا در تغییر رمز';return}
+    document.getElementById('passErr').style.color='#16a34a';
+    document.getElementById('passErr').textContent='رمز با موفقیت تغییر کرد.';
+    document.getElementById('oldPass').value='';
+    document.getElementById('newPass').value='';
+    document.getElementById('newPass2').value='';
+  }catch(e){document.getElementById('passErr').textContent='خطا در ارتباط';}
+}
+checkSession();
+</script>
+</body>
+</html>`;
