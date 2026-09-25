@@ -275,55 +275,167 @@ async function stamp(html, user, env) {
   }
   setInterval(addResetButtons, 1500);
   setTimeout(addResetButtons, 2000);
-  function ensureTimesheetBtn() {
-    if (document.getElementById('pspTsBtn')) return;
+  function ensurePortalTab() {
+    if (document.getElementById('pspPortalTabBtn')) return;
     var tabs = document.querySelector('.tabs');
     if (!tabs) return;
+    // Proper separate tab (same mechanism as other tabs: panel-{id})
     var btn = document.createElement('button');
-    btn.id = 'pspTsBtn';
+    btn.id = 'pspPortalTabBtn';
     btn.className = 'tab-btn';
     btn.type = 'button';
-    btn.textContent = 'تایم‌شیت پرتال';
-    btn.onclick = function() {
-      var panel = document.getElementById('pspTsPanel');
-      if (!panel) {
-        panel = document.createElement('div');
-        panel.id = 'pspTsPanel';
-        panel.className = 'card';
-        panel.style.marginTop = '12px';
-        panel.innerHTML = '<div class="section-title">تایم‌شیت (پرتال کارکنان)</div>' +
-          '<div class="form-grid" style="margin-bottom:10px;">' +
-          '<div class="form-group"><label>سال</label><input type="number" id="pspTsYear" value="1405"></div>' +
-          '<div class="form-group"><label>ماه</label><select id="pspTsMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
-          '<div class="form-group"><label>کد پرسنلی</label><input id="pspTsCode" placeholder="خالی = همه"></div>' +
-          '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه"></div>' +
-          '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div></div><div id="pspTsOut" style="overflow:auto;"></div>';
-        (document.querySelector('.container') || document.body).appendChild(panel);
-        document.getElementById('pspTsLoad').onclick = function() {
-          fetch('/api/admin/timesheet', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-            body: JSON.stringify({
-              year: Number(document.getElementById('pspTsYear').value),
-              month: Number(document.getElementById('pspTsMonth').value),
-              code: document.getElementById('pspTsCode').value.trim(),
-              managerCode: document.getElementById('pspTsMgr').value.trim()
-            })
-          }).then(function(r){ return r.json(); }).then(function(j){
-            var out = document.getElementById('pspTsOut');
-            if (!j.ok) { out.innerHTML = '<p style="color:#b91c1c">' + (j.error || 'خطا') + '</p>'; return; }
-            var rows = (j.rows || []).map(function(x){
-              return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td>' + x.workDays + '</td><td>' + x.leaveDays + '</td><td>' + x.hourlyLeave + '</td><td>' + x.missions + '</td><td>' + x.leaves + '</td></tr>';
-            }).join('');
-            out.innerHTML = '<table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد</th><th>مرخصی روز</th><th>مرخصی ساعت</th><th>مأموریت</th><th>مرخصی</th></tr></thead><tbody>' + rows + '</tbody></table>';
-          });
-        };
-      }
-      panel.scrollIntoView({ behavior: 'smooth' });
-    };
+    btn.setAttribute('data-tab', 'portalatt');
+    btn.textContent = 'تایم‌شیت و انواع مرخصی';
     tabs.appendChild(btn);
+
+    var panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.id = 'panel-portalatt';
+    panel.innerHTML =
+      '<div class="card">' +
+      '<div class="section-title">تایم‌شیت پرتال کارکنان</div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:10px;">این گزارش از درخواست‌های تأییدشده پرتال است و فعلاً روی محاسبه حقوق اثر ندارد.</p>' +
+      '<div class="form-grid" style="margin-bottom:10px;">' +
+      '<div class="form-group"><label>سال</label><input type="number" id="pspTsYear" value="1405"></div>' +
+      '<div class="form-group"><label>ماه</label><select id="pspTsMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
+      '<div class="form-group"><label>کد پرسنلی</label><input id="pspTsCode" placeholder="خالی = همه" autocomplete="off"></div>' +
+      '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
+      '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div>' +
+      '<div class="section-title">انواع مرخصی و مأموریت</div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">این نام‌ها در پرتال کارکنان نمایش داده می‌شوند. برای مرخصی می‌توانید مشخص کنید از استحقاقی کم شود یا نه، و تعداد روز ثابت (مثلاً ازدواج ۳ روز) یا بدون سقف.</p>' +
+      '<div id="pspTypesList"></div>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspTypeAdd">+ نوع جدید</button>' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspTypeSave">ذخیره انواع</button>' +
+      '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div></div>';
+    // insert panel after other panels
+    var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
+    if (host) host.appendChild(panel);
+    else document.body.appendChild(panel);
+
+    document.getElementById('pspTsLoad').onclick = function() {
+      fetch('/api/admin/timesheet', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          year: Number(document.getElementById('pspTsYear').value),
+          month: Number(document.getElementById('pspTsMonth').value),
+          code: document.getElementById('pspTsCode').value.trim(),
+          managerCode: document.getElementById('pspTsMgr').value.trim()
+        })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        var out = document.getElementById('pspTsOut');
+        if (!j.ok) { out.innerHTML = '<p style="color:#b91c1c">' + (j.error || 'خطا') + '</p>'; return; }
+        var rows = (j.rows || []).map(function(x){
+          return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td>' + x.workDays + '</td><td>' + x.leaveDays + '</td><td>' + x.hourlyLeave + '</td><td>' + x.missions + '</td><td>' + x.leaves + '</td></tr>';
+        }).join('');
+        out.innerHTML = '<table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد</th><th>مرخصی روز</th><th>مرخصی ساعت</th><th>مأموریت</th><th>مرخصی</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      });
+    };
+
+    window.__pspTypes = [];
+    function renderTypes() {
+      var box = document.getElementById('pspTypesList');
+      if (!window.__pspTypes.length) {
+        box.innerHTML = '<p style="font-size:0.85rem;color:#64748b;">هنوز نوعی تعریف نشده. «+ نوع جدید» را بزنید.</p>';
+        return;
+      }
+      var html = '<table><thead><tr><th>نام</th><th>دسته</th><th>روزانه/ساعتی</th><th>کسر از استحقاقی</th><th>تعداد روز</th><th></th></tr></thead><tbody>';
+      window.__pspTypes.forEach(function(t, i) {
+        html += '<tr>' +
+          '<td><input data-i="' + i + '" data-f="name" value="' + (t.name || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-family:inherit;"></td>' +
+          '<td><select data-i="' + i + '" data-f="kind"><option value="leave"' + (t.kind === 'leave' ? ' selected' : '') + '>مرخصی</option><option value="mission"' + (t.kind === 'mission' ? ' selected' : '') + '>مأموریت</option></select></td>' +
+          '<td><select data-i="' + i + '" data-f="mode"><option value="daily"' + (t.mode !== 'hourly' ? ' selected' : '') + '>روزانه</option><option value="hourly"' + (t.mode === 'hourly' ? ' selected' : '') + '>ساعتی</option></select></td>' +
+          '<td style="text-align:center;"><input type="checkbox" data-i="' + i + '" data-f="deduct"' + (t.deductFromEntitlement ? ' checked' : '') + (t.kind === 'mission' ? ' disabled' : '') + '></td>' +
+          '<td><select data-i="' + i + '" data-f="fixedMode"><option value="none"' + (t.fixedDays == null || t.fixedDays === '' ? ' selected' : '') + '>بدون تعداد ثابت</option><option value="fixed"' + (t.fixedDays != null && t.fixedDays !== '' ? ' selected' : '') + '>تعداد معین</option></select> ' +
+          '<input type="number" min="1" max="365" data-i="' + i + '" data-f="fixedDays" value="' + (t.fixedDays != null && t.fixedDays !== '' ? t.fixedDays : '') + '" style="width:70px;padding:4px;border:1px solid #99f6e4;border-radius:6px;"' + (t.fixedDays == null || t.fixedDays === '' ? ' disabled' : '') + '></td>' +
+          '<td><button type="button" class="btn btn-outline btn-sm" data-del="' + i + '">حذف</button></td></tr>';
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+      box.querySelectorAll('[data-f]').forEach(function(el) {
+        el.onchange = el.oninput = function() {
+          var i = Number(el.getAttribute('data-i'));
+          var f = el.getAttribute('data-f');
+          if (!window.__pspTypes[i]) return;
+          if (f === 'deduct') window.__pspTypes[i].deductFromEntitlement = !!el.checked;
+          else if (f === 'fixedMode') {
+            if (el.value === 'none') {
+              window.__pspTypes[i].fixedDays = null;
+              var inp = box.querySelector('input[data-f="fixedDays"][data-i="' + i + '"]');
+              if (inp) { inp.value = ''; inp.disabled = true; }
+            } else {
+              var inp2 = box.querySelector('input[data-f="fixedDays"][data-i="' + i + '"]');
+              if (inp2) { inp2.disabled = false; if (!inp2.value) inp2.value = '1'; window.__pspTypes[i].fixedDays = Number(inp2.value) || 1; }
+            }
+          } else if (f === 'fixedDays') window.__pspTypes[i].fixedDays = el.value === '' ? null : Number(el.value);
+          else if (f === 'kind') {
+            window.__pspTypes[i].kind = el.value;
+            if (el.value === 'mission') window.__pspTypes[i].deductFromEntitlement = false;
+            renderTypes();
+          } else window.__pspTypes[i][f] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-del]').forEach(function(b) {
+        b.onclick = function() {
+          window.__pspTypes.splice(Number(b.getAttribute('data-del')), 1);
+          renderTypes();
+        };
+      });
+    }
+
+    document.getElementById('pspTypeAdd').onclick = function() {
+      window.__pspTypes.push({
+        id: 't_' + Date.now().toString(36),
+        name: 'نوع جدید',
+        kind: 'leave',
+        mode: 'daily',
+        deductFromEntitlement: true,
+        fixedDays: null
+      });
+      renderTypes();
+    };
+    document.getElementById('pspTypeSave').onclick = function() {
+      var st = document.getElementById('pspTypeStatus');
+      st.textContent = '…';
+      fetch('/api/admin/attendance-types', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ types: window.__pspTypes })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'ذخیره شد (' + (j.types || []).length + ' نوع)'; window.__pspTypes = j.types || window.__pspTypes; renderTypes(); }
+        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
+    };
+
+    function loadTypes() {
+      fetch('/api/admin/attendance-types', { credentials: 'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if (j.ok) { window.__pspTypes = j.types || []; renderTypes(); }
+        }).catch(function(){});
+    }
+
+    // Hook into existing tab system: when our tab is clicked, show only our panel
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+      btn.classList.add('active');
+      panel.classList.add('active');
+      loadTypes();
+    });
+    // When other tabs clicked, hide our panel (their handler already removes active from panels)
+    // Ensure our panel is not left active: observe other tab clicks
+    tabs.querySelectorAll('.tab-btn').forEach(function(other) {
+      if (other === btn) return;
+      other.addEventListener('click', function() {
+        panel.classList.remove('active');
+        btn.classList.remove('active');
+      });
+    });
   }
-  setTimeout(ensureTimesheetBtn, 1500);
-  setInterval(ensureTimesheetBtn, 3000);
+  setTimeout(ensurePortalTab, 1200);
+  setInterval(ensurePortalTab, 4000);
 })();
 </script>`;
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
@@ -1116,21 +1228,19 @@ async function handleEmpCreateRequest(request, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
   const b = r.body;
-  const kind = b.kind === 'mission' ? 'mission' : 'leave';
-  const mode = b.mode === 'hourly' ? 'hourly' : 'daily';
+  let kind = b.kind === 'mission' ? 'mission' : 'leave';
+  let mode = b.mode === 'hourly' ? 'hourly' : 'daily';
+  let typeId = String(b.typeId || '').trim();
+  let typeName = '';
+  let deductFromEntitlement = false;
+  let fixedDays = null;
   const startDate = String(b.startDate || '').trim();
-  const endDate = String(b.endDate || b.startDate || '').trim();
+  let endDate = String(b.endDate || b.startDate || '').trim();
   const fromTime = String(b.fromTime || '').trim();
   const toTime = String(b.toTime || '').trim();
   const place = String(b.place || '').trim();
   const reason = String(b.reason || '').trim();
   if (!startDate) return jsonResponse({ ok: false, error: 'bad_request', message: 'تاریخ شروع الزامی است.' }, 400);
-  if (mode === 'hourly' && (!fromTime || !toTime)) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'ساعت شروع و پایان الزامی است.' }, 400);
-  }
-  if (kind === 'mission' && !place) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
-  }
 
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
@@ -1139,6 +1249,40 @@ async function handleEmpCreateRequest(request, env) {
     const gd = await storeGetData(cfg);
     if (gd.fail) return storeFailResponse(gd.fail);
     if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+
+    // resolve type from admin-defined list
+    let types = gd.obj.attendanceTypes || [];
+    if (!types.length) types = defaultAttendanceTypes();
+    let tdef = typeId ? types.find(function (t) { return String(t.id) === typeId; }) : null;
+    if (tdef) {
+      kind = tdef.kind === 'mission' ? 'mission' : 'leave';
+      mode = tdef.mode === 'hourly' ? 'hourly' : 'daily';
+      typeName = tdef.name || '';
+      deductFromEntitlement = kind === 'leave' && !!tdef.deductFromEntitlement;
+      fixedDays = tdef.fixedDays != null && tdef.fixedDays !== '' ? Number(tdef.fixedDays) : null;
+      if (fixedDays && mode === 'daily' && startDate) {
+        // auto end date = start + fixedDays - 1 (approx by day number; simple)
+        const p = parseJalaliYMD(startDate);
+        if (p) {
+          let d = p.d + fixedDays - 1;
+          let m = p.m, y = p.y;
+          while (d > daysInJalaliMonth(y, m)) {
+            d -= daysInJalaliMonth(y, m);
+            m++;
+            if (m > 12) { m = 1; y++; }
+          }
+          endDate = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+        }
+      }
+    }
+
+    if (mode === 'hourly' && (!fromTime || !toTime)) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'ساعت شروع و پایان الزامی است.' }, 400);
+    }
+    if (kind === 'mission' && !place) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
+    }
+
     const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
     if (!emp || emp.status === 'inactive') return jsonResponse({ ok: false, error: 'disabled' }, 403);
     if (!emp.managerCode) {
@@ -1152,6 +1296,10 @@ async function handleEmpCreateRequest(request, env) {
       empName: emp.fullName || '',
       managerCode: String(emp.managerCode),
       managerName: mgr ? (mgr.fullName || '') : '',
+      typeId: typeId || '',
+      typeName: typeName,
+      deductFromEntitlement: deductFromEntitlement,
+      fixedDays: fixedDays,
       kind, mode,
       startDate, endDate: mode === 'hourly' ? startDate : endDate,
       fromTime: mode === 'hourly' ? fromTime : '',
@@ -1377,6 +1525,72 @@ async function handleAdminTimesheet(request, who, env) {
   return jsonResponse({ ok: true, year, month, rows });
 }
 
+function defaultAttendanceTypes() {
+  return [
+    { id: 'leave_annual', name: 'مرخصی استحقاقی', kind: 'leave', mode: 'daily', deductFromEntitlement: true, fixedDays: null },
+    { id: 'leave_hourly', name: 'مرخصی ساعتی', kind: 'leave', mode: 'hourly', deductFromEntitlement: true, fixedDays: null },
+    { id: 'leave_marriage', name: 'مرخصی ازدواج', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3 },
+    { id: 'leave_death', name: 'مرخصی فوت بستگان', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3 },
+    { id: 'mission_daily', name: 'مأموریت روزانه', kind: 'mission', mode: 'daily', deductFromEntitlement: false, fixedDays: null },
+    { id: 'mission_hourly', name: 'مأموریت ساعتی', kind: 'mission', mode: 'hourly', deductFromEntitlement: false, fixedDays: null }
+  ];
+}
+
+async function handleAdminGetAttendanceTypes(env) {
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  let types = (gd.obj && gd.obj.attendanceTypes) || [];
+  if (!types.length) types = defaultAttendanceTypes();
+  return jsonResponse({ ok: true, types: types });
+}
+
+async function handleAdminSaveAttendanceTypes(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  let types = Array.isArray(r.body.types) ? r.body.types : [];
+  types = types.map(function (t, i) {
+    const kind = t.kind === 'mission' ? 'mission' : 'leave';
+    const mode = t.mode === 'hourly' ? 'hourly' : 'daily';
+    let fixedDays = t.fixedDays;
+    if (fixedDays === '' || fixedDays == null) fixedDays = null;
+    else fixedDays = Number(fixedDays);
+    if (fixedDays != null && (!isFinite(fixedDays) || fixedDays < 1)) fixedDays = null;
+    return {
+      id: String(t.id || ('t_' + i + '_' + Date.now().toString(36))),
+      name: String(t.name || '').trim() || ('نوع ' + (i + 1)),
+      kind: kind,
+      mode: mode,
+      deductFromEntitlement: kind === 'leave' ? !!t.deductFromEntitlement : false,
+      fixedDays: fixedDays
+    };
+  }).filter(function (t) { return t.name; });
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    gd.obj.attendanceTypes = types;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, types: types });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleEmpAttendanceTypes(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  return handleAdminGetAttendanceTypes(env);
+}
+
 // ---------- Login page (admin/operator) ----------
 async function checkLogin(name, pass, users) {
   const nh = await sha256(name);
@@ -1496,6 +1710,10 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
+  if (path === '/api/admin/attendance-types') {
+    if (request.method === 'GET') return handleAdminGetAttendanceTypes(env);
+    return handleAdminSaveAttendanceTypes(request, who, env);
+  }
 
   const h = new Headers(request.headers);
   h.delete('If-None-Match');
@@ -1542,6 +1760,7 @@ export default {
     if (url.pathname === '/api/emp/requests') return handleEmpListRequests(request, env);
     if (url.pathname === '/api/emp/decide') return handleEmpDecideRequest(request, env);
     if (url.pathname === '/api/emp/timesheet') return handleEmpTimesheet(request, env);
+    if (url.pathname === '/api/emp/attendance-types') return handleEmpAttendanceTypes(request, env);
 
     // LOGIN_MODE = basic (emergency)
     if (env.LOGIN_MODE === 'basic') {
@@ -1663,9 +1882,12 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel hidden" id="panel-request">
     <h2>ثبت درخواست مرخصی / مأموریت</h2>
-    <div class="grid2">
-      <div><label>نوع</label><select id="rqKind" onchange="syncRequestForm()"><option value="leave">مرخصی</option><option value="mission">مأموریت</option></select></div>
-      <div><label>روزانه / ساعتی</label><select id="rqMode" onchange="syncRequestForm()"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
+    <label>نوع درخواست</label>
+    <select id="rqType" onchange="onTypeChange()"></select>
+    <p class="sub" id="rqTypeHint" style="text-align:right;margin:6px 0 0;"></p>
+    <div class="grid2 hidden">
+      <div><label>نوع</label><select id="rqKind"><option value="leave">مرخصی</option><option value="mission">مأموریت</option></select></div>
+      <div><label>روزانه / ساعتی</label><select id="rqMode"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
     </div>
     <div class="grid2">
       <div><label>از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr"></div>
@@ -1708,11 +1930,35 @@ function showTab(name){
   var el=document.getElementById('panel-'+name); if(el) el.classList.remove('hidden');
   if(name==='mine'||name==='approve') loadRequests();
 }
+var attTypes=[];
 function syncRequestForm(){
   var mode=document.getElementById('rqMode').value, kind=document.getElementById('rqKind').value;
   document.getElementById('rqTimeWrap').classList.toggle('hidden', mode!=='hourly');
   document.getElementById('rqEndWrap').classList.toggle('hidden', mode==='hourly');
   document.getElementById('rqPlaceWrap').classList.toggle('hidden', kind!=='mission');
+}
+function onTypeChange(){
+  var id=document.getElementById('rqType').value;
+  var t=attTypes.find(function(x){return String(x.id)===String(id)});
+  if(!t){return}
+  document.getElementById('rqKind').value=t.kind==='mission'?'mission':'leave';
+  document.getElementById('rqMode').value=t.mode==='hourly'?'hourly':'daily';
+  var hint=[];
+  if(t.kind==='leave') hint.push(t.deductFromEntitlement?'از مرخصی استحقاقی کسر می‌شود':'از استحقاقی کسر نمی‌شود');
+  if(t.fixedDays!=null&&t.fixedDays!=='') hint.push('مدت ثابت: '+t.fixedDays+' روز');
+  document.getElementById('rqTypeHint').textContent=hint.join(' — ');
+  syncRequestForm();
+}
+async function loadAttTypes(){
+  try{
+    var r=await fetch('/api/emp/attendance-types',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok) return;
+    attTypes=j.types||[];
+    var sel=document.getElementById('rqType');
+    sel.innerHTML=attTypes.map(function(t){return '<option value="'+t.id+'">'+t.name+(t.kind==='mission'?' (مأموریت)':' (مرخصی)')+'</option>'}).join('')||'<option value="">—</option>';
+    onTypeChange();
+  }catch(e){}
 }
 async function doLogin(){
   var err=document.getElementById('loginErr'); err.textContent='';
@@ -1731,6 +1977,7 @@ function showApp(j){
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
   loadRequests();
+  loadAttTypes();
 }
 async function checkSession(){try{var r=await fetch('/api/emp/whoami',{credentials:'same-origin'});var j=await r.json();if(j.ok)showApp(j)}catch(e){}}
 async function doLogout(){try{await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'})}catch(e){}location.reload()}
@@ -1749,7 +1996,7 @@ async function loadPayslip(){
 }
 async function submitRequest(){
   var err=document.getElementById('rqErr'); err.textContent=''; err.classList.remove('okmsg');
-  var body={kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
+  var body={typeId:document.getElementById('rqType').value,kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
   try{
     var r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
     var j=await r.json();
@@ -1759,7 +2006,7 @@ async function submitRequest(){
 }
 function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید شده</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
 function reqHtml(x,forManager){
-  var title=(x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه');
+  var title=(x.typeName||((x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه')));
   var dates=x.mode==='hourly'?(x.startDate+' از '+x.fromTime+' تا '+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:''));
   var extra=''; if(x.place)extra+='<div>محل: '+x.place+'</div>'; if(x.reason)extra+='<div>دلیل: '+x.reason+'</div>'; if(x.status==='rejected'&&x.rejectReason)extra+='<div style="color:#b91c1c">دلیل رد: '+x.rejectReason+'</div>';
   var actions=''; if(forManager&&x.status==='pending') actions='<div class="actions"><button class="sm ok" onclick="decide(\\''+x.id+'\\',\\'approved\\')">تأیید</button><button class="sm danger" onclick="decide(\\''+x.id+'\\',\\'rejected\\')">رد</button></div>';
