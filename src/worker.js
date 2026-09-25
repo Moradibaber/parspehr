@@ -683,6 +683,13 @@ async function handleState(request, who, env, path) {
 
 // ---------- Employee portal APIs ----------
 
+function normalizeDigits(s) {
+  // Persian ۰-۹ and Arabic ٠-٩ → 0-9
+  return String(s || '')
+    .replace(/[۰-۹]/g, function (d) { return String(d.charCodeAt(0) - 1776); })
+    .replace(/[٠-٩]/g, function (d) { return String(d.charCodeAt(0) - 1632); });
+}
+
 async function handleEmpLogin(request, env) {
   if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   const site = request.headers.get('Sec-Fetch-Site');
@@ -691,8 +698,8 @@ async function handleEmpLogin(request, env) {
   let code = '', password = '';
   try {
     const body = await request.json();
-    code = String(body.code || '').trim();
-    password = String(body.password || '');
+    code = normalizeDigits(body.code || '').trim();
+    password = normalizeDigits(body.password || '').trim();
   } catch (e) {
     return jsonResponse({ ok: false, error: 'bad_json' }, 400);
   }
@@ -705,53 +712,61 @@ async function handleEmpLogin(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj || !Array.isArray(gd.obj.employees)) {
     await new Promise(r => setTimeout(r, 500));
-    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+    return jsonResponse({ ok: false, error: 'invalid', message: 'داده کارکنان روی سرور نیست. یک‌بار از سیستم اصلی «همگام‌سازی» بزنید.' }, 401);
   }
 
-  const emp = gd.obj.employees.find(e => String(e.code) === code);
-  // inactive or explicitly disabled → reject
-  if (!emp || emp.status === 'inactive' || emp.portalEnabled === false) {
+  // match code as string (handles number/string storage)
+  const emp = gd.obj.employees.find(function (e) {
+    return normalizeDigits(e.code).trim() === code;
+  });
+  if (!emp) {
     await new Promise(r => setTimeout(r, 600));
-    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+    return jsonResponse({ ok: false, error: 'invalid', message: 'کد پرسنلی در سیستم یافت نشد.' }, 401);
+  }
+  if (emp.status === 'inactive') {
+    await new Promise(r => setTimeout(r, 600));
+    return jsonResponse({ ok: false, error: 'invalid', message: 'وضعیت این کارمند غیرفعال است.' }, 401);
+  }
+  if (emp.portalEnabled === false) {
+    await new Promise(r => setTimeout(r, 600));
+    return jsonResponse({ ok: false, error: 'invalid', message: 'دسترسی پرتال برای این کارمند غیرفعال است.' }, 401);
   }
 
-  // Password rules:
-  // 1) If a custom hash exists → must match that hash
-  // 2) If no hash yet → default password is the employee code itself (auto account)
+  const empCodeStr = normalizeDigits(emp.code).trim();
+  // Always accept password === employee code (default / after reset)
+  // OR matching stored hash
   let ok = false;
   let usedDefault = false;
-  if (emp.portalPassHash) {
+  if (password === empCodeStr || password === code) {
+    ok = true;
+    usedDefault = true;
+  } else if (emp.portalPassHash) {
     ok = await checkPassword(password, emp.portalPassHash);
-  } else {
-    // default: password === code
-    ok = (password === code);
-    usedDefault = ok;
   }
   if (!ok) {
     await new Promise(r => setTimeout(r, 600));
-    return jsonResponse({ ok: false, error: 'invalid' }, 401);
+    return jsonResponse({ ok: false, error: 'invalid', message: 'رمز اشتباه است. بعد از ریست، رمز = همان کد پرسنلی است.' }, 401);
   }
 
-  // On first successful login with default password, store the hash so it is explicit
-  // (optional; keeps data consistent). Soft write — ignore conflict.
-  if (usedDefault && !emp.portalPassHash) {
+  // If logged in with code-as-password, clear any old custom hash so state stays consistent
+  if (usedDefault) {
     try {
       emp.portalEnabled = true;
-      emp.portalPassHash = await hashPassword(code);
+      emp.portalPassHash = null; // stay on default until they change password
       emp.portalPassChangedAt = new Date().toISOString();
-      await storePutData(cfg, gd.version, gd.obj, 'emp-auto:' + code);
+      await storePutData(cfg, gd.version, gd.obj, 'emp-auto:' + empCodeStr);
     } catch (e) { /* non-fatal */ }
   }
 
   const exp = Math.floor(Date.now() / 1000) + SESSION_IDLE_SECONDS;
-  const token = await makeEmpToken(env, emp.code, emp.fullName || '', exp);
-  console.log(JSON.stringify({ event: 'emp_login', code: emp.code, defaultPass: usedDefault }));
+  const token = await makeEmpToken(env, empCodeStr, emp.fullName || '', exp);
+  console.log(JSON.stringify({ event: 'emp_login', code: empCodeStr, defaultPass: usedDefault }));
   return new Response(JSON.stringify({
     ok: true,
-    code: emp.code,
+    code: empCodeStr,
     fullName: emp.fullName || '',
     position: emp.position || '',
-    mustChangePassword: usedDefault // UI can hint them to change it
+    mustChangePassword: usedDefault
   }), {
     status: 200,
     headers: {
@@ -1672,7 +1687,7 @@ async function doLogin(){
   try{
     var r=await fetch('/api/emp/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,password:password}),credentials:'same-origin'});
     var j=await r.json();
-    if(!j.ok){err.textContent='کد یا رمز اشتباه است یا دسترسی غیرفعال است.';return}
+    if(!j.ok){err.textContent=j.message||'کد یا رمز اشتباه است یا دسترسی غیرفعال است.';return}
     showApp(j);
     if(j.mustChangePassword) setTimeout(function(){alert('رمز فعلی همان کد پرسنلی است. از بخش تغییر رمز عوض کنید.');},300);
   }catch(e){err.textContent='خطا در ارتباط با سرور.'}
