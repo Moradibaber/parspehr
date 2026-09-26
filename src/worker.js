@@ -234,6 +234,21 @@ async function stamp(html, user, env) {
           }
           fillMgrSelect(mc, keep);
           fillMgrSelect(mc2, keep2);
+          if (code) {
+            fetch('/api/admin/get-manager?code=' + encodeURIComponent(code), { credentials: 'same-origin' })
+              .then(function(r){ return r.json(); })
+              .then(function(j){
+                if (!j.ok) return;
+                fillMgrSelect(mc, j.managerCode || '');
+                fillMgrSelect(mc2, j.managerCode2 || '');
+                try {
+                  if (typeof data !== 'undefined' && data.employees) {
+                    var empX = data.employees.find(function(e){ return String(e.code) === code; });
+                    if (empX) { empX.managerCode = j.managerCode || ''; empX.managerCode2 = j.managerCode2 || ''; }
+                  }
+                } catch (e) {}
+              }).catch(function(){});
+          }
         } catch (e) {}
       }, 100);
       return r;
@@ -360,10 +375,29 @@ async function stamp(html, user, env) {
       }).then(function(r){ return r.json(); }).then(function(j){
         var out = document.getElementById('pspTsOut');
         if (!j.ok) { out.innerHTML = '<p style="color:#b91c1c">' + (j.error || 'خطا') + '</p>'; return; }
+        var html = '';
+        if (j.daily && j.daily.days) {
+          html += '<p style="font-size:0.85rem;margin-bottom:8px;"><b>' + (j.daily.fullName||'') + '</b> — کد ' + j.daily.code + ' — ' + j.year + '/' + j.month + '</p>';
+          html += '<p style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">جدول روزبه‌روز (شبیه اکسل). ورود/خروج در نسخه بعدی با ثبت ساعت پر می‌شود.</p>';
+          html += '<div style="overflow:auto;"><table style="font-size:0.75rem;min-width:900px;"><thead><tr>' +
+            '<th>تاریخ</th><th>ورود ۱</th><th>خروج ۱</th><th>ورود ۲</th><th>خروج ۲</th>' +
+            '<th>مأموریت ساعتی</th><th>مأموریت روزانه</th><th>مرخصی ساعتی</th><th>مرخصی روزانه</th><th>توضیح</th>' +
+            '</tr></thead><tbody>';
+          j.daily.days.forEach(function(d){
+            html += '<tr><td>' + d.date + '</td><td></td><td></td><td></td><td></td>' +
+              '<td>' + (d.missionHourly||'') + '</td><td>' + (d.missionDaily||'') + '</td>' +
+              '<td>' + (d.leaveHourly||'') + '</td><td>' + (d.leaveDaily||'') + '</td>' +
+              '<td>' + (d.note||'') + '</td></tr>';
+          });
+          html += '</tbody></table></div>';
+        } else if (!document.getElementById('pspTsCode').value.trim()) {
+          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:8px;">برای جدول روزبه‌روز شبیه اکسل، یک کد پرسنلی وارد کنید.</p>';
+        }
         var rows = (j.rows || []).map(function(x){
           return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td>' + x.workDays + '</td><td>' + x.leaveDays + '</td><td>' + x.hourlyLeave + '</td><td>' + x.missions + '</td><td>' + x.leaves + '</td></tr>';
         }).join('');
-        out.innerHTML = '<table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد</th><th>مرخصی روز</th><th>مرخصی ساعت</th><th>مأموریت</th><th>مرخصی</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        html += '<h4 style="margin-top:14px;">خلاصه ماه</h4><table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد</th><th>مرخصی روز</th><th>مرخصی ساعت</th><th>مأموریت</th><th>مرخصی</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        out.innerHTML = html;
       });
     };
 
@@ -651,25 +685,37 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
         const map = {};
         prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
-        // managerCode is ONLY changed via /api/admin/set-manager (updatedBy starts with mgr-set:)
-        // Generic app saves must never wipe managers.
+        // Managers stored in portalMeta so main-app saves cannot wipe them.
         var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
+        var prevMeta = prev.obj.portalMeta && typeof prev.obj.portalMeta === 'object' ? prev.obj.portalMeta : {};
+        if (!obj.portalMeta || typeof obj.portalMeta !== 'object') obj.portalMeta = {};
+        obj.portalMeta = Object.assign({}, prevMeta, obj.portalMeta);
         obj.employees.forEach(function (e) {
           const p = map[String(e.code)];
-          if (!p) return;
-          if (!allowMgrWrite) {
-            if (p.managerCode != null && p.managerCode !== '') e.managerCode = p.managerCode;
-            else if (e.managerCode === undefined || e.managerCode === null) e.managerCode = p.managerCode || '';
-            if (p.managerCode2 != null && p.managerCode2 !== '') e.managerCode2 = p.managerCode2;
-            else if (e.managerCode2 === undefined || e.managerCode2 === null) e.managerCode2 = p.managerCode2 || '';
+          const codeKey = String(e.code);
+          const m = obj.portalMeta[codeKey] || prevMeta[codeKey];
+          if (!allowMgrWrite && m) {
+            e.managerCode = m.managerCode || '';
+            e.managerCode2 = m.managerCode2 || '';
+          } else if (!allowMgrWrite && p) {
+            if (p.managerCode) e.managerCode = p.managerCode;
+            if (p.managerCode2) e.managerCode2 = p.managerCode2;
           }
-          if (e.portalPassHash === undefined || e.portalPassHash === null) {
-            if (p.portalPassHash) e.portalPassHash = p.portalPassHash;
+          if (allowMgrWrite) {
+            obj.portalMeta[codeKey] = {
+              managerCode: e.managerCode || '',
+              managerCode2: e.managerCode2 || ''
+            };
           }
-          if (e.portalEnabled === undefined || e.portalEnabled === null) {
-            if (p.portalEnabled != null) e.portalEnabled = p.portalEnabled;
+          if (p) {
+            if (e.portalPassHash === undefined || e.portalPassHash === null) {
+              if (p.portalPassHash) e.portalPassHash = p.portalPassHash;
+            }
+            if (e.portalEnabled === undefined || e.portalEnabled === null) {
+              if (p.portalEnabled != null) e.portalEnabled = p.portalEnabled;
+            }
+            if (!e.portalPassChangedAt && p.portalPassChangedAt) e.portalPassChangedAt = p.portalPassChangedAt;
           }
-          if (!e.portalPassChangedAt && p.portalPassChangedAt) e.portalPassChangedAt = p.portalPassChangedAt;
         });
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
         if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
@@ -1433,12 +1479,15 @@ async function handleEmpCreateRequest(request, env) {
 
     const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
     if (!emp || emp.status === 'inactive') return jsonResponse({ ok: false, error: 'disabled' }, 403);
-    if (!emp.managerCode) {
+    const pmeta = (gd.obj.portalMeta && gd.obj.portalMeta[String(emp.code)]) || {};
+    const mgrCode1 = pmeta.managerCode || emp.managerCode || '';
+    const mgrCode2 = pmeta.managerCode2 || emp.managerCode2 || '';
+    if (!mgrCode1) {
       return jsonResponse({ ok: false, error: 'no_manager', message: 'برای شما مدیر مستقیم تعریف نشده است. با منابع انسانی تماس بگیرید.' }, 400);
     }
-    const mgr = gd.obj.employees.find(e => String(e.code) === String(emp.managerCode));
-    const mgr2 = emp.managerCode2
-      ? gd.obj.employees.find(e => String(e.code) === String(emp.managerCode2))
+    const mgr = gd.obj.employees.find(e => String(e.code) === String(mgrCode1));
+    const mgr2 = mgrCode2
+      ? gd.obj.employees.find(e => String(e.code) === String(mgrCode2))
       : null;
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
     if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
@@ -1517,9 +1566,9 @@ async function handleEmpCreateRequest(request, env) {
       id: newRequestId(),
       empCode: String(emp.code),
       empName: emp.fullName || '',
-      managerCode: String(emp.managerCode),
+      managerCode: String(mgrCode1),
       managerName: mgr ? (mgr.fullName || '') : '',
-      managerCode2: emp.managerCode2 ? String(emp.managerCode2) : '',
+      managerCode2: mgrCode2 ? String(mgrCode2) : '',
       managerName2: mgr2 ? (mgr2.fullName || '') : '',
       typeId: typeId || '',
       typeName: typeName,
@@ -1578,9 +1627,13 @@ async function handleEmpListRequests(request, env) {
   const managedForMe = all.filter(function (x) {
     return String(x.managerCode) === code || String(x.managerCode2) === code;
   }).slice(0, 150);
+  const meta = gd.obj.portalMeta || {};
   const isManager = (gd.obj.employees || []).some(function (e) {
     if (e.status === 'inactive') return false;
-    return String(e.managerCode) === code || String(e.managerCode2) === code;
+    const m = meta[String(e.code)] || {};
+    const m1 = m.managerCode || e.managerCode || '';
+    const m2 = m.managerCode2 || e.managerCode2 || '';
+    return String(m1) === code || String(m2) === code;
   });
   return jsonResponse({ ok: true, mine, pendingForMe, managedForMe, isManager: isManager });
 }
@@ -1745,6 +1798,8 @@ async function handleAdminSetManager(request, who, env) {
     }
     emp.managerCode = managerCode || '';
     emp.managerCode2 = managerCode2 || '';
+    if (!gd.obj.portalMeta || typeof gd.obj.portalMeta !== 'object') gd.obj.portalMeta = {};
+    gd.obj.portalMeta[code] = { managerCode: emp.managerCode, managerCode2: emp.managerCode2 };
     // special tag so storePutData allows writing manager fields
     const put = await storePutData(cfg, gd.version, gd.obj, 'mgr-set:' + who.name);
     if (put.fail) return storeFailResponse(put.fail);
@@ -1752,6 +1807,28 @@ async function handleAdminSetManager(request, who, env) {
     return jsonResponse({ ok: true, code, managerCode: emp.managerCode, managerCode2: emp.managerCode2 });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminGetManager(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const url = new URL(request.url);
+  const code = String(url.searchParams.get('code') || '').trim();
+  if (!code) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+  const meta = (gd.obj.portalMeta && gd.obj.portalMeta[code]) || {};
+  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === code; });
+  return jsonResponse({
+    ok: true,
+    code: code,
+    managerCode: meta.managerCode || (emp && emp.managerCode) || '',
+    managerCode2: meta.managerCode2 || (emp && emp.managerCode2) || ''
+  });
 }
 
 async function handleAdminTimesheet(request, who, env) {
@@ -1809,7 +1886,52 @@ async function handleAdminTimesheet(request, who, env) {
     });
   });
   rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code), 'fa'); });
-  return jsonResponse({ ok: true, year, month, rows });
+
+  // Day-by-day sheet when a single employee code is selected (Excel-like)
+  let daily = null;
+  if (filterCode && rows.length === 1) {
+    const weekdays = ['', 'شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
+    // approximate weekday from a fixed epoch is hard for Jalali; leave blank or compute roughly
+    const dim = daysInJalaliMonth(year, month);
+    const dayMap = {};
+    for (let d = 1; d <= dim; d++) {
+      const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      dayMap[dk] = {
+        day: d,
+        date: year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0'),
+        weekday: '',
+        leaveDaily: '',
+        leaveHourly: '',
+        missionDaily: '',
+        missionHourly: '',
+        note: ''
+      };
+    }
+    (rows[0].requests || []).forEach(function (x) {
+      const days = x.mode === 'hourly'
+        ? [dateKey(x.startDate)]
+        : listDayKeys(x.startDate, x.endDate || x.startDate);
+      days.forEach(function (dk) {
+        const parts = dk.split('-');
+        if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+        const cell = dayMap[dk];
+        if (!cell) return;
+        const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
+        if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
+        if (x.kind === 'leave' && x.mode === 'hourly') cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+        if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
+        if (x.kind === 'mission' && x.mode === 'hourly') cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+        if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+      });
+    });
+    daily = {
+      code: rows[0].code,
+      fullName: rows[0].fullName,
+      days: Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; })
+    };
+  }
+
+  return jsonResponse({ ok: true, year, month, rows, daily: daily });
 }
 
 function defaultAttendanceTypes() {
@@ -2253,6 +2375,7 @@ async function route(request, env, users, found) {
   if (path === '/api/calc') return handleCalc(request, user);
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
+  if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
   if (path === '/api/admin/attendance-types') {
     if (request.method === 'GET') return handleAdminGetAttendanceTypes(env);
@@ -2439,7 +2562,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>روزانه / ساعتی</label><select id="rqMode"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
     </div>
     <div class="grid2">
-      <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr"></div>
+      <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr" oninput="applyFixedEnd()"></div>
       <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr"></div>
     </div>
     <div class="grid2 hidden" id="rqTimeWrap">
@@ -2488,6 +2611,35 @@ function syncRequestForm(){
   var lab=document.getElementById('rqStartLabel');
   if(lab) lab.textContent = mode==='hourly' ? 'تاریخ' : 'از تاریخ';
 }
+function daysInJMonth(y,m){if(m>=1&&m<=6)return 31;if(m>=7&&m<=11)return 30;return 29;}
+function addJDays(startStr,nDays){
+  var m=String(startStr||'').trim().match(/(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})/);
+  if(!m) return '';
+  var y=+m[1], mo=+m[2], d=+m[3];
+  // nDays is total inclusive count; advance nDays-1
+  var left=(nDays||1)-1;
+  while(left>0){
+    var dim=daysInJMonth(y,mo);
+    var room=dim-d;
+    if(left<=room){d+=left;left=0;}
+    else{left-=room+1;d=1;mo++;if(mo>12){mo=1;y++;}}
+  }
+  return y+'/'+String(mo).padStart(2,'0')+'/'+String(d).padStart(2,'0');
+}
+function applyFixedEnd(){
+  var id=document.getElementById('rqType').value;
+  var t=attTypes.find(function(x){return String(x.id)===String(id)});
+  var start=document.getElementById('rqStart').value.trim();
+  var endEl=document.getElementById('rqEnd');
+  if(t&&t.fixedDays!=null&&t.fixedDays!==''&&t.mode!=='hourly'&&start){
+    endEl.value=addJDays(start,Number(t.fixedDays)||1);
+    endEl.readOnly=true;
+    endEl.style.background='#f0fdfa';
+  } else {
+    endEl.readOnly=false;
+    endEl.style.background='';
+  }
+}
 function onTypeChange(){
   var id=document.getElementById('rqType').value;
   var t=attTypes.find(function(x){return String(x.id)===String(id)});
@@ -2496,7 +2648,7 @@ function onTypeChange(){
   document.getElementById('rqMode').value=t.mode==='hourly'?'hourly':'daily';
   var hint=[];
   if(t.kind==='leave') hint.push(t.deductFromEntitlement?'از مرخصی استحقاقی کسر می‌شود':'از استحقاقی کسر نمی‌شود');
-  if(t.fixedDays!=null&&t.fixedDays!=='') hint.push('مدت ثابت: '+t.fixedDays+' روز');
+  if(t.fixedDays!=null&&t.fixedDays!=='') hint.push('مدت ثابت: '+t.fixedDays+' روز — فقط تاریخ شروع را بزنید');
   var freq=t.frequency||'throughout_year';
   if(freq==='once_employment') hint.push('یک‌بار در طول استخدام');
   else if(freq==='once_year') hint.push('یک‌بار در طول سال');
@@ -2504,6 +2656,7 @@ function onTypeChange(){
   if(t.requiresAdminGrant) hint.push('با مجوز ادمین');
   document.getElementById('rqTypeHint').textContent=hint.join(' — ');
   syncRequestForm();
+  applyFixedEnd();
 }
 async function loadAttTypes(){
   try{
