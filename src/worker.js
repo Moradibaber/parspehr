@@ -322,6 +322,12 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspTsCode" placeholder="خالی = همه" autocomplete="off"></div>' +
       '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
+      '</div>' +
+      '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید و نمایش بزنید. ستون‌های ورود/خروج بعداً با ثبت ساعت پر می‌شود.</p>' +
+      '<div class="form-grid" style="margin-bottom:10px;">' +
+      '<div class="form-group"><label>ماه جاری درخواست‌ها (فقط این ماه قبول می‌شود)</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
+      '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری</button></div>' +
       '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div>' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند. محدودیت دفعات: یک‌بار استخدام / یک‌بار در سال / در طول سال. گزینه «فقط با مجوز ادمین» یعنی در لیست کارمند نیست مگر ادمین مجوز بدهد.</p>' +
@@ -340,23 +346,18 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '<div class="section-title" style="margin-top:22px;">ثبت / حذف توسط ادمین (بدون تأیید مدیر)</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">ادمین می‌تواند مرخصی/مأموریت را مستقیم تأییدشده ثبت کند یا درخواست تأییدشده را حذف کند.</p>' +
+      '<div class="section-title" style="margin-top:22px;">همه درخواست‌های مرخصی / مأموریت</div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">ادمین می‌تواند در همین جدول درخواست را اضافه، ویرایش یا حذف کند (بدون نیاز به تأیید مدیر). فیلتر سال/ماه را بزنید.</p>' +
       '<div class="form-grid">' +
-      '<div class="form-group"><label>کد پرسنلی</label><input id="pspAdmCode" autocomplete="off"></div>' +
-      '<div class="form-group"><label>نوع</label><select id="pspAdmType"></select></div>' +
-      '<div class="form-group"><label>از تاریخ</label><input id="pspAdmStart" placeholder="1405/01/10" dir="ltr" autocomplete="off"></div>' +
-      '<div class="form-group"><label>تا تاریخ</label><input id="pspAdmEnd" placeholder="1405/01/12" dir="ltr" autocomplete="off"></div>' +
-      '<div class="form-group"><label>از ساعت</label><input id="pspAdmFrom" type="time" value="08:00"></div>' +
-      '<div class="form-group"><label>تا ساعت</label><input id="pspAdmTo" type="time" value="10:00"></div>' +
-      '<div class="form-group"><label>محل مأموریت</label><input id="pspAdmPlace" autocomplete="off"></div>' +
-      '<div class="form-group"><label>دلیل</label><input id="pspAdmReason" autocomplete="off"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;"><button type="button" class="btn btn-primary btn-sm" id="pspAdmAdd">ثبت تأییدشده</button></div>' +
-      '</div>' +
-      '<div class="form-grid" style="margin-top:8px;">' +
-      '<div class="form-group"><label>شناسه درخواست برای حذف</label><input id="pspAdmDelId" placeholder="r_...." autocomplete="off"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspAdmDel">حذف درخواست</button></div>' +
-      '</div><span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '<div class="form-group"><label>سال</label><input type="number" id="pspReqYear" value="1405"></div>' +
+      '<div class="form-group"><label>ماه</label><select id="pspReqMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
+      '<div class="form-group"><label>کد (اختیاری)</label><input id="pspReqCode" autocomplete="off" placeholder="همه"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspReqLoad">بارگذاری</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspReqAddRow">+ ردیف جدید</button>' +
+      '</div></div>' +
+      '<div id="pspReqSheet" style="overflow:auto;margin-top:8px;"></div>' +
+      '<span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '</div>';
     // insert panel after other panels
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
@@ -401,6 +402,14 @@ async function stamp(html, user, env) {
       });
     };
 
+    document.getElementById('pspCurSave').onclick = function(){
+      fetch('/api/admin/set-current-month', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ year: Number(document.getElementById('pspCurYear').value), month: Number(document.getElementById('pspCurMonth').value) })
+      }).then(function(r){return r.json()}).then(function(j){
+        alert(j.ok ? ('ماه جاری درخواست‌ها: '+j.year+'/'+j.month) : (j.message||j.error||'خطا'));
+      });
+    };
     window.__pspTypes = [];
     function renderTypes() {
       var box = document.getElementById('pspTypesList');
@@ -502,40 +511,110 @@ async function stamp(html, user, env) {
         else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
       }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
     };
-    document.getElementById('pspAdmAdd').onclick = function() {
-      var st = document.getElementById('pspAdmStatus');
-      st.textContent = '…';
-      fetch('/api/admin/attendance-request', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+    window.__pspReqRows = [];
+    function statusFa(s){
+      if(s==='approved') return 'تأیید نهایی';
+      if(s==='approved_l1') return 'تأیید سطح ۱';
+      if(s==='rejected') return 'رد شده';
+      return 'در انتظار';
+    }
+    function renderReqSheet(){
+      var box = document.getElementById('pspReqSheet');
+      if(!box) return;
+      var types = window.__pspTypes || [];
+      var typeOpts = types.map(function(t){ return '<option value="'+t.id+'">'+t.name+'</option>'; }).join('');
+      var html = '<table style="font-size:0.75rem;min-width:1100px;"><thead><tr>'+
+        '<th>کد</th><th>نام</th><th>نوع</th><th>از تاریخ</th><th>تا تاریخ</th><th>از ساعت</th><th>تا ساعت</th><th>محل</th><th>دلیل</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>';
+      window.__pspReqRows.forEach(function(x,i){
+        html += '<tr data-i="'+i+'">'+
+          '<td><input data-f="empCode" value="'+(x.empCode||'')+'" style="width:80px"></td>'+
+          '<td style="white-space:nowrap">'+(x.empName||'')+'</td>'+
+          '<td><select data-f="typeId">'+typeOpts.replace('value="'+x.typeId+'"','value="'+x.typeId+'" selected')+'</select></td>'+
+          '<td><input data-f="startDate" value="'+(x.startDate||'')+'" style="width:90px" dir="ltr"></td>'+
+          '<td><input data-f="endDate" value="'+(x.endDate||'')+'" style="width:90px" dir="ltr"></td>'+
+          '<td><input data-f="fromTime" value="'+(x.fromTime||'')+'" style="width:70px" dir="ltr"></td>'+
+          '<td><input data-f="toTime" value="'+(x.toTime||'')+'" style="width:70px" dir="ltr"></td>'+
+          '<td><input data-f="place" value="'+(x.place||'')+'" style="width:90px"></td>'+
+          '<td><input data-f="reason" value="'+(x.reason||'')+'" style="width:100px"></td>'+
+          '<td><select data-f="status">'+
+            '<option value="pending"'+(x.status==='pending'?' selected':'')+'>در انتظار</option>'+
+            '<option value="approved_l1"'+(x.status==='approved_l1'?' selected':'')+'>تأیید سطح ۱</option>'+
+            '<option value="approved"'+(x.status==='approved'?' selected':'')+'>تأیید نهایی</option>'+
+            '<option value="rejected"'+(x.status==='rejected'?' selected':'')+'>رد شده</option>'+
+          '</select></td>'+
+          '<td style="white-space:nowrap">'+
+            '<button type="button" class="btn btn-primary btn-sm" data-save="'+i+'">ذخیره</button> '+
+            '<button type="button" class="btn btn-outline btn-sm" data-del="'+i+'">حذف</button>'+
+          '</td></tr>';
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+      box.querySelectorAll('[data-f]').forEach(function(el){
+        el.onchange = el.oninput = function(){
+          var tr = el.closest('tr'); var i = Number(tr.getAttribute('data-i'));
+          if(window.__pspReqRows[i]) window.__pspReqRows[i][el.getAttribute('data-f')] = el.value;
+        };
+      });
+      box.querySelectorAll('[data-save]').forEach(function(b){
+        b.onclick = function(){
+          var i = Number(b.getAttribute('data-save'));
+          var row = window.__pspReqRows[i];
+          if(!row) return;
+          var st = document.getElementById('pspAdmStatus'); st.textContent='…';
+          var method = row.id ? 'PUT' : 'POST';
+          fetch('/api/admin/attendance-request', {
+            method: method, headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+            body: JSON.stringify(row)
+          }).then(function(r){return r.json()}).then(function(j){
+            if(j.ok){ st.style.color='#16a34a'; st.textContent='ذخیره شد'; if(j.request){ window.__pspReqRows[i]=j.request; renderReqSheet(); } }
+            else { st.style.color='#b91c1c'; st.textContent=j.message||j.error||'خطا'; }
+          }).catch(function(){ st.style.color='#b91c1c'; st.textContent='خطا'; });
+        };
+      });
+      box.querySelectorAll('[data-del]').forEach(function(b){
+        b.onclick = function(){
+          var i = Number(b.getAttribute('data-del'));
+          var row = window.__pspReqRows[i];
+          if(!row) return;
+          if(!confirm('حذف این درخواست؟')) return;
+          var st = document.getElementById('pspAdmStatus'); st.textContent='…';
+          if(!row.id){ window.__pspReqRows.splice(i,1); renderReqSheet(); st.textContent='حذف شد'; return; }
+          fetch('/api/admin/attendance-request', {
+            method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+            body: JSON.stringify({ id: row.id })
+          }).then(function(r){return r.json()}).then(function(j){
+            if(j.ok){ st.style.color='#16a34a'; st.textContent='حذف شد'; window.__pspReqRows.splice(i,1); renderReqSheet(); }
+            else { st.style.color='#b91c1c'; st.textContent=j.message||j.error||'خطا'; }
+          });
+        };
+      });
+    }
+    function loadReqSheet(){
+      var st = document.getElementById('pspAdmStatus'); if(st) st.textContent='…';
+      fetch('/api/admin/attendance-requests', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
         body: JSON.stringify({
-          empCode: document.getElementById('pspAdmCode').value.trim(),
-          typeId: document.getElementById('pspAdmType').value,
-          startDate: document.getElementById('pspAdmStart').value.trim(),
-          endDate: document.getElementById('pspAdmEnd').value.trim(),
-          fromTime: document.getElementById('pspAdmFrom').value,
-          toTime: document.getElementById('pspAdmTo').value,
-          place: document.getElementById('pspAdmPlace').value.trim(),
-          reason: document.getElementById('pspAdmReason').value.trim()
+          year: Number(document.getElementById('pspReqYear').value),
+          month: Number(document.getElementById('pspReqMonth').value),
+          code: document.getElementById('pspReqCode').value.trim()
         })
-      }).then(function(r){ return r.json(); }).then(function(j){
-        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'ثبت شد — شناسه: ' + j.request.id; }
-        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
-      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
+      }).then(function(r){return r.json()}).then(function(j){
+        if(!j.ok){ if(st){ st.style.color='#b91c1c'; st.textContent=j.error||'خطا'; } return; }
+        window.__pspReqRows = j.requests || [];
+        renderReqSheet();
+        if(st){ st.style.color='#16a34a'; st.textContent = (window.__pspReqRows.length)+' درخواست'; }
+      }).catch(function(){ if(st){ st.style.color='#b91c1c'; st.textContent='خطا'; } });
+    }
+    document.getElementById('pspReqLoad').onclick = loadReqSheet;
+    document.getElementById('pspReqAddRow').onclick = function(){
+      window.__pspReqRows.unshift({
+        id:'', empCode:'', empName:'', typeId: (window.__pspTypes[0]&&window.__pspTypes[0].id)||'',
+        startDate:'', endDate:'', fromTime:'', toTime:'', place:'', reason:'', status:'approved'
+      });
+      renderReqSheet();
     };
-    document.getElementById('pspAdmDel').onclick = function() {
-      var id = document.getElementById('pspAdmDelId').value.trim();
-      if (!id) { alert('شناسه را وارد کنید'); return; }
-      if (!confirm('حذف درخواست ' + id + '؟')) return;
-      var st = document.getElementById('pspAdmStatus');
-      st.textContent = '…';
-      fetch('/api/admin/attendance-request', {
-        method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-        body: JSON.stringify({ id: id })
-      }).then(function(r){ return r.json(); }).then(function(j){
-        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'حذف شد'; }
-        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
-      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
-    };
+    // auto load when tab opens (after types)
+    setTimeout(function(){ try{ loadReqSheet(); }catch(e){} }, 500);
     document.getElementById('pspTypeSave').onclick = function() {
       var st = document.getElementById('pspTypeStatus');
       st.textContent = '…';
@@ -1436,6 +1515,21 @@ async function handleEmpCreateRequest(request, env) {
     if (gd.fail) return storeFailResponse(gd.fail);
     if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
+    // only current month (from settings) is allowed
+    const settings = gd.obj.settings || {};
+    const cy = Number(settings.currentYear) || 1405;
+    let cm = Number(settings.currentMonth) || Number(settings.activeMonth) || 0;
+    const pStart = parseJalaliYMD(startDate);
+    if (!pStart) return jsonResponse({ ok: false, error: 'bad_request', message: 'فرمت تاریخ نامعتبر است.' }, 400);
+    if (!cm) {
+      return jsonResponse({ ok: false, error: 'no_current_month', message: 'ماه جاری درخواست‌ها در سیستم تنظیم نشده. ادمین از تب «مأموریت/مرخصی و سایر» ماه جاری را ثبت کند.' }, 400);
+    }
+    const targetY = cy;
+    const targetM = cm;
+    if (pStart.y !== cy || pStart.m !== cm) {
+      return jsonResponse({ ok: false, error: 'wrong_month', message: 'فقط درخواست در ماه جاری سیستم (' + cy + '/' + cm + ') مجاز است.' }, 400);
+    }
+
     // resolve type from admin-defined list
     let types = gd.obj.attendanceTypes || [];
     if (!types.length) types = defaultAttendanceTypes();
@@ -1535,6 +1629,16 @@ async function handleEmpCreateRequest(request, env) {
     // fixed-day types: endDate already forced above — do not reject; user only picks start date
     if (fixedDays && mode === 'daily' && startDate && !endDate) {
       endDate = startDate;
+    }
+    // force entire request inside same month (current month)
+    {
+      const pe = parseJalaliYMD(mode === 'hourly' ? startDate : (endDate || startDate));
+      if (pe && (pe.y !== targetY || pe.m !== targetM)) {
+        return jsonResponse({ ok: false, error: 'wrong_month', message: 'بازه درخواست باید داخل همان ماه جاری (' + targetY + '/' + targetM + ') باشد.' }, 400);
+      }
+      if (pStart.y !== targetY || pStart.m !== targetM) {
+        return jsonResponse({ ok: false, error: 'wrong_month', message: 'فقط ماه جاری (' + targetY + '/' + targetM + ') قابل درخواست است.' }, 400);
+      }
     }
 
     // overlap with existing pending/approved (and approved_l1)
@@ -2141,6 +2245,109 @@ async function handleAdminGrantAttendance(request, who, env) {
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
+
+async function handleAdminSetCurrentMonth(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12)) {
+    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!gd.obj.settings) gd.obj.settings = {};
+    gd.obj.settings.currentYear = year;
+    gd.obj.settings.currentMonth = month;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, year: year, month: month });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminListAttendanceRequests(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  const code = String(r.body.code || '').trim();
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  let list = (gd.obj && gd.obj.attendanceRequests) || [];
+  if (isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
+    list = list.filter(function (x) {
+      const p = parseJalaliYMD(x.startDate);
+      if (!p) return false;
+      if (p.y === year && p.m === month) return true;
+      if (x.mode === 'daily' && x.endDate) {
+        return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
+      }
+      return false;
+    });
+  }
+  if (code) list = list.filter(function (x) { return String(x.empCode) === code; });
+  return jsonResponse({ ok: true, requests: list.slice(0, 500) });
+}
+
+async function handleAdminUpdateAttendanceRequest(request, who, env) {
+  if (who.role !== 'admin') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین می‌تواند ویرایش کند.' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const b = r.body;
+  const id = String(b.id || '').trim();
+  if (!id) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.attendanceRequests)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const req = gd.obj.attendanceRequests.find(function (x) { return x.id === id; });
+    if (!req) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    if (b.empCode != null) req.empCode = String(b.empCode).trim();
+    if (b.typeId != null) req.typeId = String(b.typeId).trim();
+    if (b.startDate != null) req.startDate = String(b.startDate).trim();
+    if (b.endDate != null) req.endDate = String(b.endDate).trim();
+    if (b.fromTime != null) req.fromTime = String(b.fromTime).trim();
+    if (b.toTime != null) req.toTime = String(b.toTime).trim();
+    if (b.place != null) req.place = String(b.place).trim();
+    if (b.reason != null) req.reason = String(b.reason).trim();
+    if (b.status != null) req.status = String(b.status);
+    // resolve type name
+    let types = gd.obj.attendanceTypes || [];
+    if (!types.length) types = defaultAttendanceTypes();
+    const tdef = types.find(function (t) { return String(t.id) === String(req.typeId); });
+    if (tdef) {
+      req.typeName = tdef.name || '';
+      req.kind = tdef.kind === 'mission' ? 'mission' : 'leave';
+      req.mode = tdef.mode === 'hourly' ? 'hourly' : 'daily';
+    }
+    const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
+    if (emp) req.empName = emp.fullName || '';
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, request: req });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 async function handleAdminCreateAttendanceRequest(request, who, env) {
   if (who.role !== 'admin') {
     return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین سیستم می‌تواند مستقیم ثبت کند.' }, 403);
@@ -2382,8 +2589,11 @@ async function route(request, env, users, found) {
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
+  if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
+  if (path === '/api/admin/attendance-requests') return handleAdminListAttendanceRequests(request, who, env);
   if (path === '/api/admin/attendance-request') {
     if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
+    if (request.method === 'PUT') return handleAdminUpdateAttendanceRequest(request, who, env);
     return handleAdminCreateAttendanceRequest(request, who, env);
   }
 
@@ -2563,7 +2773,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     </div>
     <div class="grid2">
       <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr" oninput="applyFixedEnd()"></div>
-      <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr"></div>
+      <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr" oninput="this.dataset.manual='1'"></div>
     </div>
     <div class="grid2 hidden" id="rqTimeWrap">
       <div><label>از ساعت</label><input id="rqFrom" type="time" value="08:00"></div>
@@ -2632,12 +2842,17 @@ function applyFixedEnd(){
   var start=document.getElementById('rqStart').value.trim();
   var endEl=document.getElementById('rqEnd');
   if(t&&t.fixedDays!=null&&t.fixedDays!==''&&t.mode!=='hourly'&&start){
-    endEl.value=addJDays(start,Number(t.fixedDays)||1);
-    endEl.readOnly=true;
-    endEl.style.background='#f0fdfa';
+    // auto-fill end but allow manual change
+    if(!endEl.dataset.manual||endEl.dataset.manual==='0'){
+      endEl.value=addJDays(start,Number(t.fixedDays)||1);
+    }
+    endEl.readOnly=false;
+    endEl.style.background='#fff';
+    endEl.title='خودکار پر شد؛ در صورت نیاز دستی تغییر دهید';
   } else {
     endEl.readOnly=false;
     endEl.style.background='';
+    endEl.dataset.manual='0';
   }
 }
 function onTypeChange(){
