@@ -94,9 +94,11 @@ async function stamp(html, user, env) {
       'ورود از <b>/employee</b> — رمز اولیه = کد پرسنلی. مدیر مستقیم درخواست‌های مرخصی/مأموریت را تأیید می‌کند.' +
       '</p>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">' +
-      '<label style="font-size:0.78rem;">مدیر مستقیم:</label>' +
-      '<select id="pspManagerCode" autocomplete="off" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:260px;font-family:inherit;"><option value="">— بدون مدیر —</option></select>' +
-      '<button type="button" class="btn btn-outline btn-sm" id="pspManagerSaveBtn">ذخیره مدیر</button>' +
+      '<label style="font-size:0.78rem;">مدیر سطح ۱:</label>' +
+      '<select id="pspManagerCode" autocomplete="off" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:220px;font-family:inherit;"><option value="">— بدون —</option></select>' +
+      '<label style="font-size:0.78rem;">مدیر سطح ۲ (اختیاری):</label>' +
+      '<select id="pspManagerCode2" autocomplete="off" style="padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;max-width:220px;font-family:inherit;"><option value="">— بدون —</option></select>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspManagerSaveBtn">ذخیره مدیران</button>' +
       '<span id="pspManagerStatus" style="font-size:0.75rem;color:#0f766e;"></span>' +
       '</div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">' +
@@ -150,21 +152,22 @@ async function stamp(html, user, env) {
       var code = codeEl ? String(codeEl.value || '').trim() : '';
       if (!code) { alert('ابتدا کد پرسنلی کارمند را مشخص کنید.'); return; }
       var managerCode = (document.getElementById('pspManagerCode').value || '').trim();
+      var managerCode2 = (document.getElementById('pspManagerCode2').value || '').trim();
       var st = document.getElementById('pspManagerStatus');
       st.textContent = '…';
       fetch('/api/admin/set-manager', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ code: code, managerCode: managerCode })
+        body: JSON.stringify({ code: code, managerCode: managerCode, managerCode2: managerCode2 })
       }).then(function(r){ return r.json(); }).then(function(j){
         if (j.ok) {
           st.style.color = '#16a34a';
-          st.textContent = managerCode ? ('مدیر: ' + managerCode) : 'مدیر حذف شد';
+          st.textContent = 'ذخیره شد' + (managerCode ? ' | ل۱: ' + managerCode : '') + (managerCode2 ? ' | ل۲: ' + managerCode2 : (!managerCode ? ' (بدون مدیر)' : ''));
           try {
             if (typeof data !== 'undefined' && data.employees) {
               var emp = data.employees.find(function(e){ return String(e.code) === code; });
-              if (emp) emp.managerCode = managerCode;
+              if (emp) { emp.managerCode = managerCode; emp.managerCode2 = managerCode2; }
             }
           } catch (e) {}
         } else {
@@ -194,40 +197,43 @@ async function stamp(html, user, env) {
           var codeEl = document.getElementById('e_code') || document.getElementById('editEmpId');
           var code = codeEl ? String(codeEl.value || '').trim() : '';
           var mc = document.getElementById('pspManagerCode');
-          if (mc) {
-            // rebuild options from employees list (select avoids browser autofill)
-            var keep = '';
-            try {
-              if (code && typeof data !== 'undefined' && data.employees) {
-                var emp0 = data.employees.find(function(e){ return String(e.code) === code; });
-                keep = emp0 && emp0.managerCode ? String(emp0.managerCode) : '';
-              }
-            } catch (e) {}
-            mc.innerHTML = '<option value=\"\">— بدون مدیر —</option>';
+          var mc2 = document.getElementById('pspManagerCode2');
+          var keep = '', keep2 = '';
+          try {
+            if (code && typeof data !== 'undefined' && data.employees) {
+              var emp0 = data.employees.find(function(e){ return String(e.code) === code; });
+              keep = emp0 && emp0.managerCode ? String(emp0.managerCode) : '';
+              keep2 = emp0 && emp0.managerCode2 ? String(emp0.managerCode2) : '';
+            }
+          } catch (e) {}
+          function fillMgrSelect(sel, selected) {
+            if (!sel) return;
+            sel.innerHTML = '<option value=\"\">— بدون —</option>';
             try {
               if (typeof data !== 'undefined' && data.employees) {
                 data.employees.slice().sort(function(a,b){
                   return String(a.fullName||'').localeCompare(String(b.fullName||''), 'fa');
                 }).forEach(function(e){
-                  if (String(e.code) === code) return; // cannot be own manager
+                  if (String(e.code) === code) return;
                   if (e.status === 'inactive') return;
                   var opt = document.createElement('option');
                   opt.value = String(e.code);
                   opt.textContent = (e.fullName || '') + ' (' + e.code + ')';
-                  mc.appendChild(opt);
+                  sel.appendChild(opt);
                 });
               }
             } catch (e) {}
-            mc.value = keep;
-            // if keep not in list, add a temporary option
-            if (keep && mc.value !== keep) {
+            sel.value = selected || '';
+            if (selected && sel.value !== selected) {
               var opt2 = document.createElement('option');
-              opt2.value = keep;
-              opt2.textContent = keep + ' (ذخیره‌شده)';
-              mc.appendChild(opt2);
-              mc.value = keep;
+              opt2.value = selected;
+              opt2.textContent = selected + ' (ذخیره‌شده)';
+              sel.appendChild(opt2);
+              sel.value = selected;
             }
           }
+          fillMgrSelect(mc, keep);
+          fillMgrSelect(mc2, keep2);
         } catch (e) {}
       }, 100);
       return r;
@@ -645,11 +651,17 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
         const map = {};
         prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        // managerCode is ONLY changed via /api/admin/set-manager (updatedBy starts with mgr-set:)
+        // Generic app saves must never wipe managers.
+        var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
         obj.employees.forEach(function (e) {
           const p = map[String(e.code)];
           if (!p) return;
-          if (e.managerCode === undefined || e.managerCode === null) {
-            if (p.managerCode) e.managerCode = p.managerCode;
+          if (!allowMgrWrite) {
+            if (p.managerCode != null && p.managerCode !== '') e.managerCode = p.managerCode;
+            else if (e.managerCode === undefined || e.managerCode === null) e.managerCode = p.managerCode || '';
+            if (p.managerCode2 != null && p.managerCode2 !== '') e.managerCode2 = p.managerCode2;
+            else if (e.managerCode2 === undefined || e.managerCode2 === null) e.managerCode2 = p.managerCode2 || '';
           }
           if (e.portalPassHash === undefined || e.portalPassHash === null) {
             if (p.portalPassHash) e.portalPassHash = p.portalPassHash;
@@ -1414,8 +1426,9 @@ async function handleEmpCreateRequest(request, env) {
     if (kind === 'mission' && !place) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
     }
-    if (!reason) {
-      return jsonResponse({ ok: false, error: 'bad_request', message: 'توضیح / دلیل الزامی است.' }, 400);
+    // reason/description required only for mission
+    if (kind === 'mission' && !reason) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'توضیح / دلیل مأموریت الزامی است.' }, 400);
     }
 
     const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
@@ -1424,6 +1437,9 @@ async function handleEmpCreateRequest(request, env) {
       return jsonResponse({ ok: false, error: 'no_manager', message: 'برای شما مدیر مستقیم تعریف نشده است. با منابع انسانی تماس بگیرید.' }, 400);
     }
     const mgr = gd.obj.employees.find(e => String(e.code) === String(emp.managerCode));
+    const mgr2 = emp.managerCode2
+      ? gd.obj.employees.find(e => String(e.code) === String(emp.managerCode2))
+      : null;
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
     if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
 
@@ -1467,19 +1483,12 @@ async function handleEmpCreateRequest(request, env) {
       grantId = g.id;
     }
 
-    // strict fixed days: daily span must equal fixedDays
-    if (fixedDays && mode === 'daily') {
-      const days = listDayKeys(startDate, endDate || startDate);
-      if (days.length !== fixedDays) {
-        return jsonResponse({
-          ok: false,
-          error: 'fixed_days',
-          message: 'این نوع دقیقاً ' + fixedDays + ' روز است (الان ' + days.length + ' روز انتخاب شده). تاریخ پایان به‌صورت خودکار تنظیم می‌شود؛ فقط تاریخ شروع را وارد کنید.'
-        }, 400);
-      }
+    // fixed-day types: endDate already forced above — do not reject; user only picks start date
+    if (fixedDays && mode === 'daily' && startDate && !endDate) {
+      endDate = startDate;
     }
 
-    // overlap with existing pending/approved
+    // overlap with existing pending/approved (and approved_l1)
     const candidate = {
       mode: mode,
       startDate: startDate,
@@ -1510,6 +1519,8 @@ async function handleEmpCreateRequest(request, env) {
       empName: emp.fullName || '',
       managerCode: String(emp.managerCode),
       managerName: mgr ? (mgr.fullName || '') : '',
+      managerCode2: emp.managerCode2 ? String(emp.managerCode2) : '',
+      managerName2: mgr2 ? (mgr2.fullName || '') : '',
       typeId: typeId || '',
       typeName: typeName,
       deductFromEntitlement: deductFromEntitlement,
@@ -1526,7 +1537,11 @@ async function handleEmpCreateRequest(request, env) {
       rejectReason: '',
       createdAt: new Date().toISOString(),
       decidedAt: '',
-      decidedBy: ''
+      decidedBy: '',
+      decidedAt1: '',
+      decidedBy1: '',
+      decidedAt2: '',
+      decidedBy2: ''
     };
     if (grantId) {
       const g = gd.obj.attendanceGrants.find(function (x) { return x.id === grantId; });
@@ -1553,12 +1568,19 @@ async function handleEmpListRequests(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   const all = (gd.obj && gd.obj.attendanceRequests) || [];
   const mine = all.filter(x => String(x.empCode) === String(sess.code)).slice(0, 100);
-  const pendingForMe = all.filter(x => String(x.managerCode) === String(sess.code) && x.status === 'pending').slice(0, 100);
-  // all requests this person must decide on / has decided (for "نتیجه درخواست‌ها")
-  const managedForMe = all.filter(x => String(x.managerCode) === String(sess.code)).slice(0, 150);
-  // is this employee a manager of anyone?
+  const code = String(sess.code);
+  // L1 sees pending; L2 sees approved_l1 waiting for them
+  const pendingForMe = all.filter(function (x) {
+    if (String(x.managerCode) === code && x.status === 'pending') return true;
+    if (String(x.managerCode2) === code && x.status === 'approved_l1') return true;
+    return false;
+  }).slice(0, 100);
+  const managedForMe = all.filter(function (x) {
+    return String(x.managerCode) === code || String(x.managerCode2) === code;
+  }).slice(0, 150);
   const isManager = (gd.obj.employees || []).some(function (e) {
-    return String(e.managerCode) === String(sess.code) && e.status !== 'inactive';
+    if (e.status === 'inactive') return false;
+    return String(e.managerCode) === code || String(e.managerCode2) === code;
   });
   return jsonResponse({ ok: true, mine, pendingForMe, managedForMe, isManager: isManager });
 }
@@ -1586,19 +1608,47 @@ async function handleEmpDecideRequest(request, env) {
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
     const req = gd.obj.attendanceRequests.find(x => x.id === id);
     if (!req) return jsonResponse({ ok: false, error: 'not_found' }, 404);
-    if (String(req.managerCode) !== String(sess.code)) {
-      return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط مدیر مستقیم می‌تواند تصمیم بگیرد.' }, 403);
+    const isL1 = String(req.managerCode) === String(sess.code);
+    const isL2 = req.managerCode2 && String(req.managerCode2) === String(sess.code);
+    if (!isL1 && !isL2) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط مدیر سطح ۱ یا ۲ می‌تواند تصمیم بگیرد.' }, 403);
     }
-    if (req.status !== 'pending') {
-      return jsonResponse({ ok: false, error: 'already_decided', message: 'این درخواست قبلاً رسیدگی شده است.' }, 400);
+    // Level 1 acts on pending; Level 2 acts on approved_l1
+    if (isL1 && req.status === 'pending') {
+      if (decision === 'rejected') {
+        req.status = 'rejected';
+        req.rejectReason = rejectReason;
+        req.decidedAt1 = new Date().toISOString();
+        req.decidedBy1 = sess.code;
+        req.decidedAt = req.decidedAt1;
+        req.decidedBy = sess.code;
+      } else if (req.managerCode2) {
+        // needs second approval
+        req.status = 'approved_l1';
+        req.decidedAt1 = new Date().toISOString();
+        req.decidedBy1 = sess.code;
+      } else {
+        // single manager = final
+        req.status = 'approved';
+        req.decidedAt1 = new Date().toISOString();
+        req.decidedBy1 = sess.code;
+        req.decidedAt = req.decidedAt1;
+        req.decidedBy = sess.code;
+      }
+    } else if (isL2 && req.status === 'approved_l1') {
+      if (decision === 'rejected') {
+        req.status = 'rejected';
+        req.rejectReason = rejectReason;
+      } else {
+        req.status = 'approved';
+      }
+      req.decidedAt2 = new Date().toISOString();
+      req.decidedBy2 = sess.code;
+      req.decidedAt = req.decidedAt2;
+      req.decidedBy = sess.code;
+    } else {
+      return jsonResponse({ ok: false, error: 'already_decided', message: 'این درخواست در وضعیت فعلی برای شما قابل تصمیم‌گیری نیست.' }, 400);
     }
-    req.status = decision;
-    req.rejectReason = decision === 'rejected' ? rejectReason : '';
-    req.decidedAt = new Date().toISOString();
-    req.decidedBy = sess.code;
-    // NOTE: approved leave/mission is stored on the request only.
-    // Payroll calc stays manual / Excel for now — do NOT write into monthlyData.leaveDays yet.
-    // Future: optional applyApprovedRequestToTimesheet(gd.obj, req);
     const put = await storePutData(cfg, gd.version, gd.obj, 'mgr:' + sess.code);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
@@ -1669,6 +1719,7 @@ async function handleAdminSetManager(request, who, env) {
   if (r.error) return r.error;
   const code = String(r.body.code || '').trim();
   const managerCode = String(r.body.managerCode || '').trim();
+  const managerCode2 = String(r.body.managerCode2 != null ? r.body.managerCode2 : (r.body.manager2 || '')).trim();
   if (!code) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
@@ -1678,17 +1729,27 @@ async function handleAdminSetManager(request, who, env) {
     if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
     const emp = gd.obj.employees.find(e => String(e.code) === code);
     if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
-    if (managerCode) {
-      const mgr = gd.obj.employees.find(e => String(e.code) === managerCode);
-      if (!mgr) return jsonResponse({ ok: false, error: 'manager_not_found', message: 'کد مدیر یافت نشد.' }, 404);
-      if (managerCode === code) return jsonResponse({ ok: false, error: 'bad_request', message: 'مدیر نمی‌تواند خودش باشد.' }, 400);
+    function checkMgr(mc, label) {
+      if (!mc) return null;
+      const mgr = gd.obj.employees.find(e => String(e.code) === mc);
+      if (!mgr) return label + ' یافت نشد.';
+      if (mc === code) return label + ' نمی‌تواند خودش باشد.';
+      return null;
+    }
+    const e1 = checkMgr(managerCode, 'مدیر سطح ۱');
+    if (e1) return jsonResponse({ ok: false, error: 'manager_not_found', message: e1 }, 404);
+    const e2 = checkMgr(managerCode2, 'مدیر سطح ۲');
+    if (e2) return jsonResponse({ ok: false, error: 'manager_not_found', message: e2 }, 404);
+    if (managerCode && managerCode2 && managerCode === managerCode2) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'مدیر سطح ۱ و ۲ نباید یک نفر باشند.' }, 400);
     }
     emp.managerCode = managerCode || '';
-    // also mirror into local-looking field for UI
-    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    emp.managerCode2 = managerCode2 || '';
+    // special tag so storePutData allows writing manager fields
+    const put = await storePutData(cfg, gd.version, gd.obj, 'mgr-set:' + who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
-    return jsonResponse({ ok: true, code, managerCode: emp.managerCode });
+    return jsonResponse({ ok: true, code, managerCode: emp.managerCode, managerCode2: emp.managerCode2 });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -1974,7 +2035,6 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
   const place = String(b.place || '').trim();
   const reason = String(b.reason || '').trim();
   if (!empCode || !startDate) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد و تاریخ الزامی است.' }, 400);
-  if (!reason) return jsonResponse({ ok: false, error: 'bad_request', message: 'دلیل الزامی است.' }, 400);
 
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
@@ -2387,7 +2447,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>تا ساعت</label><input id="rqTo" type="time" value="10:00"></div>
     </div>
     <div id="rqPlaceWrap" class="hidden"><label>محل مأموریت *</label><input id="rqPlace" placeholder="شهر / سازمان مقصد" required></div>
-    <label>توضیح / دلیل *</label><textarea id="rqReason" required></textarea>
+    <label>توضیح / دلیل (برای مأموریت الزامی)</label><textarea id="rqReason"></textarea>
     <button class="primary" onclick="submitRequest()">ارسال برای تأیید مدیر</button>
     <div class="err" id="rqErr"></div>
   </div>
@@ -2493,8 +2553,8 @@ async function loadPayslip(){
 async function submitRequest(){
   var err=document.getElementById('rqErr'); err.textContent=''; err.classList.remove('okmsg');
   var body={typeId:document.getElementById('rqType').value,kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
-  if(!body.reason){err.textContent='توضیح / دلیل الزامی است.';return}
   if(body.kind==='mission'&&!body.place){err.textContent='محل مأموریت الزامی است.';return}
+  if(body.kind==='mission'&&!body.reason){err.textContent='توضیح / دلیل مأموریت الزامی است.';return}
   if(!body.startDate){err.textContent='تاریخ الزامی است.';return}
 
   try{
@@ -2504,12 +2564,12 @@ async function submitRequest(){
     err.classList.add('okmsg'); err.textContent='درخواست ثبت و برای مدیر ارسال شد.'; loadRequests();
   }catch(e){err.textContent='خطا در ارتباط'}
 }
-function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید شده</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
+function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید نهایی</span>';if(s==='approved_l1')return'<span class="badge b-pending">تأیید سطح ۱ — منتظر سطح ۲</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
 function reqHtml(x,forManager){
   var title=(x.typeName||((x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه')));
   var dates=x.mode==='hourly'?(x.startDate+' از '+x.fromTime+' تا '+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:''));
   var extra=''; if(x.place)extra+='<div>محل: '+x.place+'</div>'; if(x.reason)extra+='<div>دلیل: '+x.reason+'</div>'; if(x.status==='rejected'&&x.rejectReason)extra+='<div style="color:#b91c1c">دلیل رد: '+x.rejectReason+'</div>';
-  var actions=''; if(forManager&&x.status==='pending') actions='<div class="actions"><button class="sm ok" onclick="decide(\\''+x.id+'\\',\\'approved\\')">تأیید</button><button class="sm danger" onclick="decide(\\''+x.id+'\\',\\'rejected\\')">رد</button></div>';
+  var actions=''; if(forManager&&(x.status==='pending'||x.status==='approved_l1')) actions='<div class="actions"><button class="sm ok" onclick="decide(\\''+x.id+'\\',\\'approved\\')">تأیید</button><button class="sm danger" onclick="decide(\\''+x.id+'\\',\\'rejected\\')">رد</button></div>';
   return '<div class="req-card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>'+title+'</b>'+statusBadge(x.status)+'</div><div class="meta">'+(forManager?(x.empName+' — کد '+x.empCode+'<br>'):'')+dates+'</div>'+extra+actions+'</div>';
 }
 async function loadRequests(){
