@@ -303,13 +303,22 @@ async function stamp(html, user, env) {
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
       '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div>' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">این نام‌ها در پرتال کارکنان نمایش داده می‌شوند. برای مرخصی می‌توانید مشخص کنید از استحقاقی کم شود یا نه، و تعداد روز ثابت (مثلاً ازدواج ۳ روز) یا بدون سقف.</p>' +
-      '<div id="pspTypesList"></div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند. محدودیت دفعات: یک‌بار استخدام / یک‌بار در سال / در طول سال. گزینه «فقط با مجوز ادمین» یعنی در لیست کارمند نیست مگر ادمین مجوز بدهد.</p>' +
+      '<div id="pspTypesList" style="overflow:auto;"></div>' +
       '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspTypeAdd">+ نوع جدید</button>' +
       '<button type="button" class="btn btn-primary btn-sm" id="pspTypeSave">ذخیره انواع</button>' +
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div></div>';
+      '</div>' +
+      '<div class="section-title" style="margin-top:22px;">مجوز مرخصی خاص برای کارمند</div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">برای انواعی که «فقط با مجوز ادمین» دارند، اینجا برای یک نفر و یک تاریخ مجوز صادر کنید تا در پرتال بتواند درخواست بدهد.</p>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
+      '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
+      '<div class="form-group"><label>تاریخ (اختیاری)</label><input id="pspGrantDate" placeholder="1405/02/15" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
+      '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div>';
     // insert panel after other panels
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
     if (host) host.appendChild(panel);
@@ -341,25 +350,40 @@ async function stamp(html, user, env) {
         box.innerHTML = '<p style="font-size:0.85rem;color:#64748b;">هنوز نوعی تعریف نشده. «+ نوع جدید» را بزنید.</p>';
         return;
       }
-      var html = '<table><thead><tr><th>نام</th><th>دسته</th><th>روزانه/ساعتی</th><th>کسر از استحقاقی</th><th>تعداد روز</th><th></th></tr></thead><tbody>';
+      var html = '<table style="font-size:0.78rem;"><thead><tr><th>نام</th><th>دسته</th><th>روزانه/ساعتی</th><th>کسر استحقاقی</th><th>تعداد روز</th><th>محدودیت دفعات</th><th>فقط مجوز ادمین</th><th></th></tr></thead><tbody>';
       window.__pspTypes.forEach(function(t, i) {
+        var freq = t.frequency || 'throughout_year';
         html += '<tr>' +
-          '<td><input data-i="' + i + '" data-f="name" value="' + (t.name || '').replace(/"/g, '&quot;') + '" style="width:100%;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-family:inherit;"></td>' +
+          '<td><input data-i="' + i + '" data-f="name" value="' + (t.name || '').replace(/"/g, '&quot;') + '" style="width:100%;min-width:100px;padding:4px 6px;border:1px solid #99f6e4;border-radius:6px;font-family:inherit;"></td>' +
           '<td><select data-i="' + i + '" data-f="kind"><option value="leave"' + (t.kind === 'leave' ? ' selected' : '') + '>مرخصی</option><option value="mission"' + (t.kind === 'mission' ? ' selected' : '') + '>مأموریت</option></select></td>' +
           '<td><select data-i="' + i + '" data-f="mode"><option value="daily"' + (t.mode !== 'hourly' ? ' selected' : '') + '>روزانه</option><option value="hourly"' + (t.mode === 'hourly' ? ' selected' : '') + '>ساعتی</option></select></td>' +
           '<td style="text-align:center;"><input type="checkbox" data-i="' + i + '" data-f="deduct"' + (t.deductFromEntitlement ? ' checked' : '') + (t.kind === 'mission' ? ' disabled' : '') + '></td>' +
-          '<td><select data-i="' + i + '" data-f="fixedMode"><option value="none"' + (t.fixedDays == null || t.fixedDays === '' ? ' selected' : '') + '>بدون تعداد ثابت</option><option value="fixed"' + (t.fixedDays != null && t.fixedDays !== '' ? ' selected' : '') + '>تعداد معین</option></select> ' +
-          '<input type="number" min="1" max="365" data-i="' + i + '" data-f="fixedDays" value="' + (t.fixedDays != null && t.fixedDays !== '' ? t.fixedDays : '') + '" style="width:70px;padding:4px;border:1px solid #99f6e4;border-radius:6px;"' + (t.fixedDays == null || t.fixedDays === '' ? ' disabled' : '') + '></td>' +
+          '<td><select data-i="' + i + '" data-f="fixedMode"><option value="none"' + (t.fixedDays == null || t.fixedDays === '' ? ' selected' : '') + '>بدون ثابت</option><option value="fixed"' + (t.fixedDays != null && t.fixedDays !== '' ? ' selected' : '') + '>معین</option></select> ' +
+          '<input type="number" min="1" max="365" data-i="' + i + '" data-f="fixedDays" value="' + (t.fixedDays != null && t.fixedDays !== '' ? t.fixedDays : '') + '" style="width:60px;padding:4px;border:1px solid #99f6e4;border-radius:6px;"' + (t.fixedDays == null || t.fixedDays === '' ? ' disabled' : '') + '></td>' +
+          '<td><select data-i="' + i + '" data-f="frequency">' +
+          '<option value="once_employment"' + (freq === 'once_employment' ? ' selected' : '') + '>یک‌بار در استخدام</option>' +
+          '<option value="once_year"' + (freq === 'once_year' ? ' selected' : '') + '>یک‌بار در سال</option>' +
+          '<option value="throughout_year"' + (freq === 'throughout_year' ? ' selected' : '') + '>در طول سال</option>' +
+          '</select></td>' +
+          '<td style="text-align:center;"><input type="checkbox" data-i="' + i + '" data-f="requiresAdminGrant"' + (t.requiresAdminGrant ? ' checked' : '') + '></td>' +
           '<td><button type="button" class="btn btn-outline btn-sm" data-del="' + i + '">حذف</button></td></tr>';
       });
       html += '</tbody></table>';
       box.innerHTML = html;
+      // refresh grant type dropdown
+      var gsel = document.getElementById('pspGrantType');
+      if (gsel) {
+        gsel.innerHTML = window.__pspTypes.filter(function(t){ return t.requiresAdminGrant; }).map(function(t){
+          return '<option value="' + t.id + '">' + t.name + '</option>';
+        }).join('') || '<option value="">— نوعی با مجوز ادمین تعریف نشده —</option>';
+      }
       box.querySelectorAll('[data-f]').forEach(function(el) {
         el.onchange = el.oninput = function() {
           var i = Number(el.getAttribute('data-i'));
           var f = el.getAttribute('data-f');
           if (!window.__pspTypes[i]) return;
           if (f === 'deduct') window.__pspTypes[i].deductFromEntitlement = !!el.checked;
+          else if (f === 'requiresAdminGrant') window.__pspTypes[i].requiresAdminGrant = !!el.checked;
           else if (f === 'fixedMode') {
             if (el.value === 'none') {
               window.__pspTypes[i].fixedDays = null;
@@ -392,9 +416,26 @@ async function stamp(html, user, env) {
         kind: 'leave',
         mode: 'daily',
         deductFromEntitlement: true,
-        fixedDays: null
+        fixedDays: null,
+        frequency: 'throughout_year',
+        requiresAdminGrant: false
       });
       renderTypes();
+    };
+    document.getElementById('pspGrantBtn').onclick = function() {
+      var st = document.getElementById('pspGrantStatus');
+      st.textContent = '…';
+      fetch('/api/admin/grant-attendance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          empCode: document.getElementById('pspGrantCode').value.trim(),
+          typeId: document.getElementById('pspGrantType').value,
+          date: document.getElementById('pspGrantDate').value.trim()
+        })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'مجوز صادر شد برای کد ' + j.grant.empCode; }
+        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
     };
     document.getElementById('pspTypeSave').onclick = function() {
       var st = document.getElementById('pspTypeStatus');
@@ -1254,14 +1295,18 @@ async function handleEmpCreateRequest(request, env) {
     let types = gd.obj.attendanceTypes || [];
     if (!types.length) types = defaultAttendanceTypes();
     let tdef = typeId ? types.find(function (t) { return String(t.id) === typeId; }) : null;
+    let frequency = 'throughout_year';
+    let requiresAdminGrant = false;
+    let grantId = '';
     if (tdef) {
       kind = tdef.kind === 'mission' ? 'mission' : 'leave';
       mode = tdef.mode === 'hourly' ? 'hourly' : 'daily';
       typeName = tdef.name || '';
       deductFromEntitlement = kind === 'leave' && !!tdef.deductFromEntitlement;
       fixedDays = tdef.fixedDays != null && tdef.fixedDays !== '' ? Number(tdef.fixedDays) : null;
+      frequency = normalizeFreq(tdef.frequency);
+      requiresAdminGrant = !!tdef.requiresAdminGrant;
       if (fixedDays && mode === 'daily' && startDate) {
-        // auto end date = start + fixedDays - 1 (approx by day number; simple)
         const p = parseJalaliYMD(startDate);
         if (p) {
           let d = p.d + fixedDays - 1;
@@ -1290,6 +1335,62 @@ async function handleEmpCreateRequest(request, env) {
     }
     const mgr = gd.obj.employees.find(e => String(e.code) === String(emp.managerCode));
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
+    if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+
+    // frequency limits
+    if (typeId && frequency === 'once_employment') {
+      const used = countTypeUsage(gd.obj.attendanceRequests, emp.code, typeId, null);
+      if (used > 0) {
+        return jsonResponse({ ok: false, error: 'frequency_limit', message: 'این نوع مرخصی فقط یک‌بار در طول استخدام قابل استفاده است و قبلاً استفاده شده.' }, 400);
+      }
+    }
+    if (typeId && frequency === 'once_year') {
+      const py = parseJalaliYMD(startDate);
+      const used = countTypeUsage(gd.obj.attendanceRequests, emp.code, typeId, py ? py.y : null);
+      if (used > 0) {
+        return jsonResponse({ ok: false, error: 'frequency_limit', message: 'این نوع مرخصی فقط یک‌بار در طول سال قابل استفاده است و در این سال قبلاً ثبت شده.' }, 400);
+      }
+    }
+
+    // admin grant required
+    if (requiresAdminGrant) {
+      const g = gd.obj.attendanceGrants.find(function (x) {
+        return String(x.empCode) === String(emp.code)
+          && String(x.typeId) === String(typeId)
+          && !x.usedRequestId
+          && (!x.date || dateKey(x.date) === dateKey(startDate));
+      });
+      if (!g) {
+        return jsonResponse({ ok: false, error: 'no_grant', message: 'این نوع مرخصی فقط با مجوز ادمین برای تاریخ مشخص قابل درخواست است. با منابع انسانی هماهنگ کنید.' }, 400);
+      }
+      grantId = g.id;
+    }
+
+    // overlap with existing pending/approved
+    const candidate = {
+      mode: mode,
+      startDate: startDate,
+      endDate: mode === 'hourly' ? startDate : endDate,
+      fromTime: mode === 'hourly' ? fromTime : '',
+      toTime: mode === 'hourly' ? toTime : ''
+    };
+    const conflict = gd.obj.attendanceRequests.find(function (x) {
+      if (String(x.empCode) !== String(emp.code)) return false;
+      if (x.status === 'rejected') return false;
+      return requestsOverlap(candidate, x);
+    });
+    if (conflict) {
+      const cname = conflict.typeName || (conflict.kind === 'mission' ? 'مأموریت' : 'مرخصی');
+      const when = conflict.mode === 'hourly'
+        ? (conflict.startDate + ' ' + (conflict.fromTime || '') + '-' + (conflict.toTime || ''))
+        : (conflict.startDate + (conflict.endDate && conflict.endDate !== conflict.startDate ? ' تا ' + conflict.endDate : ''));
+      return jsonResponse({
+        ok: false,
+        error: 'overlap',
+        message: 'تداخل با درخواست قبلی: «' + cname + '» در ' + when + '. در یک روز/ساعت نمی‌توان چند مرخصی یا مأموریت هم‌زمان داشت.'
+      }, 400);
+    }
+
     const req = {
       id: newRequestId(),
       empCode: String(emp.code),
@@ -1300,6 +1401,8 @@ async function handleEmpCreateRequest(request, env) {
       typeName: typeName,
       deductFromEntitlement: deductFromEntitlement,
       fixedDays: fixedDays,
+      frequency: frequency,
+      grantId: grantId || '',
       kind, mode,
       startDate, endDate: mode === 'hourly' ? startDate : endDate,
       fromTime: mode === 'hourly' ? fromTime : '',
@@ -1312,6 +1415,10 @@ async function handleEmpCreateRequest(request, env) {
       decidedAt: '',
       decidedBy: ''
     };
+    if (grantId) {
+      const g = gd.obj.attendanceGrants.find(function (x) { return x.id === grantId; });
+      if (g) g.usedRequestId = req.id;
+    }
     gd.obj.attendanceRequests.unshift(req);
     // keep last 2000
     if (gd.obj.attendanceRequests.length > 2000) gd.obj.attendanceRequests.length = 2000;
@@ -1527,13 +1634,91 @@ async function handleAdminTimesheet(request, who, env) {
 
 function defaultAttendanceTypes() {
   return [
-    { id: 'leave_annual', name: 'مرخصی استحقاقی', kind: 'leave', mode: 'daily', deductFromEntitlement: true, fixedDays: null },
-    { id: 'leave_hourly', name: 'مرخصی ساعتی', kind: 'leave', mode: 'hourly', deductFromEntitlement: true, fixedDays: null },
-    { id: 'leave_marriage', name: 'مرخصی ازدواج', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3 },
-    { id: 'leave_death', name: 'مرخصی فوت بستگان', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3 },
-    { id: 'mission_daily', name: 'مأموریت روزانه', kind: 'mission', mode: 'daily', deductFromEntitlement: false, fixedDays: null },
-    { id: 'mission_hourly', name: 'مأموریت ساعتی', kind: 'mission', mode: 'hourly', deductFromEntitlement: false, fixedDays: null }
+    { id: 'leave_annual', name: 'مرخصی استحقاقی', kind: 'leave', mode: 'daily', deductFromEntitlement: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
+    { id: 'leave_hourly', name: 'مرخصی ساعتی', kind: 'leave', mode: 'hourly', deductFromEntitlement: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
+    { id: 'leave_marriage', name: 'مرخصی ازدواج', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'once_employment', requiresAdminGrant: false },
+    { id: 'leave_birth', name: 'مرخصی تولد فرزند', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'once_year', requiresAdminGrant: false },
+    { id: 'leave_death', name: 'مرخصی فوت بستگان', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'throughout_year', requiresAdminGrant: false },
+    { id: 'leave_special', name: 'مرخصی خاص (با مجوز ادمین)', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: true },
+    { id: 'mission_daily', name: 'مأموریت روزانه', kind: 'mission', mode: 'daily', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
+    { id: 'mission_hourly', name: 'مأموریت ساعتی', kind: 'mission', mode: 'hourly', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false }
   ];
+}
+
+function normalizeFreq(f) {
+  if (f === 'once_employment' || f === 'once_year' || f === 'throughout_year') return f;
+  return 'throughout_year';
+}
+
+function timeToMin(t) {
+  const x = String(t || '').split(':');
+  return (Number(x[0]) || 0) * 60 + (Number(x[1]) || 0);
+}
+
+function dateKey(str) {
+  const p = parseJalaliYMD(str);
+  if (!p) return '';
+  return p.y + '-' + String(p.m).padStart(2, '0') + '-' + String(p.d).padStart(2, '0');
+}
+
+function expandRequestDays(req) {
+  if (!req) return [];
+  if (req.mode === 'hourly') {
+    const k = dateKey(req.startDate);
+    return k ? [k] : [];
+  }
+  return splitDaysByMonth(req.startDate, req.endDate || req.startDate).reduce(function (acc, chunk) {
+    // expand each day key in chunk
+    let d = 1;
+    // approximate: we only have day counts per month; rebuild from start/end
+    return acc;
+  }, []);
+}
+
+function listDayKeys(startStr, endStr) {
+  const a = parseJalaliYMD(startStr);
+  const b = parseJalaliYMD(endStr) || a;
+  if (!a) return [];
+  const out = [];
+  let y = a.y, m = a.m, d = a.d;
+  for (let guard = 0; guard < 400; guard++) {
+    if (y > b.y || (y === b.y && m > b.m) || (y === b.y && m === b.m && d > b.d)) break;
+    out.push(y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'));
+    d++;
+    const dim = daysInJalaliMonth(y, m);
+    if (d > dim) { d = 1; m++; if (m > 12) { m = 1; y++; } }
+  }
+  return out;
+}
+
+function requestsOverlap(a, b) {
+  // ignore rejected
+  if (!a || !b) return false;
+  const daysA = a.mode === 'hourly' ? [dateKey(a.startDate)] : listDayKeys(a.startDate, a.endDate || a.startDate);
+  const daysB = b.mode === 'hourly' ? [dateKey(b.startDate)] : listDayKeys(b.startDate, b.endDate || b.startDate);
+  const setB = {};
+  daysB.forEach(function (k) { setB[k] = true; });
+  const shared = daysA.filter(function (k) { return setB[k]; });
+  if (!shared.length) return false;
+  // if either is daily, any shared day = conflict
+  if (a.mode === 'daily' || b.mode === 'daily') return true;
+  // both hourly on same day: check time overlap
+  const a0 = timeToMin(a.fromTime), a1 = timeToMin(a.toTime);
+  const b0 = timeToMin(b.fromTime), b1 = timeToMin(b.toTime);
+  return a0 < b1 && b0 < a1;
+}
+
+function countTypeUsage(requests, empCode, typeId, year) {
+  return (requests || []).filter(function (x) {
+    if (String(x.empCode) !== String(empCode)) return false;
+    if (String(x.typeId) !== String(typeId)) return false;
+    if (x.status === 'rejected') return false;
+    if (year != null) {
+      const p = parseJalaliYMD(x.startDate);
+      if (!p || p.y !== year) return false;
+    }
+    return true;
+  }).length;
 }
 
 async function handleAdminGetAttendanceTypes(env) {
@@ -1566,7 +1751,9 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
       kind: kind,
       mode: mode,
       deductFromEntitlement: kind === 'leave' ? !!t.deductFromEntitlement : false,
-      fixedDays: fixedDays
+      fixedDays: fixedDays,
+      frequency: normalizeFreq(t.frequency),
+      requiresAdminGrant: !!t.requiresAdminGrant
     };
   }).filter(function (t) { return t.name; });
 
@@ -1588,7 +1775,65 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
 async function handleEmpAttendanceTypes(request, env) {
   const sess = await readEmpSession(request, env);
   if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
-  return handleAdminGetAttendanceTypes(env);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  let types = (gd.obj && gd.obj.attendanceTypes) || [];
+  if (!types.length) types = defaultAttendanceTypes();
+  const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
+    return String(g.empCode) === String(sess.code) && !g.usedRequestId;
+  });
+  // hide admin-grant types unless employee has an open grant
+  const visible = types.filter(function (t) {
+    if (!t.requiresAdminGrant) return true;
+    return grants.some(function (g) { return String(g.typeId) === String(t.id); });
+  });
+  return jsonResponse({ ok: true, types: visible, grants: grants });
+}
+
+async function handleAdminGrantAttendance(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const empCode = String(r.body.empCode || '').trim();
+  const typeId = String(r.body.typeId || '').trim();
+  const date = String(r.body.date || '').trim();
+  if (!empCode || !typeId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و نوع الزامی است.' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const emp = gd.obj.employees.find(function (e) { return String(e.code) === empCode; });
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found', message: 'کارمند یافت نشد.' }, 404);
+    let types = gd.obj.attendanceTypes || [];
+    if (!types.length) types = defaultAttendanceTypes();
+    const tdef = types.find(function (t) { return String(t.id) === typeId; });
+    if (!tdef) return jsonResponse({ ok: false, error: 'bad_type', message: 'نوع مرخصی یافت نشد.' }, 404);
+    if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+    const grant = {
+      id: 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      empCode: empCode,
+      empName: emp.fullName || '',
+      typeId: typeId,
+      typeName: tdef.name || '',
+      date: date || '',
+      grantedBy: who.name,
+      grantedAt: new Date().toISOString(),
+      usedRequestId: null
+    };
+    gd.obj.attendanceGrants.unshift(grant);
+    if (gd.obj.attendanceGrants.length > 2000) gd.obj.attendanceGrants.length = 2000;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, grant: grant });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
 // ---------- Login page (admin/operator) ----------
@@ -1714,6 +1959,7 @@ async function route(request, env, users, found) {
     if (request.method === 'GET') return handleAdminGetAttendanceTypes(env);
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
+  if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
 
   const h = new Headers(request.headers);
   h.delete('If-None-Match');
@@ -1890,7 +2136,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>روزانه / ساعتی</label><select id="rqMode"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
     </div>
     <div class="grid2">
-      <div><label>از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr"></div>
+      <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr"></div>
       <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr"></div>
     </div>
     <div class="grid2 hidden" id="rqTimeWrap">
@@ -1936,6 +2182,8 @@ function syncRequestForm(){
   document.getElementById('rqTimeWrap').classList.toggle('hidden', mode!=='hourly');
   document.getElementById('rqEndWrap').classList.toggle('hidden', mode==='hourly');
   document.getElementById('rqPlaceWrap').classList.toggle('hidden', kind!=='mission');
+  var lab=document.getElementById('rqStartLabel');
+  if(lab) lab.textContent = mode==='hourly' ? 'تاریخ' : 'از تاریخ';
 }
 function onTypeChange(){
   var id=document.getElementById('rqType').value;
@@ -1946,6 +2194,11 @@ function onTypeChange(){
   var hint=[];
   if(t.kind==='leave') hint.push(t.deductFromEntitlement?'از مرخصی استحقاقی کسر می‌شود':'از استحقاقی کسر نمی‌شود');
   if(t.fixedDays!=null&&t.fixedDays!=='') hint.push('مدت ثابت: '+t.fixedDays+' روز');
+  var freq=t.frequency||'throughout_year';
+  if(freq==='once_employment') hint.push('یک‌بار در طول استخدام');
+  else if(freq==='once_year') hint.push('یک‌بار در طول سال');
+  else hint.push('قابل استفاده در طول سال');
+  if(t.requiresAdminGrant) hint.push('با مجوز ادمین');
   document.getElementById('rqTypeHint').textContent=hint.join(' — ');
   syncRequestForm();
 }
