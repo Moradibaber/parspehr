@@ -285,7 +285,7 @@ async function stamp(html, user, env) {
     btn.className = 'tab-btn';
     btn.type = 'button';
     btn.setAttribute('data-tab', 'portalatt');
-    btn.textContent = 'تایم‌شیت و انواع مرخصی';
+    btn.textContent = 'مأموریت/مرخصی و سایر';
     tabs.appendChild(btn);
 
     var panel = document.createElement('div');
@@ -311,13 +311,31 @@ async function stamp(html, user, env) {
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '</div>' +
       '<div class="section-title" style="margin-top:22px;">مجوز مرخصی خاص برای کارمند</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">برای انواعی که «فقط با مجوز ادمین» دارند، اینجا برای یک نفر و یک تاریخ مجوز صادر کنید تا در پرتال بتواند درخواست بدهد.</p>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">برای انواع «فقط با مجوز ادمین»: بازه تاریخ (از–تا) یا خالی = بدون محدودیت تاریخ.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
-      '<div class="form-group"><label>تاریخ (اختیاری)</label><input id="pspGrantDate" placeholder="1405/02/15" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '<div class="section-title" style="margin-top:22px;">ثبت / حذف توسط ادمین (بدون تأیید مدیر)</div>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">ادمین می‌تواند مرخصی/مأموریت را مستقیم تأییدشده ثبت کند یا درخواست تأییدشده را حذف کند.</p>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label>کد پرسنلی</label><input id="pspAdmCode" autocomplete="off"></div>' +
+      '<div class="form-group"><label>نوع</label><select id="pspAdmType"></select></div>' +
+      '<div class="form-group"><label>از تاریخ</label><input id="pspAdmStart" placeholder="1405/01/10" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group"><label>تا تاریخ</label><input id="pspAdmEnd" placeholder="1405/01/12" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group"><label>از ساعت</label><input id="pspAdmFrom" type="time" value="08:00"></div>' +
+      '<div class="form-group"><label>تا ساعت</label><input id="pspAdmTo" type="time" value="10:00"></div>' +
+      '<div class="form-group"><label>محل مأموریت</label><input id="pspAdmPlace" autocomplete="off"></div>' +
+      '<div class="form-group"><label>دلیل</label><input id="pspAdmReason" autocomplete="off"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;"><button type="button" class="btn btn-primary btn-sm" id="pspAdmAdd">ثبت تأییدشده</button></div>' +
+      '</div>' +
+      '<div class="form-grid" style="margin-top:8px;">' +
+      '<div class="form-group"><label>شناسه درخواست برای حذف</label><input id="pspAdmDelId" placeholder="r_...." autocomplete="off"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspAdmDel">حذف درخواست</button></div>' +
+      '</div><span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '</div>';
     // insert panel after other panels
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
@@ -370,12 +388,18 @@ async function stamp(html, user, env) {
       });
       html += '</tbody></table>';
       box.innerHTML = html;
-      // refresh grant type dropdown
+      // refresh grant / admin type dropdowns
       var gsel = document.getElementById('pspGrantType');
       if (gsel) {
         gsel.innerHTML = window.__pspTypes.filter(function(t){ return t.requiresAdminGrant; }).map(function(t){
           return '<option value="' + t.id + '">' + t.name + '</option>';
         }).join('') || '<option value="">— نوعی با مجوز ادمین تعریف نشده —</option>';
+      }
+      var asel = document.getElementById('pspAdmType');
+      if (asel) {
+        asel.innerHTML = window.__pspTypes.map(function(t){
+          return '<option value="' + t.id + '">' + t.name + '</option>';
+        }).join('') || '<option value="">—</option>';
       }
       box.querySelectorAll('[data-f]').forEach(function(el) {
         el.onchange = el.oninput = function() {
@@ -430,10 +454,45 @@ async function stamp(html, user, env) {
         body: JSON.stringify({
           empCode: document.getElementById('pspGrantCode').value.trim(),
           typeId: document.getElementById('pspGrantType').value,
-          date: document.getElementById('pspGrantDate').value.trim()
+          dateFrom: document.getElementById('pspGrantFrom').value.trim(),
+          dateTo: document.getElementById('pspGrantTo').value.trim()
         })
       }).then(function(r){ return r.json(); }).then(function(j){
         if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'مجوز صادر شد برای کد ' + j.grant.empCode; }
+        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
+    };
+    document.getElementById('pspAdmAdd').onclick = function() {
+      var st = document.getElementById('pspAdmStatus');
+      st.textContent = '…';
+      fetch('/api/admin/attendance-request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          empCode: document.getElementById('pspAdmCode').value.trim(),
+          typeId: document.getElementById('pspAdmType').value,
+          startDate: document.getElementById('pspAdmStart').value.trim(),
+          endDate: document.getElementById('pspAdmEnd').value.trim(),
+          fromTime: document.getElementById('pspAdmFrom').value,
+          toTime: document.getElementById('pspAdmTo').value,
+          place: document.getElementById('pspAdmPlace').value.trim(),
+          reason: document.getElementById('pspAdmReason').value.trim()
+        })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'ثبت شد — شناسه: ' + j.request.id; }
+        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+      }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
+    };
+    document.getElementById('pspAdmDel').onclick = function() {
+      var id = document.getElementById('pspAdmDelId').value.trim();
+      if (!id) { alert('شناسه را وارد کنید'); return; }
+      if (!confirm('حذف درخواست ' + id + '؟')) return;
+      var st = document.getElementById('pspAdmStatus');
+      st.textContent = '…';
+      fetch('/api/admin/attendance-request', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ id: id })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'حذف شد'; }
         else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
       }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
     };
@@ -579,6 +638,34 @@ async function storeGetData(cfg) {
 }
 
 async function storePutData(cfg, baseVersion, obj, updatedBy) {
+  // Preserve portal fields the main app form does not know about (managerCode, portal password, requests…)
+  try {
+    if (obj && Array.isArray(obj.employees) && baseVersion > 0) {
+      const prev = await storeGetData(cfg);
+      if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
+        const map = {};
+        prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        obj.employees.forEach(function (e) {
+          const p = map[String(e.code)];
+          if (!p) return;
+          if (e.managerCode === undefined || e.managerCode === null) {
+            if (p.managerCode) e.managerCode = p.managerCode;
+          }
+          if (e.portalPassHash === undefined || e.portalPassHash === null) {
+            if (p.portalPassHash) e.portalPassHash = p.portalPassHash;
+          }
+          if (e.portalEnabled === undefined || e.portalEnabled === null) {
+            if (p.portalEnabled != null) e.portalEnabled = p.portalEnabled;
+          }
+          if (!e.portalPassChangedAt && p.portalPassChangedAt) e.portalPassChangedAt = p.portalPassChangedAt;
+        });
+        if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
+        if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
+        if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+
   const text = JSON.stringify(obj);
   if (text.length > MAX_DOC_BYTES) return { fail: { reason: 'too_large', status: 413 } };
   if (baseVersion === 0) {
@@ -1327,6 +1414,9 @@ async function handleEmpCreateRequest(request, env) {
     if (kind === 'mission' && !place) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
     }
+    if (!reason) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'توضیح / دلیل الزامی است.' }, 400);
+    }
 
     const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
     if (!emp || emp.status === 'inactive') return jsonResponse({ ok: false, error: 'disabled' }, 403);
@@ -1352,18 +1442,41 @@ async function handleEmpCreateRequest(request, env) {
       }
     }
 
-    // admin grant required
+    // admin grant required — grant may have dateFrom..dateTo (or legacy date)
     if (requiresAdminGrant) {
       const g = gd.obj.attendanceGrants.find(function (x) {
-        return String(x.empCode) === String(emp.code)
-          && String(x.typeId) === String(typeId)
-          && !x.usedRequestId
-          && (!x.date || dateKey(x.date) === dateKey(startDate));
+        if (String(x.empCode) !== String(emp.code)) return false;
+        if (String(x.typeId) !== String(typeId)) return false;
+        if (x.usedRequestId) return false;
+        const from = x.dateFrom || x.date || '';
+        const to = x.dateTo || x.dateFrom || x.date || '';
+        if (!from && !to) return true; // unrestricted dates
+        const days = listDayKeys(startDate, mode === 'hourly' ? startDate : (endDate || startDate));
+        if (!days.length) return false;
+        if (from && to) {
+          const allowed = {};
+          listDayKeys(from, to).forEach(function (k) { allowed[k] = true; });
+          return days.every(function (k) { return allowed[k]; });
+        }
+        if (from) return days.every(function (k) { return k === dateKey(from); });
+        return true;
       });
       if (!g) {
-        return jsonResponse({ ok: false, error: 'no_grant', message: 'این نوع مرخصی فقط با مجوز ادمین برای تاریخ مشخص قابل درخواست است. با منابع انسانی هماهنگ کنید.' }, 400);
+        return jsonResponse({ ok: false, error: 'no_grant', message: 'این نوع مرخصی فقط با مجوز ادمین برای بازه تاریخ مشخص قابل درخواست است. با منابع انسانی هماهنگ کنید.' }, 400);
       }
       grantId = g.id;
+    }
+
+    // strict fixed days: daily span must equal fixedDays
+    if (fixedDays && mode === 'daily') {
+      const days = listDayKeys(startDate, endDate || startDate);
+      if (days.length !== fixedDays) {
+        return jsonResponse({
+          ok: false,
+          error: 'fixed_days',
+          message: 'این نوع دقیقاً ' + fixedDays + ' روز است (الان ' + days.length + ' روز انتخاب شده). تاریخ پایان به‌صورت خودکار تنظیم می‌شود؛ فقط تاریخ شروع را وارد کنید.'
+        }, 400);
+      }
     }
 
     // overlap with existing pending/approved
@@ -1441,7 +1554,13 @@ async function handleEmpListRequests(request, env) {
   const all = (gd.obj && gd.obj.attendanceRequests) || [];
   const mine = all.filter(x => String(x.empCode) === String(sess.code)).slice(0, 100);
   const pendingForMe = all.filter(x => String(x.managerCode) === String(sess.code) && x.status === 'pending').slice(0, 100);
-  return jsonResponse({ ok: true, mine, pendingForMe });
+  // all requests this person must decide on / has decided (for "نتیجه درخواست‌ها")
+  const managedForMe = all.filter(x => String(x.managerCode) === String(sess.code)).slice(0, 150);
+  // is this employee a manager of anyone?
+  const isManager = (gd.obj.employees || []).some(function (e) {
+    return String(e.managerCode) === String(sess.code) && e.status !== 'inactive';
+  });
+  return jsonResponse({ ok: true, mine, pendingForMe, managedForMe, isManager: isManager });
 }
 
 async function handleEmpDecideRequest(request, env) {
@@ -1800,7 +1919,8 @@ async function handleAdminGrantAttendance(request, who, env) {
   if (r.error) return r.error;
   const empCode = String(r.body.empCode || '').trim();
   const typeId = String(r.body.typeId || '').trim();
-  const date = String(r.body.date || '').trim();
+  const dateFrom = String(r.body.dateFrom || r.body.date || '').trim();
+  const dateTo = String(r.body.dateTo || r.body.dateFrom || r.body.date || '').trim();
   if (!empCode || !typeId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و نوع الزامی است.' }, 400);
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
@@ -1821,7 +1941,9 @@ async function handleAdminGrantAttendance(request, who, env) {
       empName: emp.fullName || '',
       typeId: typeId,
       typeName: tdef.name || '',
-      date: date || '',
+      date: dateFrom || '',
+      dateFrom: dateFrom || '',
+      dateTo: dateTo || dateFrom || '',
       grantedBy: who.name,
       grantedAt: new Date().toISOString(),
       usedRequestId: null
@@ -1832,6 +1954,123 @@ async function handleAdminGrantAttendance(request, who, env) {
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     return jsonResponse({ ok: true, grant: grant });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminCreateAttendanceRequest(request, who, env) {
+  if (who.role !== 'admin') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین سیستم می‌تواند مستقیم ثبت کند.' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const b = r.body;
+  const empCode = String(b.empCode || '').trim();
+  const typeId = String(b.typeId || '').trim();
+  let startDate = String(b.startDate || '').trim();
+  let endDate = String(b.endDate || b.startDate || '').trim();
+  const fromTime = String(b.fromTime || '').trim();
+  const toTime = String(b.toTime || '').trim();
+  const place = String(b.place || '').trim();
+  const reason = String(b.reason || '').trim();
+  if (!empCode || !startDate) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد و تاریخ الزامی است.' }, 400);
+  if (!reason) return jsonResponse({ ok: false, error: 'bad_request', message: 'دلیل الزامی است.' }, 400);
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const emp = gd.obj.employees.find(function (e) { return String(e.code) === empCode; });
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    let types = gd.obj.attendanceTypes || [];
+    if (!types.length) types = defaultAttendanceTypes();
+    const tdef = typeId ? types.find(function (t) { return String(t.id) === typeId; }) : null;
+    let kind = 'leave', mode = 'daily', typeName = '', fixedDays = null, deduct = false;
+    if (tdef) {
+      kind = tdef.kind === 'mission' ? 'mission' : 'leave';
+      mode = tdef.mode === 'hourly' ? 'hourly' : 'daily';
+      typeName = tdef.name || '';
+      fixedDays = tdef.fixedDays != null && tdef.fixedDays !== '' ? Number(tdef.fixedDays) : null;
+      deduct = kind === 'leave' && !!tdef.deductFromEntitlement;
+      if (fixedDays && mode === 'daily') {
+        const p = parseJalaliYMD(startDate);
+        if (p) {
+          let d = p.d + fixedDays - 1, m = p.m, y = p.y;
+          while (d > daysInJalaliMonth(y, m)) { d -= daysInJalaliMonth(y, m); m++; if (m > 12) { m = 1; y++; } }
+          endDate = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+        }
+      }
+    }
+    if (kind === 'mission' && !place) {
+      return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
+    }
+    if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
+    const req = {
+      id: newRequestId(),
+      empCode: String(emp.code),
+      empName: emp.fullName || '',
+      managerCode: String(emp.managerCode || ''),
+      managerName: '',
+      typeId: typeId || '',
+      typeName: typeName,
+      deductFromEntitlement: deduct,
+      fixedDays: fixedDays,
+      kind, mode,
+      startDate,
+      endDate: mode === 'hourly' ? startDate : endDate,
+      fromTime: mode === 'hourly' ? fromTime : '',
+      toTime: mode === 'hourly' ? toTime : '',
+      place: kind === 'mission' ? place : '',
+      reason: reason,
+      status: 'approved',
+      rejectReason: '',
+      createdAt: new Date().toISOString(),
+      decidedAt: new Date().toISOString(),
+      decidedBy: 'admin:' + who.name,
+      adminOverride: true
+    };
+    // overlap check
+    const conflict = gd.obj.attendanceRequests.find(function (x) {
+      if (String(x.empCode) !== String(emp.code) || x.status === 'rejected') return false;
+      return requestsOverlap(req, x);
+    });
+    if (conflict) {
+      return jsonResponse({ ok: false, error: 'overlap', message: 'تداخل با درخواست موجود: ' + (conflict.typeName || conflict.id) }, 400);
+    }
+    gd.obj.attendanceRequests.unshift(req);
+    if (gd.obj.attendanceRequests.length > 2000) gd.obj.attendanceRequests.length = 2000;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, request: req });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminDeleteAttendanceRequest(request, who, env) {
+  if (who.role !== 'admin') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین سیستم می‌تواند حذف کند.' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const id = String(r.body.id || '').trim();
+  if (!id) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
+    const idx = gd.obj.attendanceRequests.findIndex(function (x) { return x.id === id; });
+    if (idx < 0) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    gd.obj.attendanceRequests.splice(idx, 1);
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -1960,6 +2199,10 @@ async function route(request, env, users, found) {
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
+  if (path === '/api/admin/attendance-request') {
+    if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
+    return handleAdminCreateAttendanceRequest(request, who, env);
+  }
 
   const h = new Headers(request.headers);
   h.delete('If-None-Match');
@@ -2113,7 +2356,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <button class="tab active" data-tab="payslip" onclick="showTab('payslip')">فیش حقوقی</button>
       <button class="tab" data-tab="request" onclick="showTab('request')">درخواست مرخصی/مأموریت</button>
       <button class="tab" data-tab="mine" onclick="showTab('mine')">درخواست‌های من</button>
-      <button class="tab" data-tab="approve" id="tabApprove" onclick="showTab('approve')">تأیید درخواست‌ها</button>
+      <button class="tab hidden" data-tab="approve" id="tabApprove" onclick="showTab('approve')">نتیجه درخواست‌ها</button>
       <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
@@ -2143,13 +2386,13 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>از ساعت</label><input id="rqFrom" type="time" value="08:00"></div>
       <div><label>تا ساعت</label><input id="rqTo" type="time" value="10:00"></div>
     </div>
-    <div id="rqPlaceWrap" class="hidden"><label>محل مأموریت</label><input id="rqPlace" placeholder="شهر / سازمان مقصد"></div>
-    <label>توضیح / دلیل</label><textarea id="rqReason"></textarea>
+    <div id="rqPlaceWrap" class="hidden"><label>محل مأموریت *</label><input id="rqPlace" placeholder="شهر / سازمان مقصد" required></div>
+    <label>توضیح / دلیل *</label><textarea id="rqReason" required></textarea>
     <button class="primary" onclick="submitRequest()">ارسال برای تأیید مدیر</button>
     <div class="err" id="rqErr"></div>
   </div>
   <div class="card panel hidden" id="panel-mine"><h2>درخواست‌های من</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="mineList" style="margin-top:10px;"></div></div>
-  <div class="card panel hidden" id="panel-approve"><h2>درخواست‌های در انتظار تأیید</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="pendingList" style="margin-top:10px;"></div></div>
+  <div class="card panel hidden" id="panel-approve"><h2>نتیجه درخواست‌ها (تأیید / رد زیرمجموعه)</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="pendingList" style="margin-top:10px;"></div></div>
   <div class="card panel hidden" id="panel-timesheet">
     <h2>تایم‌شیت</h2>
     <div class="grid2"><div><label>سال</label><input type="number" id="tsYear" value="1405"></div>
@@ -2250,6 +2493,10 @@ async function loadPayslip(){
 async function submitRequest(){
   var err=document.getElementById('rqErr'); err.textContent=''; err.classList.remove('okmsg');
   var body={typeId:document.getElementById('rqType').value,kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
+  if(!body.reason){err.textContent='توضیح / دلیل الزامی است.';return}
+  if(body.kind==='mission'&&!body.place){err.textContent='محل مأموریت الزامی است.';return}
+  if(!body.startDate){err.textContent='تاریخ الزامی است.';return}
+
   try{
     var r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
     var j=await r.json();
@@ -2270,9 +2517,11 @@ async function loadRequests(){
     var r=await fetch('/api/emp/requests',{credentials:'same-origin'}); var j=await r.json(); if(!j.ok)return;
     var mine=document.getElementById('mineList');
     mine.innerHTML=!(j.mine||[]).length?'<div class="sub">درخواستی ندارید.</div>':j.mine.map(function(x){return reqHtml(x,false)}).join('');
-    var pending=j.pendingForMe||[]; var tab=document.getElementById('tabApprove');
-    if(pending.length) tab.classList.remove('hidden');
-    document.getElementById('pendingList').innerHTML=!pending.length?'<div class="sub">درخواست در انتظاری نیست.</div>':pending.map(function(x){return reqHtml(x,true)}).join('');
+    var tab=document.getElementById('tabApprove');
+    // only managers see this tab
+    if(j.isManager) tab.classList.remove('hidden'); else tab.classList.add('hidden');
+    var list=j.managedForMe||j.pendingForMe||[];
+    document.getElementById('pendingList').innerHTML=!list.length?'<div class="sub">درخواستی برای زیرمجموعه نیست.</div>':list.map(function(x){return reqHtml(x,true)}).join('');
   }catch(e){}
 }
 async function decide(id,decision){
