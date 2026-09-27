@@ -323,7 +323,6 @@ async function stamp(html, user, env) {
       '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="upload">آپلود فایل کارکرد</button>' +
       '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="portalview">نمایش در پرتال کارمند</button>' +
       '</div>' +
-
       '<div class="psp-subpanel" id="pspSub-ts">' +
       '<div class="section-title">تایم‌شیت پرتال کارکنان</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:10px;">این گزارش از درخواست‌های تأییدشده پرتال است و فعلاً روی محاسبه حقوق اثر ندارد.</p>' +
@@ -334,123 +333,60 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
       '</div>' +
-      '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید و نمایش بزنید. ستون‌های ورود/خروج بعداً با ثبت ساعت یا آپلود فایل پر می‌شود.</p>' +
+      '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;">' +
-      '<div class="form-group"><label>ماه جاری درخواست‌ها (فقط این ماه قبول می‌شود)</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
+      '<div class="form-group"><label>ماه جاری درخواست‌ها</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری</button></div>' +
-      '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div>' +
-      '</div>' +
-
+      '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div></div>' +
       '<div class="psp-subpanel" id="pspSub-types" style="display:none;">' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند. محدودیت دفعات: یک‌بار استخدام / یک‌بار در سال / در طول سال. گزینه «فقط با مجوز ادمین» یعنی در لیست کارمند نیست مگر ادمین مجوز بدهد.</p>' +
+      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند.</p>' +
       '<div id="pspTypesList" style="overflow:auto;"></div>' +
       '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspTypeAdd">+ نوع جدید</button>' +
       '<button type="button" class="btn btn-primary btn-sm" id="pspTypeSave">ذخیره انواع</button>' +
-      '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div></div>' +
-
+      '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
       '<div class="psp-subpanel" id="pspSub-grants" style="display:none;">' +
       '<div class="section-title">مجوز مرخصی خاص برای کارمند</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">برای انواع «فقط با مجوز ادمین»: بازه تاریخ (از–تا) یا خالی = بدون محدودیت تاریخ.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
-      '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr" autocomplete="off"></div>' +
-      '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr" autocomplete="off"></div>' +
+      '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr"></div>' +
+      '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
-      '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div>' +
-
+      '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '<div class="psp-subpanel" id="pspSub-reqs" style="display:none;">' +
       '<div class="section-title">همه درخواست‌های مرخصی / مأموریت</div>' +
-      '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">ادمین می‌تواند در همین جدول درخواست را اضافه، ویرایش یا حذف کند (بدون نیاز به تأیید مدیر). فیلتر سال/ماه را بزنید.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>سال</label><input type="number" id="pspReqYear" value="1405"></div>' +
       '<div class="form-group"><label>ماه</label><select id="pspReqMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>کد (اختیاری)</label><input id="pspReqCode" autocomplete="off" placeholder="همه"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
       '<button type="button" class="btn btn-primary btn-sm" id="pspReqLoad">بارگذاری</button>' +
-      '<button type="button" class="btn btn-outline btn-sm" id="pspReqAddRow">+ ردیف جدید</button>' +
-      '</div></div>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspReqAddRow">+ ردیف جدید</button></div></div>' +
       '<div id="pspReqSheet" style="overflow:auto;margin-top:8px;"></div>' +
-      '<span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div>' +
-
+      '<span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '<div class="psp-subpanel" id="pspSub-upload" style="display:none;">' +
       '<div class="section-title">آپلود فایل کارکرد / تایم‌شیت (TXT یا Excel)</div>' +
-      '<p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;line-height:1.7;">این بخش برای آینده آماده شده است. با آپلود فایل TXT یا Excel می‌توانید ساعت ورود/خروج، اضافه‌کار، شب‌کاری و کارکرد روزانه را به‌صورت انبوه وارد کنید.</p>' +
-      '<div style="border:2px dashed #99f6e4;border-radius:12px;padding:18px;background:#fafafa;margin-bottom:14px;">' +
+      '<p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">این بخش برای آینده آماده شده است.</p>' +
+      '<div style="border:2px dashed #99f6e4;border-radius:12px;padding:18px;background:#fafafa;">' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>سال</label><input type="number" id="pspUpYear" value="1405"></div>' +
       '<div class="form-group"><label>ماه</label><select id="pspUpMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
-      '<div class="form-group"><label>فایل (TXT / CSV / XLSX)</label><input type="file" id="pspUpFile" accept=".txt,.csv,.xlsx,.xls" disabled></div>' +
-      '</div>' +
-      '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
-      '<button type="button" class="btn btn-primary btn-sm" id="pspUpBtn" disabled title="در نسخه بعدی فعال می‌شود">آپلود و پردازش (به‌زودی)</button>' +
+      '<div class="form-group"><label>فایل</label><input type="file" id="pspUpFile" accept=".txt,.csv,.xlsx,.xls" disabled></div></div>' +
+      '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspUpBtn" disabled>آپلود و پردازش (به‌زودی)</button>' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspUpSample">دانلود نمونه فرمت</button>' +
-      '<span id="pspUpStatus" style="font-size:0.8rem;color:#64748b;">آماده برای توسعه — فعلاً غیرفعال</span>' +
-      '</div></div>' +
-      '<div style="font-size:0.78rem;color:#64748b;line-height:1.6;background:#f0fdfa;padding:10px 12px;border-radius:8px;border:1px solid #99f6e4;">' +
-      '<b>برنامه توسعه:</b><br>۱) پشتیبانی از TXT/CSV<br>۲) پشتیبانی از Excel با نگاشت ستون‌ها<br>۳) پیش‌نمایش + گزارش خطا<br>۴) ثبت در تایم‌شیت روزبه‌روز' +
-      '</div></div>' +
-
+      '<span id="pspUpStatus" style="font-size:0.8rem;color:#64748b;">فعلاً غیرفعال</span></div></div></div>' +
       '<div class="psp-subpanel" id="pspSub-portalview" style="display:none;">' +
-      '<div class="section-title">نمایش در پرتال کارمند (حکم + مشخصات پرسنلی)</div>' +
-      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;line-height:1.6;">این تنظیمات مشخص می‌کند کارمند در پرتال خود چه چیزی ببیند. هر دو بخش اختیاری هستند.</p>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">' +
-      '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">' +
-      '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «حکم»</div>' +
-      '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowDecree" checked> نمایش تب حکم برای کارمند</label>' +
-      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>' +
-      '<select id="pspDecreeWho" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">' +
-      '<option value="self">فقط خود کارمند</option>' +
-      '<option value="self_and_manager">خود + مدیران مستقیم</option>' +
-      '<option value="all_portal">همه کاربران پرتال</option>' +
-      '</select>' +
-      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای حکم:</label>' +
-      '<div style="font-size:0.78rem;max-height:140px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;">' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="basic" checked> حقوق پایه</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="housing" checked> حق مسکن</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="food" checked> بن خواربار</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="child" checked> حق اولاد</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="marital" checked> حق تأهل</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="seniority" checked> پایه سنوات</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="decree_all" checked> سایر آیتم‌های حکم</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="total"> جمع حکم</label>' +
-      '</div></div>' +
-      '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">' +
-      '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «مشخصات پرسنلی»</div>' +
-      '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowProfile" checked> نمایش تب مشخصات پرسنلی</label>' +
-      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>' +
-      '<select id="pspProfileWho" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">' +
-      '<option value="self">فقط خود کارمند</option>' +
-      '<option value="self_and_manager">خود + مدیران مستقیم</option>' +
-      '</select>' +
-      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای کارت کارمند:</label>' +
-      '<div style="font-size:0.78rem;max-height:140px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;">' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="fullName" checked> نام و نام خانوادگی</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="code" checked> کد پرسنلی</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="position" checked> سمت</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="unit" checked> واحد</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="workplace" checked> محل خدمت</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="hireDate" checked> تاریخ استخدام</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="contractType" checked> نوع قرارداد</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="marital"> وضعیت تأهل</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="children"> تعداد اولاد</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="bankName"> نام بانک</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="accountNumber"> شماره حساب</label>' +
-      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="insuranceNo"> شماره بیمه</label>' +
-      '</div></div></div>' +
+      '<div class="section-title">نمایش در پرتال کارمند — حکم و مشخصات پرسنلی</div>' +
+      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;">آیتم‌های حکم از «انتقال انتخابی کارکنان و مزایا» بارگذاری می‌شوند. افراد را با تیک انتخاب کنید.</p>' +
+      '<div id="pspPortalViewBody"><div style="color:#64748b;font-size:0.85rem;">در حال بارگذاری تنظیمات…</div></div>' +
       '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;">' +
-      '<button type="button" class="btn btn-primary btn-sm" id="pspPortalViewSave">ذخیره تنظیمات نمایش پرتال</button>' +
-      '<span id="pspPortalViewStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-top:10px;">ذخیره سرور در مرحله بعد؛ فعلاً در مرورگر نگه داشته می‌شود.</p>' +
-      '</div>' +
-
+      '<button type="button" class="btn btn-primary btn-sm" id="pspPortalViewSave">ذخیره تنظیمات</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspPortalViewReload">بروزرسانی لیست‌ها</button>' +
+      '<span id="pspPortalViewStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
       '</div>';
 
     // insert panel after other panels
@@ -469,31 +405,133 @@ async function stamp(html, user, env) {
         document.querySelectorAll('.psp-subpanel').forEach(function(p){
           p.style.display = (p.id === 'pspSub-' + name) ? '' : 'none';
         });
+        if (name === 'portalview') loadPortalViewCfg();
       }
       document.querySelectorAll('.psp-subtab').forEach(function(b){
         b.onclick = function(){ showSub(b.getAttribute('data-sub')); };
       });
       var sample = document.getElementById('pspUpSample');
       if (sample) sample.onclick = function(){
-        alert('نمونه فرمت در نسخه بعدی.\\nپیشنهاد ستون‌ها:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
+        alert('نمونه:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
       };
+
+      window.__pspPortalViewData = null;
+      function loadPortalViewCfg(){
+        var body = document.getElementById('pspPortalViewBody');
+        if (!body) return;
+        body.innerHTML = '<div style="color:#64748b;font-size:0.85rem;">در حال بارگذاری…</div>';
+        fetch('/api/admin/portal-view', { credentials: 'same-origin' })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (!j.ok) { body.innerHTML = '<div style="color:#b91c1c;">خطا: ' + (j.message||j.error||'دسترسی') + '</div>'; return; }
+            window.__pspPortalViewData = j;
+            renderPortalViewCfg(j);
+          })
+          .catch(function(){ body.innerHTML = '<div style="color:#b91c1c;">خطا در ارتباط با سرور</div>'; });
+      }
+      function renderPortalViewCfg(j){
+        var body = document.getElementById('pspPortalViewBody');
+        var cfg = j.config || {};
+        var dOpts = j.decreeOptions || [];
+        var pOpts = j.profileOptions || [];
+        var emps = j.employees || [];
+        var dFields = cfg.decreeFields || [];
+        var pFields = cfg.profileFields || [];
+        var dCodes = cfg.decreeSelectedCodes || [];
+        var pCodes = cfg.profileSelectedCodes || [];
+        function modeSel(id, val){
+          var opts = [
+            ['self','فقط خود فرد (هر کس حکم/مشخصات خودش)'],
+            ['self_and_manager','خود فرد + مدیران مستقیم'],
+            ['all','همه کارکنان دارای پرتال'],
+            ['selected','فقط افراد انتخاب‌شده (با تیک)']
+          ];
+          var h = '<select id="'+id+'" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">';
+          opts.forEach(function(o){ h += '<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+o[1]+'</option>'; });
+          return h + '</select>';
+        }
+        function empChecks(prefix, selected){
+          var h = '<div style="max-height:160px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
+          h += '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="'+prefix+'AllEmps"> انتخاب همه</label>';
+          emps.forEach(function(e){
+            var on = selected.indexOf(String(e.code))>=0;
+            h += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="'+prefix+'-emp" value="'+e.code+'"'+(on?' checked':'')+'> '+(e.fullName||'')+' ('+e.code+')'+(e.unit?' — '+e.unit:'')+'</label>';
+          });
+          return h + '</div>';
+        }
+        var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+        // DECREE
+        html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">';
+        html += '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «حکم»</div>';
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowDecree"'+(cfg.showDecree!==false?' checked':'')+'> نمایش تب حکم</label>';
+        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>';
+        html += modeSel('pspDecreeMode', cfg.decreeMode||'self');
+        html += '<div id="pspDecreeEmpWrap" style="'+(cfg.decreeMode==='selected'?'':'display:none;')+'margin-bottom:8px;"><label style="font-size:0.78rem;">انتخاب افراد:</label>'+empChecks('pspDec', dCodes)+'</div>';
+        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">آیتم‌های حکم (از انتقال انتخابی / مزایا / آیتم‌های کارمند):</label>';
+        html += '<div style="max-height:180px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
+        html += '<label style="display:block;margin-bottom:4px;"><input type="checkbox" id="pspDecFieldAll"> همه آیتم‌ها</label>';
+        dOpts.forEach(function(o){
+          var on = !dFields.length || dFields.indexOf(String(o.id))>=0 || dFields.indexOf(String(o.name))>=0;
+          html += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="psp-dec-field" value="'+String(o.id).replace(/"/g,'&quot;')+'" data-name="'+String(o.name).replace(/"/g,'&quot;')+'"'+(on?' checked':'')+'> '+o.name+'</label>';
+        });
+        if (!dOpts.length) html += '<div style="color:#64748b;">آیتمی در حکم/مزایا یافت نشد.</div>';
+        html += '</div></div>';
+        // PROFILE
+        html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">';
+        html += '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «مشخصات پرسنلی»</div>';
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowProfile"'+(cfg.showProfile!==false?' checked':'')+'> نمایش تب مشخصات</label>';
+        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>';
+        html += modeSel('pspProfileMode', cfg.profileMode||'self');
+        html += '<div id="pspProfileEmpWrap" style="'+(cfg.profileMode==='selected'?'':'display:none;')+'margin-bottom:8px;"><label style="font-size:0.78rem;">انتخاب افراد:</label>'+empChecks('pspProf', pCodes)+'</div>';
+        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای کارت کارمند:</label>';
+        html += '<div style="max-height:180px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
+        html += '<label style="display:block;margin-bottom:4px;"><input type="checkbox" id="pspProfFieldAll"> همه فیلدها</label>';
+        pOpts.forEach(function(o){
+          var on = !pFields.length || pFields.indexOf(o.key)>=0;
+          html += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="psp-prof-field" value="'+o.key+'"'+(on?' checked':'')+'> '+o.label+'</label>';
+        });
+        html += '</div></div></div>';
+        body.innerHTML = html;
+        function bindAll(allId, cls){
+          var all = document.getElementById(allId);
+          if (!all) return;
+          all.onchange = function(){
+            document.querySelectorAll('.'+cls).forEach(function(c){ c.checked = all.checked; });
+          };
+        }
+        bindAll('pspDecFieldAll', 'psp-dec-field');
+        bindAll('pspProfFieldAll', 'psp-prof-field');
+        bindAll('pspDecAllEmps', 'pspDec-emp');
+        bindAll('pspProfAllEmps', 'pspProf-emp');
+        var dm = document.getElementById('pspDecreeMode');
+        if (dm) dm.onchange = function(){ document.getElementById('pspDecreeEmpWrap').style.display = dm.value==='selected'?'':'none'; };
+        var pm = document.getElementById('pspProfileMode');
+        if (pm) pm.onchange = function(){ document.getElementById('pspProfileEmpWrap').style.display = pm.value==='selected'?'':'none'; };
+      }
       var saveBtn = document.getElementById('pspPortalViewSave');
       if (saveBtn) saveBtn.onclick = function(){
         var st = document.getElementById('pspPortalViewStatus');
-        st.style.color = '#0f766e';
-        st.textContent = 'در حافظه مرورگر ذخیره شد (سرور به‌زودی).';
-        try {
-          var cfg = {
-            showDecree: !!(document.getElementById('pspShowDecree')||{}).checked,
-            decreeWho: (document.getElementById('pspDecreeWho')||{}).value || 'self',
-            decreeFields: Array.prototype.map.call(document.querySelectorAll('.psp-dec-field:checked'), function(c){ return c.value; }),
-            showProfile: !!(document.getElementById('pspShowProfile')||{}).checked,
-            profileWho: (document.getElementById('pspProfileWho')||{}).value || 'self',
-            profileFields: Array.prototype.map.call(document.querySelectorAll('.psp-prof-field:checked'), function(c){ return c.value; })
-          };
-          localStorage.setItem('psp_portal_view_cfg', JSON.stringify(cfg));
-        } catch(e) {}
+        st.textContent = 'در حال ذخیره…';
+        var payload = {
+          showDecree: !!(document.getElementById('pspShowDecree')||{}).checked,
+          decreeMode: (document.getElementById('pspDecreeMode')||{}).value || 'self',
+          decreeSelectedCodes: Array.prototype.map.call(document.querySelectorAll('.pspDec-emp:checked'), function(c){ return c.value; }),
+          decreeFields: Array.prototype.map.call(document.querySelectorAll('.psp-dec-field:checked'), function(c){ return c.value; }),
+          showProfile: !!(document.getElementById('pspShowProfile')||{}).checked,
+          profileMode: (document.getElementById('pspProfileMode')||{}).value || 'self',
+          profileSelectedCodes: Array.prototype.map.call(document.querySelectorAll('.pspProf-emp:checked'), function(c){ return c.value; }),
+          profileFields: Array.prototype.map.call(document.querySelectorAll('.psp-prof-field:checked'), function(c){ return c.value; })
+        };
+        fetch('/api/admin/portal-view', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify(payload)
+        }).then(function(r){ return r.json(); }).then(function(j){
+          if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'ذخیره شد.'; }
+          else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+        }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
       };
+      var rel = document.getElementById('pspPortalViewReload');
+      if (rel) rel.onclick = loadPortalViewCfg;
     })();
 
     document.getElementById('pspTsLoad').onclick = function() {
@@ -2750,6 +2788,10 @@ async function route(request, env, users, found) {
   if (path.indexOf('/api/state/') === 0) return handleState(request, who, env, path);
   if (path === '/api/payroll') return handlePayroll(request, user);
   if (path === '/api/calc') return handleCalc(request, user);
+  if (path === '/api/admin/portal-view') {
+    if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
+    return handleAdminSavePortalView(request, who, env);
+  }
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
@@ -2789,6 +2831,285 @@ async function route(request, env, users, found) {
   return new Response(await stamp(html, user, env), { status: 200, headers });
 }
 
+
+// ---------- Employee decree & profile (portal view) ----------
+function getPortalViewConfig(obj) {
+  const c = (obj && obj.portalViewConfig) || {};
+  return {
+    showDecree: c.showDecree !== false,
+    decreeMode: c.decreeMode || 'self', // self | self_and_manager | all | selected
+    decreeSelectedCodes: Array.isArray(c.decreeSelectedCodes) ? c.decreeSelectedCodes.map(String) : [],
+    decreeFields: Array.isArray(c.decreeFields) ? c.decreeFields : null, // null = all available
+    showProfile: c.showProfile !== false,
+    profileMode: c.profileMode || 'self',
+    profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
+    profileFields: Array.isArray(c.profileFields) ? c.profileFields : null
+  };
+}
+
+function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees) {
+  const mode = cfg[modeKey] || 'self';
+  const code = String(empCode);
+  if (mode === 'all') return true;
+  if (mode === 'self') return true; // viewer is always self for emp portal; managers handled separately if needed
+  if (mode === 'self_and_manager') return true; // employee always sees own
+  if (mode === 'selected') {
+    const list = cfg[selectedKey] || [];
+    return list.indexOf(code) >= 0 || list.length === 0; // empty selected = treat as none visible unless self always?
+  }
+  return true;
+}
+
+function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
+  const items = [];
+  const code = String(emp.code);
+  const headers = Array.isArray(obj.decreeHeaders) ? obj.decreeHeaders : [];
+  const vals = (obj.decreeValues && obj.decreeValues[code]) || {};
+  const allowMap = {};
+  (obj.allowances || []).forEach(function (a) {
+    if (a && a.name) allowMap[String(a.name).trim()] = a;
+  });
+
+  function push(id, name, amount) {
+    if (allowedFieldIds && allowedFieldIds.length && allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf('decree_all') < 0) {
+      // allow by name match or id
+      const byName = allowedFieldIds.indexOf(name) >= 0;
+      if (!byName && allowedFieldIds.indexOf(id) < 0) return;
+    }
+    const amt = Number(amount) || 0;
+    if (!name) return;
+    items.push({ id: id, name: name, amount: amt });
+  }
+
+  // حقوق پایه
+  if (!allowedFieldIds || !allowedFieldIds.length || allowedFieldIds.indexOf('basic') >= 0 || allowedFieldIds.indexOf('حقوق پایه') >= 0) {
+    push('basic', 'حقوق پایه', emp.basicSalary);
+  }
+
+  // decree headers (انتقال انتخابی)
+  headers.forEach(function (h) {
+    if (!h) return;
+    const id = String(h.id || h.name || '');
+    const name = String(h.name || h.id || '').trim();
+    if (!name) return;
+    if (allowedFieldIds && allowedFieldIds.length) {
+      if (allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf(name) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
+    }
+    const amt = vals[h.id] != null ? vals[h.id] : (vals[name] != null ? vals[name] : 0);
+    push(id, name, amt);
+  });
+
+  // allowances common
+  const allowIds = [
+    { id: 'housing', keys: ['مسکن', 'حق مسکن'] },
+    { id: 'food', keys: ['خواربار', 'بن خواربار'] },
+    { id: 'child', keys: ['اولاد', 'حق اولاد'] },
+    { id: 'marital', keys: ['تأهل', 'تاهل', 'حق تأهل'] },
+    { id: 'seniority', keys: ['سنوات', 'پایه سنوات'] }
+  ];
+  allowIds.forEach(function (spec) {
+    if (allowedFieldIds && allowedFieldIds.length && allowedFieldIds.indexOf(spec.id) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
+    let a = null;
+    for (let i = 0; i < (obj.allowances || []).length; i++) {
+      const x = obj.allowances[i];
+      if (!x || !x.name) continue;
+      if (x.id === spec.id || spec.keys.some(function (k) { return String(x.name).indexOf(k) >= 0; })) { a = x; break; }
+    }
+    if (!a) return;
+    let amt = Number(a.amount) || 0;
+    if (spec.id === 'child') amt = amt * (Number(emp.children) || 0);
+    if (spec.id === 'marital' && !(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
+    if (spec.id === 'seniority') {
+      const empSen = Number(emp.seniorityBase);
+      if (!isNaN(empSen) && emp.seniorityBase !== '' && emp.seniorityBase != null) amt = empSen;
+    }
+    // skip if already in decree headers by same name
+    if (items.some(function (it) { return it.name === a.name; })) return;
+    push(spec.id, a.name, amt);
+  });
+
+  // custom items on employee (non-deduction)
+  (emp.customItems || emp.customs || []).forEach(function (ci, idx) {
+    if (!ci || !ci.name) return;
+    if (ci.isDeduction) return;
+    const n = String(ci.name).trim();
+    if (/^(کسورات|کسر|معوقه)/.test(n)) return;
+    const id = 'custom_' + idx + '_' + n;
+    if (allowedFieldIds && allowedFieldIds.length) {
+      if (allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf(n) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
+    }
+    if (items.some(function (it) { return it.name === n; })) return;
+    push(id, n, ci.amount);
+  });
+
+  return items;
+}
+
+function buildProfileFieldsForEmp(emp, allowedKeys) {
+  const all = [
+    { key: 'fullName', label: 'نام و نام خانوادگی', value: emp.fullName || '' },
+    { key: 'code', label: 'کد پرسنلی', value: emp.code || '' },
+    { key: 'position', label: 'سمت', value: emp.position || '' },
+    { key: 'unit', label: 'واحد', value: emp.unit || '' },
+    { key: 'workplace', label: 'محل خدمت', value: emp.workplace || '' },
+    { key: 'hireDate', label: 'تاریخ استخدام', value: emp.hireDate || '' },
+    { key: 'endDate', label: 'تاریخ پایان', value: emp.endDate || '' },
+    { key: 'contractType', label: 'نوع قرارداد', value: emp.contractType || 'normal' },
+    { key: 'marital', label: 'وضعیت تأهل', value: emp.marital || '' },
+    { key: 'children', label: 'تعداد اولاد', value: emp.children != null ? emp.children : '' },
+    { key: 'bankName', label: 'نام بانک', value: emp.bankName || '' },
+    { key: 'accountNumber', label: 'شماره حساب', value: emp.accountNumber || '' },
+    { key: 'insuranceNo', label: 'شماره بیمه', value: emp.insuranceNo || '' },
+    { key: 'nationalId', label: 'کد ملی', value: emp.nationalId || emp.nationalCode || '' },
+    { key: 'mobile', label: 'موبایل', value: emp.mobile || emp.phone || '' },
+    { key: 'status', label: 'وضعیت', value: emp.status || 'active' }
+  ];
+  if (!allowedKeys || !allowedKeys.length) return all;
+  return all.filter(function (f) { return allowedKeys.indexOf(f.key) >= 0; });
+}
+
+async function handleEmpDecree(request, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfgStore = storeConfig(env);
+  if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfgStore);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
+  const pvc = getPortalViewConfig(gd.obj);
+  if (!pvc.showDecree) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم توسط ادمین غیرفعال است.' });
+  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
+  // selected mode: must be in list
+  if (pvc.decreeMode === 'selected') {
+    const list = pvc.decreeSelectedCodes || [];
+    if (list.length && list.indexOf(String(sess.code)) < 0) {
+      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم برای شما فعال نیست.' });
+    }
+  }
+  const items = buildDecreeItemsForEmp(gd.obj, emp, pvc.decreeFields);
+  let total = 0;
+  items.forEach(function (it) { total += Number(it.amount) || 0; });
+  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total });
+}
+
+async function handleEmpProfile(request, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfgStore = storeConfig(env);
+  if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfgStore);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
+  const pvc = getPortalViewConfig(gd.obj);
+  if (!pvc.showProfile) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات توسط ادمین غیرفعال است.' });
+  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
+  if (pvc.profileMode === 'selected') {
+    const list = pvc.profileSelectedCodes || [];
+    if (list.length && list.indexOf(String(sess.code)) < 0) {
+      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات برای شما فعال نیست.' });
+    }
+  }
+  const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
+  return jsonResponse({ ok: true, fields: fields });
+}
+
+async function handleAdminGetPortalView(request, who, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  if (who.role !== 'admin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfgStore = storeConfig(env);
+  if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfgStore);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const obj = gd.obj || {};
+  const pvc = getPortalViewConfig(obj);
+  // available decree field options from live data
+  const decreeOptions = [];
+  decreeOptions.push({ id: 'basic', name: 'حقوق پایه' });
+  (obj.decreeHeaders || []).forEach(function (h) {
+    if (!h) return;
+    const id = String(h.id || h.name || '');
+    const name = String(h.name || h.id || '').trim();
+    if (name) decreeOptions.push({ id: id, name: name });
+  });
+  (obj.allowances || []).forEach(function (a) {
+    if (!a || !a.name) return;
+    if (String(a.name).startsWith('آیتم جدید')) return;
+    const id = a.id || a.name;
+    if (!decreeOptions.some(function (o) { return o.name === a.name; })) {
+      decreeOptions.push({ id: String(id), name: String(a.name) });
+    }
+  });
+  // unique custom item names across employees
+  const customNames = {};
+  (obj.employees || []).forEach(function (e) {
+    (e.customItems || e.customs || []).forEach(function (ci) {
+      if (!ci || !ci.name || ci.isDeduction) return;
+      const n = String(ci.name).trim();
+      if (/^(کسورات|کسر|معوقه)/.test(n)) return;
+      customNames[n] = true;
+    });
+  });
+  Object.keys(customNames).forEach(function (n) {
+    if (!decreeOptions.some(function (o) { return o.name === n; })) {
+      decreeOptions.push({ id: 'name:' + n, name: n });
+    }
+  });
+  const profileOptions = [
+    { key: 'fullName', label: 'نام و نام خانوادگی' },
+    { key: 'code', label: 'کد پرسنلی' },
+    { key: 'position', label: 'سمت' },
+    { key: 'unit', label: 'واحد' },
+    { key: 'workplace', label: 'محل خدمت' },
+    { key: 'hireDate', label: 'تاریخ استخدام' },
+    { key: 'endDate', label: 'تاریخ پایان' },
+    { key: 'contractType', label: 'نوع قرارداد' },
+    { key: 'marital', label: 'وضعیت تأهل' },
+    { key: 'children', label: 'تعداد اولاد' },
+    { key: 'bankName', label: 'نام بانک' },
+    { key: 'accountNumber', label: 'شماره حساب' },
+    { key: 'insuranceNo', label: 'شماره بیمه' },
+    { key: 'nationalId', label: 'کد ملی' },
+    { key: 'mobile', label: 'موبایل' },
+    { key: 'status', label: 'وضعیت' }
+  ];
+  const employees = (obj.employees || []).filter(function (e) { return e && e.status !== 'inactive'; }).map(function (e) {
+    return { code: String(e.code), fullName: e.fullName || '', unit: e.unit || '' };
+  }).sort(function (a, b) { return String(a.fullName).localeCompare(String(b.fullName), 'fa'); });
+  return jsonResponse({ ok: true, config: pvc, decreeOptions: decreeOptions, profileOptions: profileOptions, employees: employees });
+}
+
+async function handleAdminSavePortalView(request, who, env) {
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  if (who.role !== 'admin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const cfgStore = storeConfig(env);
+  if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfgStore);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const obj = gd.obj || {};
+  obj.portalViewConfig = {
+    showDecree: !!body.showDecree,
+    decreeMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.decreeMode) >= 0 ? body.decreeMode : 'self',
+    decreeSelectedCodes: Array.isArray(body.decreeSelectedCodes) ? body.decreeSelectedCodes.map(String).slice(0, 500) : [],
+    decreeFields: Array.isArray(body.decreeFields) ? body.decreeFields.map(String).slice(0, 200) : [],
+    showProfile: !!body.showProfile,
+    profileMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
+    profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
+    profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : []
+  };
+  // persist
+  const put = await storePutData(cfgStore, gd.version || 0, obj, who.name || 'admin');
+  if (put && put.fail) return storeFailResponse(put.fail);
+  return jsonResponse({ ok: true, config: obj.portalViewConfig });
+}
+
+
 export default {
   async fetch(request, env) {
     let users;
@@ -2803,6 +3124,8 @@ export default {
     const url = new URL(request.url);
 
     // ---- Employee portal routes (no admin session required) ----
+    if (url.pathname === '/api/emp/decree') return handleEmpDecree(request, env);
+    if (url.pathname === '/api/emp/profile') return handleEmpProfile(request, env);
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
     if (url.pathname === '/api/emp/logout') return handleEmpLogout();
     if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
@@ -2967,12 +3290,12 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel hidden" id="panel-decree">
     <h2>حکم کارگزینی</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">اقلام حکم شما (در صورت فعال بودن توسط ادمین نمایش داده می‌شود).</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اقلام حکم شما</p>
     <div id="decreeBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-profile">
     <h2>مشخصات پرسنلی</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی (فیلدهای مجاز توسط ادمین).</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی</p>
     <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-password">
@@ -3003,12 +3326,13 @@ async function loadDecree(){
   try{
     var r=await fetch('/api/emp/decree',{credentials:'same-origin'});
     var j=await r.json();
-    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست یا داده‌ای نیست.')+'</div>'; return; }
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست.')+'</div>'; return; }
     var rows=(j.items||[]).map(function(it){return '<tr><td>'+it.name+'</td><td>'+fmt(it.amount)+'</td></tr>'}).join('');
+    if(!rows) rows='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     var total=j.total!=null?('<div class="net">جمع حکم: '+fmt(j.total)+' ریال</div>'):'';
     box.innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
       '<table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr>'+rows+'</table>'+total+'</div>';
-  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم (API به‌زودی).</div>'; }
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم.</div>'; }
 }
 async function loadProfile(){
   var box=document.getElementById('profileBox'); if(!box) return;
@@ -3017,14 +3341,13 @@ async function loadProfile(){
     var r=await fetch('/api/emp/profile',{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش مشخصات برای شما فعال نیست.')+'</div>'; return; }
-    var labels={fullName:'نام و نام خانوادگی',code:'کد پرسنلی',position:'سمت',unit:'واحد',workplace:'محل خدمت',hireDate:'تاریخ استخدام',contractType:'نوع قرارداد',marital:'وضعیت تأهل',children:'تعداد اولاد',bankName:'نام بانک',accountNumber:'شماره حساب',insuranceNo:'شماره بیمه'};
     var html='<div class="box"><table>';
     (j.fields||[]).forEach(function(f){
-      html+='<tr><td style="width:40%"><b>'+(labels[f.key]||f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
+      html+='<tr><td style="width:40%"><b>'+(f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
     });
     html+='</table></div>';
     box.innerHTML=html;
-  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات (API به‌زودی).</div>'; }
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات.</div>'; }
 }
 var attTypes=[];
 function syncRequestForm(){
