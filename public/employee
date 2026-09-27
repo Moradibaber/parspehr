@@ -110,12 +110,12 @@
   </div>
   <div class="card panel hidden" id="panel-decree">
     <h2>حکم کارگزینی</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">اقلام حکم شما (در صورت فعال بودن توسط ادمین نمایش داده می‌شود).</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اقلام حکم شما</p>
     <div id="decreeBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-profile">
     <h2>مشخصات پرسنلی</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی (فیلدهای مجاز توسط ادمین).</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی</p>
     <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-password">
@@ -146,12 +146,13 @@ async function loadDecree(){
   try{
     var r=await fetch('/api/emp/decree',{credentials:'same-origin'});
     var j=await r.json();
-    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست یا داده‌ای نیست.')+'</div>'; return; }
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست.')+'</div>'; return; }
     var rows=(j.items||[]).map(function(it){return '<tr><td>'+it.name+'</td><td>'+fmt(it.amount)+'</td></tr>'}).join('');
+    if(!rows) rows='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     var total=j.total!=null?('<div class="net">جمع حکم: '+fmt(j.total)+' ریال</div>'):'';
     box.innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
       '<table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr>'+rows+'</table>'+total+'</div>';
-  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم (API به‌زودی).</div>'; }
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم.</div>'; }
 }
 async function loadProfile(){
   var box=document.getElementById('profileBox'); if(!box) return;
@@ -160,14 +161,13 @@ async function loadProfile(){
     var r=await fetch('/api/emp/profile',{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش مشخصات برای شما فعال نیست.')+'</div>'; return; }
-    var labels={fullName:'نام و نام خانوادگی',code:'کد پرسنلی',position:'سمت',unit:'واحد',workplace:'محل خدمت',hireDate:'تاریخ استخدام',contractType:'نوع قرارداد',marital:'وضعیت تأهل',children:'تعداد اولاد',bankName:'نام بانک',accountNumber:'شماره حساب',insuranceNo:'شماره بیمه'};
     var html='<div class="box"><table>';
     (j.fields||[]).forEach(function(f){
-      html+='<tr><td style="width:40%"><b>'+(labels[f.key]||f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
+      html+='<tr><td style="width:40%"><b>'+(f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
     });
     html+='</table></div>';
     box.innerHTML=html;
-  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات (API به‌زودی).</div>'; }
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات.</div>'; }
 }
 var attTypes=[];
 function syncRequestForm(){
