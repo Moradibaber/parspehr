@@ -314,6 +314,17 @@ async function stamp(html, user, env) {
     panel.id = 'panel-portalatt';
     panel.innerHTML =
       '<div class="card">' +
+      '<div class="section-title" style="margin-bottom:10px;">مأموریت / مرخصی و تایم‌شیت</div>' +
+      '<div id="pspSubTabs" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;background:#f0fdfa;padding:6px;border-radius:10px;border:1px solid #99f6e4;">' +
+      '<button type="button" class="btn btn-sm psp-subtab active" data-sub="ts" style="background:#0f766e;color:#fff;">تایم‌شیت و کارکرد</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="types">انواع مرخصی/مأموریت</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="grants">مجوزها</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="reqs">مدیریت درخواست‌ها</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="upload">آپلود فایل کارکرد</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="portalview">نمایش در پرتال کارمند</button>' +
+      '</div>' +
+
+      '<div class="psp-subpanel" id="pspSub-ts">' +
       '<div class="section-title">تایم‌شیت پرتال کارکنان</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:10px;">این گزارش از درخواست‌های تأییدشده پرتال است و فعلاً روی محاسبه حقوق اثر ندارد.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;">' +
@@ -323,12 +334,15 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
       '</div>' +
-      '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید و نمایش بزنید. ستون‌های ورود/خروج بعداً با ثبت ساعت پر می‌شود.</p>' +
+      '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید و نمایش بزنید. ستون‌های ورود/خروج بعداً با ثبت ساعت یا آپلود فایل پر می‌شود.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;">' +
       '<div class="form-group"><label>ماه جاری درخواست‌ها (فقط این ماه قبول می‌شود)</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری</button></div>' +
       '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div>' +
+      '</div>' +
+
+      '<div class="psp-subpanel" id="pspSub-types" style="display:none;">' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند. محدودیت دفعات: یک‌بار استخدام / یک‌بار در سال / در طول سال. گزینه «فقط با مجوز ادمین» یعنی در لیست کارمند نیست مگر ادمین مجوز بدهد.</p>' +
       '<div id="pspTypesList" style="overflow:auto;"></div>' +
@@ -336,8 +350,10 @@ async function stamp(html, user, env) {
       '<button type="button" class="btn btn-outline btn-sm" id="pspTypeAdd">+ نوع جدید</button>' +
       '<button type="button" class="btn btn-primary btn-sm" id="pspTypeSave">ذخیره انواع</button>' +
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '</div>' +
-      '<div class="section-title" style="margin-top:22px;">مجوز مرخصی خاص برای کارمند</div>' +
+      '</div></div>' +
+
+      '<div class="psp-subpanel" id="pspSub-grants" style="display:none;">' +
+      '<div class="section-title">مجوز مرخصی خاص برای کارمند</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">برای انواع «فقط با مجوز ادمین»: بازه تاریخ (از–تا) یا خالی = بدون محدودیت تاریخ.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
@@ -346,7 +362,10 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr" autocomplete="off"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
-      '<div class="section-title" style="margin-top:22px;">همه درخواست‌های مرخصی / مأموریت</div>' +
+      '</div>' +
+
+      '<div class="psp-subpanel" id="pspSub-reqs" style="display:none;">' +
+      '<div class="section-title">همه درخواست‌های مرخصی / مأموریت</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">ادمین می‌تواند در همین جدول درخواست را اضافه، ویرایش یا حذف کند (بدون نیاز به تأیید مدیر). فیلتر سال/ماه را بزنید.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>سال</label><input type="number" id="pspReqYear" value="1405"></div>' +
@@ -358,11 +377,124 @@ async function stamp(html, user, env) {
       '</div></div>' +
       '<div id="pspReqSheet" style="overflow:auto;margin-top:8px;"></div>' +
       '<span id="pspAdmStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div>' +
+
+      '<div class="psp-subpanel" id="pspSub-upload" style="display:none;">' +
+      '<div class="section-title">آپلود فایل کارکرد / تایم‌شیت (TXT یا Excel)</div>' +
+      '<p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;line-height:1.7;">این بخش برای آینده آماده شده است. با آپلود فایل TXT یا Excel می‌توانید ساعت ورود/خروج، اضافه‌کار، شب‌کاری و کارکرد روزانه را به‌صورت انبوه وارد کنید.</p>' +
+      '<div style="border:2px dashed #99f6e4;border-radius:12px;padding:18px;background:#fafafa;margin-bottom:14px;">' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label>سال</label><input type="number" id="pspUpYear" value="1405"></div>' +
+      '<div class="form-group"><label>ماه</label><select id="pspUpMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
+      '<div class="form-group"><label>فایل (TXT / CSV / XLSX)</label><input type="file" id="pspUpFile" accept=".txt,.csv,.xlsx,.xls" disabled></div>' +
+      '</div>' +
+      '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspUpBtn" disabled title="در نسخه بعدی فعال می‌شود">آپلود و پردازش (به‌زودی)</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspUpSample">دانلود نمونه فرمت</button>' +
+      '<span id="pspUpStatus" style="font-size:0.8rem;color:#64748b;">آماده برای توسعه — فعلاً غیرفعال</span>' +
+      '</div></div>' +
+      '<div style="font-size:0.78rem;color:#64748b;line-height:1.6;background:#f0fdfa;padding:10px 12px;border-radius:8px;border:1px solid #99f6e4;">' +
+      '<b>برنامه توسعه:</b><br>۱) پشتیبانی از TXT/CSV<br>۲) پشتیبانی از Excel با نگاشت ستون‌ها<br>۳) پیش‌نمایش + گزارش خطا<br>۴) ثبت در تایم‌شیت روزبه‌روز' +
+      '</div></div>' +
+
+      '<div class="psp-subpanel" id="pspSub-portalview" style="display:none;">' +
+      '<div class="section-title">نمایش در پرتال کارمند (حکم + مشخصات پرسنلی)</div>' +
+      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:12px;line-height:1.6;">این تنظیمات مشخص می‌کند کارمند در پرتال خود چه چیزی ببیند. هر دو بخش اختیاری هستند.</p>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">' +
+      '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">' +
+      '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «حکم»</div>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowDecree" checked> نمایش تب حکم برای کارمند</label>' +
+      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>' +
+      '<select id="pspDecreeWho" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">' +
+      '<option value="self">فقط خود کارمند</option>' +
+      '<option value="self_and_manager">خود + مدیران مستقیم</option>' +
+      '<option value="all_portal">همه کاربران پرتال</option>' +
+      '</select>' +
+      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای حکم:</label>' +
+      '<div style="font-size:0.78rem;max-height:140px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;">' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="basic" checked> حقوق پایه</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="housing" checked> حق مسکن</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="food" checked> بن خواربار</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="child" checked> حق اولاد</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="marital" checked> حق تأهل</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="seniority" checked> پایه سنوات</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="decree_all" checked> سایر آیتم‌های حکم</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-dec-field" value="total"> جمع حکم</label>' +
+      '</div></div>' +
+      '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">' +
+      '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «مشخصات پرسنلی»</div>' +
+      '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowProfile" checked> نمایش تب مشخصات پرسنلی</label>' +
+      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>' +
+      '<select id="pspProfileWho" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">' +
+      '<option value="self">فقط خود کارمند</option>' +
+      '<option value="self_and_manager">خود + مدیران مستقیم</option>' +
+      '</select>' +
+      '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای کارت کارمند:</label>' +
+      '<div style="font-size:0.78rem;max-height:140px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;">' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="fullName" checked> نام و نام خانوادگی</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="code" checked> کد پرسنلی</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="position" checked> سمت</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="unit" checked> واحد</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="workplace" checked> محل خدمت</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="hireDate" checked> تاریخ استخدام</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="contractType" checked> نوع قرارداد</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="marital"> وضعیت تأهل</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="children"> تعداد اولاد</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="bankName"> نام بانک</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="accountNumber"> شماره حساب</label>' +
+      '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-prof-field" value="insuranceNo"> شماره بیمه</label>' +
+      '</div></div></div>' +
+      '<div style="margin-top:12px;display:flex;gap:8px;align-items:center;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspPortalViewSave">ذخیره تنظیمات نمایش پرتال</button>' +
+      '<span id="pspPortalViewStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-top:10px;">ذخیره سرور در مرحله بعد؛ فعلاً در مرورگر نگه داشته می‌شود.</p>' +
+      '</div>' +
+
       '</div>';
+
     // insert panel after other panels
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
     if (host) host.appendChild(panel);
     else document.body.appendChild(panel);
+
+    (function(){
+      function showSub(name){
+        document.querySelectorAll('.psp-subtab').forEach(function(b){
+          var on = b.getAttribute('data-sub') === name;
+          b.classList.toggle('active', on);
+          if (on) { b.style.background = '#0f766e'; b.style.color = '#fff'; b.classList.remove('btn-outline'); }
+          else { b.style.background = ''; b.style.color = ''; b.classList.add('btn-outline'); }
+        });
+        document.querySelectorAll('.psp-subpanel').forEach(function(p){
+          p.style.display = (p.id === 'pspSub-' + name) ? '' : 'none';
+        });
+      }
+      document.querySelectorAll('.psp-subtab').forEach(function(b){
+        b.onclick = function(){ showSub(b.getAttribute('data-sub')); };
+      });
+      var sample = document.getElementById('pspUpSample');
+      if (sample) sample.onclick = function(){
+        alert('نمونه فرمت در نسخه بعدی.\\nپیشنهاد ستون‌ها:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
+      };
+      var saveBtn = document.getElementById('pspPortalViewSave');
+      if (saveBtn) saveBtn.onclick = function(){
+        var st = document.getElementById('pspPortalViewStatus');
+        st.style.color = '#0f766e';
+        st.textContent = 'در حافظه مرورگر ذخیره شد (سرور به‌زودی).';
+        try {
+          var cfg = {
+            showDecree: !!(document.getElementById('pspShowDecree')||{}).checked,
+            decreeWho: (document.getElementById('pspDecreeWho')||{}).value || 'self',
+            decreeFields: Array.prototype.map.call(document.querySelectorAll('.psp-dec-field:checked'), function(c){ return c.value; }),
+            showProfile: !!(document.getElementById('pspShowProfile')||{}).checked,
+            profileWho: (document.getElementById('pspProfileWho')||{}).value || 'self',
+            profileFields: Array.prototype.map.call(document.querySelectorAll('.psp-prof-field:checked'), function(c){ return c.value; })
+          };
+          localStorage.setItem('psp_portal_view_cfg', JSON.stringify(cfg));
+        } catch(e) {}
+      };
+    })();
 
     document.getElementById('pspTsLoad').onclick = function() {
       fetch('/api/admin/timesheet', {
@@ -2789,6 +2921,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <button class="tab" data-tab="mine" onclick="showTab('mine')">درخواست‌های من</button>
       <button class="tab hidden" data-tab="approve" id="tabApprove" onclick="showTab('approve')">نتیجه درخواست‌ها</button>
       <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
+      <button class="tab" data-tab="decree" id="tabDecree" onclick="showTab('decree')">حکم</button>
+      <button class="tab" data-tab="profile" id="tabProfile" onclick="showTab('profile')">مشخصات پرسنلی</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
   </div>
@@ -2831,6 +2965,16 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <button class="primary" onclick="loadTimesheet()">نمایش</button>
     <div class="err" id="tsErr"></div><div id="tsBox"></div>
   </div>
+  <div class="card panel hidden" id="panel-decree">
+    <h2>حکم کارگزینی</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اقلام حکم شما (در صورت فعال بودن توسط ادمین نمایش داده می‌شود).</p>
+    <div id="decreeBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
+  <div class="card panel hidden" id="panel-profile">
+    <h2>مشخصات پرسنلی</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی (فیلدهای مجاز توسط ادمین).</p>
+    <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
   <div class="card panel hidden" id="panel-password">
     <h2>تغییر رمز عبور</h2>
     <label>رمز فعلی</label><input id="oldPass" type="password">
@@ -2850,6 +2994,37 @@ function showTab(name){
   var el=document.getElementById('panel-'+name); if(el) el.classList.remove('hidden');
   if(name==='mine'||name==='approve') loadRequests();
   if(name==='timesheet') loadTimesheet();
+  if(name==='decree') loadDecree();
+  if(name==='profile') loadProfile();
+}
+async function loadDecree(){
+  var box=document.getElementById('decreeBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/decree',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست یا داده‌ای نیست.')+'</div>'; return; }
+    var rows=(j.items||[]).map(function(it){return '<tr><td>'+it.name+'</td><td>'+fmt(it.amount)+'</td></tr>'}).join('');
+    var total=j.total!=null?('<div class="net">جمع حکم: '+fmt(j.total)+' ریال</div>'):'';
+    box.innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
+      '<table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr>'+rows+'</table>'+total+'</div>';
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم (API به‌زودی).</div>'; }
+}
+async function loadProfile(){
+  var box=document.getElementById('profileBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/profile',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش مشخصات برای شما فعال نیست.')+'</div>'; return; }
+    var labels={fullName:'نام و نام خانوادگی',code:'کد پرسنلی',position:'سمت',unit:'واحد',workplace:'محل خدمت',hireDate:'تاریخ استخدام',contractType:'نوع قرارداد',marital:'وضعیت تأهل',children:'تعداد اولاد',bankName:'نام بانک',accountNumber:'شماره حساب',insuranceNo:'شماره بیمه'};
+    var html='<div class="box"><table>';
+    (j.fields||[]).forEach(function(f){
+      html+='<tr><td style="width:40%"><b>'+(labels[f.key]||f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
+    });
+    html+='</table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات (API به‌زودی).</div>'; }
 }
 var attTypes=[];
 function syncRequestForm(){
