@@ -2864,88 +2864,131 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
   const items = [];
   const code = String(emp.code);
   const headers = Array.isArray(obj.decreeHeaders) ? obj.decreeHeaders : [];
-  const vals = (obj.decreeValues && obj.decreeValues[code]) || {};
-  const allowMap = {};
-  (obj.allowances || []).forEach(function (a) {
-    if (a && a.name) allowMap[String(a.name).trim()] = a;
-  });
+  const vals = (obj.decreeValues && (obj.decreeValues[code] || obj.decreeValues[emp.code])) || {};
+  const seenNames = {};
+
+  function isAllowed(id, name) {
+    if (!allowedFieldIds || !allowedFieldIds.length) return true;
+    if (allowedFieldIds.indexOf('decree_all') >= 0) return true;
+    const idS = String(id || '');
+    const nameS = String(name || '').trim();
+    for (let i = 0; i < allowedFieldIds.length; i++) {
+      const a = String(allowedFieldIds[i]);
+      if (a === idS || a === nameS) return true;
+      if (a.indexOf('name:') === 0 && a.slice(5) === nameS) return true;
+      // partial name match for flexibility
+      if (nameS && (a === nameS || nameS.indexOf(a) >= 0 || a.indexOf(nameS) >= 0)) return true;
+    }
+    return false;
+  }
 
   function push(id, name, amount) {
-    if (allowedFieldIds && allowedFieldIds.length && allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf('decree_all') < 0) {
-      // allow by name match or id
-      const byName = allowedFieldIds.indexOf(name) >= 0;
-      if (!byName && allowedFieldIds.indexOf(id) < 0) return;
+    const n = String(name || '').trim();
+    if (!n) return;
+    if (!isAllowed(id, n)) return;
+    if (seenNames[n]) {
+      // keep higher absolute amount if duplicate name
+      const existing = items.find(function (x) { return x.name === n; });
+      if (existing && Math.abs(Number(amount) || 0) > Math.abs(Number(existing.amount) || 0)) {
+        existing.amount = Number(amount) || 0;
+        existing.id = id;
+      }
+      return;
     }
-    const amt = Number(amount) || 0;
-    if (!name) return;
-    items.push({ id: id, name: name, amount: amt });
+    seenNames[n] = true;
+    items.push({ id: String(id || n), name: n, amount: Number(amount) || 0 });
   }
 
-  // حقوق پایه
-  if (!allowedFieldIds || !allowedFieldIds.length || allowedFieldIds.indexOf('basic') >= 0 || allowedFieldIds.indexOf('حقوق پایه') >= 0) {
-    push('basic', 'حقوق پایه', emp.basicSalary);
-  }
+  // 1) حقوق پایه
+  push('basic', 'حقوق پایه', emp.basicSalary);
 
-  // decree headers (انتقال انتخابی)
+  // 2) همه هدرهای حکم (انتقال انتخابی) + مقادیر ذخیره‌شده
   headers.forEach(function (h) {
     if (!h) return;
-    const id = String(h.id || h.name || '');
+    const id = String(h.id != null ? h.id : (h.name || ''));
     const name = String(h.name || h.id || '').trim();
     if (!name) return;
-    if (allowedFieldIds && allowedFieldIds.length) {
-      if (allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf(name) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
+    let amt = 0;
+    if (vals[h.id] != null && vals[h.id] !== '') amt = Number(vals[h.id]) || 0;
+    else if (vals[id] != null && vals[id] !== '') amt = Number(vals[id]) || 0;
+    else if (vals[name] != null && vals[name] !== '') amt = Number(vals[name]) || 0;
+    else {
+      // search any key in vals that matches id or name
+      Object.keys(vals).forEach(function (k) {
+        if (String(k) === id || String(k) === name || String(k) === String(h.id)) {
+          amt = Number(vals[k]) || 0;
+        }
+      });
     }
-    const amt = vals[h.id] != null ? vals[h.id] : (vals[name] != null ? vals[name] : 0);
     push(id, name, amt);
   });
 
-  // allowances common
-  const allowIds = [
-    { id: 'housing', keys: ['مسکن', 'حق مسکن'] },
-    { id: 'food', keys: ['خواربار', 'بن خواربار'] },
-    { id: 'child', keys: ['اولاد', 'حق اولاد'] },
-    { id: 'marital', keys: ['تأهل', 'تاهل', 'حق تأهل'] },
-    { id: 'seniority', keys: ['سنوات', 'پایه سنوات'] }
-  ];
-  allowIds.forEach(function (spec) {
-    if (allowedFieldIds && allowedFieldIds.length && allowedFieldIds.indexOf(spec.id) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
-    let a = null;
-    for (let i = 0; i < (obj.allowances || []).length; i++) {
-      const x = obj.allowances[i];
-      if (!x || !x.name) continue;
-      if (x.id === spec.id || spec.keys.some(function (k) { return String(x.name).indexOf(k) >= 0; })) { a = x; break; }
-    }
-    if (!a) return;
+  // 3) اگر در decreeValues کلیدهایی هست که در headers نیست
+  Object.keys(vals).forEach(function (k) {
+    const nameGuess = String(k);
+    // skip pure numeric if already covered
+    if (seenNames[nameGuess]) return;
+    // try find header by id
+    const h = headers.find(function (x) { return x && (String(x.id) === String(k) || String(x.name) === String(k)); });
+    if (h) return; // already handled
+    const amt = Number(vals[k]) || 0;
+    push(String(k), nameGuess, amt);
+  });
+
+  // 4) همه مزایا (allowances) — نه فقط ۵ مورد ثابت
+  (obj.allowances || []).forEach(function (a) {
+    if (!a || !a.name) return;
+    if (String(a.name).startsWith('آیتم جدید')) return;
+    if (a.fromEmployee) return; // employee-specific handled via custom
+    const id = String(a.id || a.name);
+    const name = String(a.name).trim();
     let amt = Number(a.amount) || 0;
-    if (spec.id === 'child') amt = amt * (Number(emp.children) || 0);
-    if (spec.id === 'marital' && !(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
-    if (spec.id === 'seniority') {
+    // common adjustments
+    if (a.id === 'child' || name.indexOf('اولاد') >= 0) amt = amt * (Number(emp.children) || 0);
+    if (a.id === 'marital' || name.indexOf('تأهل') >= 0 || name.indexOf('تاهل') >= 0) {
+      if (!(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
+    }
+    if (a.id === 'seniority' || name.indexOf('سنوات') >= 0) {
       const empSen = Number(emp.seniorityBase);
       if (!isNaN(empSen) && emp.seniorityBase !== '' && emp.seniorityBase != null) amt = empSen;
     }
-    // skip if already in decree headers by same name
-    if (items.some(function (it) { return it.name === a.name; })) return;
-    push(spec.id, a.name, amt);
+    push(id, name, amt);
   });
 
-  // custom items on employee (non-deduction)
+  // 5) آیتم‌های سفارشی کارمند (غیر کسورات)
   (emp.customItems || emp.customs || []).forEach(function (ci, idx) {
     if (!ci || !ci.name) return;
     if (ci.isDeduction) return;
     const n = String(ci.name).trim();
     if (/^(کسورات|کسر|معوقه)/.test(n)) return;
     const id = 'custom_' + idx + '_' + n;
-    if (allowedFieldIds && allowedFieldIds.length) {
-      if (allowedFieldIds.indexOf(id) < 0 && allowedFieldIds.indexOf(n) < 0 && allowedFieldIds.indexOf('decree_all') < 0) return;
-    }
-    if (items.some(function (it) { return it.name === n; })) return;
     push(id, n, ci.amount);
+    // also allow match via name: prefix
+    if (allowedFieldIds && allowedFieldIds.length && allowedFieldIds.indexOf('name:' + n) >= 0) {
+      // already pushed if isAllowed passed; ensure
+      if (!seenNames[n]) push('name:' + n, n, ci.amount);
+    }
+  });
+
+  // 6) فیلدهای رایج روی خود کارت کارمند اگر مقدار دارند
+  const empDirect = [
+    { id: 'seniorityBase', name: 'پایه سنوات', amount: emp.seniorityBase },
+    { id: 'dailyRate', name: 'نرخ روزانه', amount: emp.dailyRate },
+    { id: 'hourlyRate', name: 'نرخ ساعتی', amount: emp.hourlyRate }
+  ];
+  empDirect.forEach(function (d) {
+    if (d.amount == null || d.amount === '') return;
+    if (seenNames[d.name]) return;
+    push(d.id, d.name, d.amount);
   });
 
   return items;
 }
 
 function buildProfileFieldsForEmp(emp, allowedKeys) {
+  const contractFa = { normal: 'عادی', daily: 'روزمزد', hourly: 'ساعتی' };
+  const maritalFa = { single: 'مجرد', married: 'متأهل', provider: 'معیل' };
+  const statusFa = { active: 'فعال', inactive: 'غیرفعال', sick: 'استعلاجی', suspend: 'تعلیق' };
   const all = [
     { key: 'fullName', label: 'نام و نام خانوادگی', value: emp.fullName || '' },
     { key: 'code', label: 'کد پرسنلی', value: emp.code || '' },
@@ -2954,16 +2997,35 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'workplace', label: 'محل خدمت', value: emp.workplace || '' },
     { key: 'hireDate', label: 'تاریخ استخدام', value: emp.hireDate || '' },
     { key: 'endDate', label: 'تاریخ پایان', value: emp.endDate || '' },
-    { key: 'contractType', label: 'نوع قرارداد', value: emp.contractType || 'normal' },
-    { key: 'marital', label: 'وضعیت تأهل', value: emp.marital || '' },
+    { key: 'contractType', label: 'نوع قرارداد', value: contractFa[emp.contractType] || emp.contractType || 'عادی' },
+    { key: 'marital', label: 'وضعیت تأهل', value: maritalFa[emp.marital] || emp.marital || '' },
     { key: 'children', label: 'تعداد اولاد', value: emp.children != null ? emp.children : '' },
     { key: 'bankName', label: 'نام بانک', value: emp.bankName || '' },
     { key: 'accountNumber', label: 'شماره حساب', value: emp.accountNumber || '' },
     { key: 'insuranceNo', label: 'شماره بیمه', value: emp.insuranceNo || '' },
     { key: 'nationalId', label: 'کد ملی', value: emp.nationalId || emp.nationalCode || '' },
     { key: 'mobile', label: 'موبایل', value: emp.mobile || emp.phone || '' },
-    { key: 'status', label: 'وضعیت', value: emp.status || 'active' }
+    { key: 'status', label: 'وضعیت', value: statusFa[emp.status] || emp.status || 'فعال' },
+    { key: 'managerCode', label: 'کد مدیر سطح ۱', value: emp.managerCode || '' },
+    { key: 'managerCode2', label: 'کد مدیر سطح ۲', value: emp.managerCode2 || '' },
+    { key: 'basicSalary', label: 'حقوق پایه', value: emp.basicSalary != null ? Number(emp.basicSalary).toLocaleString('fa-IR') : '' },
+    { key: 'seniorityBase', label: 'پایه سنوات', value: emp.seniorityBase != null && emp.seniorityBase !== '' ? Number(emp.seniorityBase).toLocaleString('fa-IR') : '' },
+    { key: 'insuranceNo2', label: 'شماره بیمه (ثانویه)', value: emp.insuranceNo2 || '' },
+    { key: 'fatherName', label: 'نام پدر', value: emp.fatherName || '' },
+    { key: 'birthDate', label: 'تاریخ تولد', value: emp.birthDate || '' },
+    { key: 'address', label: 'آدرس', value: emp.address || '' },
+    { key: 'email', label: 'ایمیل', value: emp.email || '' }
   ];
+  // also include any extra keys on emp that look useful (string/number)
+  const skip = { customItems:1, customs:1, portalPassHash:1, portalEnabled:1, loanRemaining:1, monthlyLoan:1, loanLocked:1, password:1 };
+  Object.keys(emp || {}).forEach(function (k) {
+    if (skip[k]) return;
+    if (all.some(function (f) { return f.key === k; })) return;
+    const v = emp[k];
+    if (v == null || v === '') return;
+    if (typeof v === 'object') return;
+    all.push({ key: k, label: k, value: v });
+  });
   if (!allowedKeys || !allowedKeys.length) return all;
   return all.filter(function (f) { return allowedKeys.indexOf(f.key) >= 0; });
 }
@@ -3074,7 +3136,15 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'insuranceNo', label: 'شماره بیمه' },
     { key: 'nationalId', label: 'کد ملی' },
     { key: 'mobile', label: 'موبایل' },
-    { key: 'status', label: 'وضعیت' }
+    { key: 'status', label: 'وضعیت' },
+    { key: 'managerCode', label: 'کد مدیر سطح ۱' },
+    { key: 'managerCode2', label: 'کد مدیر سطح ۲' },
+    { key: 'basicSalary', label: 'حقوق پایه' },
+    { key: 'seniorityBase', label: 'پایه سنوات' },
+    { key: 'fatherName', label: 'نام پدر' },
+    { key: 'birthDate', label: 'تاریخ تولد' },
+    { key: 'address', label: 'آدرس' },
+    { key: 'email', label: 'ایمیل' }
   ];
   const employees = (obj.employees || []).filter(function (e) { return e && e.status !== 'inactive'; }).map(function (e) {
     return { code: String(e.code), fullName: e.fullName || '', unit: e.unit || '' };
