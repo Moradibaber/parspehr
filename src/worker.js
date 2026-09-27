@@ -690,7 +690,10 @@ function isInt(x, lo, hi) { return Number.isInteger(x) && x >= lo && x <= hi; }
 function isNum(x) { return typeof x === 'number' && Number.isFinite(x); }
 
 async function readBody(request) {
-  if (request.method !== 'POST') return { error: jsonResponse({ ok: false, error: 'method_not_allowed' }, 405) };
+  const m = request.method;
+  if (m !== 'POST' && m !== 'PUT' && m !== 'DELETE' && m !== 'PATCH') {
+    return { error: jsonResponse({ ok: false, error: 'method_not_allowed' }, 405) };
+  }
   const site = request.headers.get('Sec-Fetch-Site');
   if (site && site !== 'same-origin') return { error: jsonResponse({ ok: false, error: 'forbidden' }, 403) };
   if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY_BYTES) {
@@ -1854,6 +1857,40 @@ async function handleEmpTimesheet(request, env) {
     return false;
   }));
   const emp = (gd.obj.employees || []).find(e => String(e.code) === code);
+  // day-by-day sheet (same shape as admin Excel-like timesheet)
+  const dim = daysInJalaliMonth(year, month);
+  const dayMap = {};
+  for (let d = 1; d <= dim; d++) {
+    const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    dayMap[dk] = {
+      day: d,
+      date: year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0'),
+      leaveDaily: '',
+      leaveHourly: '',
+      missionDaily: '',
+      missionHourly: '',
+      note: ''
+    };
+  }
+  reqs.forEach(function (x) {
+    const days = x.mode === 'hourly'
+      ? [dateKey(x.startDate)]
+      : listDayKeys(x.startDate, x.endDate || x.startDate);
+    days.forEach(function (dk) {
+      const parts = dk.split('-');
+      if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+      const cell = dayMap[dk];
+      if (!cell) return;
+      const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
+      if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
+      if (x.kind === 'leave' && x.mode === 'hourly') cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+      if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
+      if (x.kind === 'mission' && x.mode === 'hourly') cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+      if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+    });
+  });
+  const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
+
   return jsonResponse({
     ok: true,
     code,
@@ -1864,7 +1901,8 @@ async function handleEmpTimesheet(request, env) {
     hourlyLeave: Number(row.hourlyLeave) || 0,
     otHours: Number(row.otHours) || 0,
     nightHours: Number(row.nightHours) || 0,
-    requests: reqs
+    requests: reqs,
+    daily: { code: code, fullName: emp ? emp.fullName : '', days: dailyDays }
   });
 }
 
@@ -2811,6 +2849,7 @@ function showTab(name){
   document.querySelectorAll('.panel').forEach(function(p){p.classList.add('hidden')});
   var el=document.getElementById('panel-'+name); if(el) el.classList.remove('hidden');
   if(name==='mine'||name==='approve') loadRequests();
+  if(name==='timesheet') loadTimesheet();
 }
 var attTypes=[];
 function syncRequestForm(){
@@ -2967,8 +3006,24 @@ async function loadTimesheet(){
   try{
     var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
     var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
-    var reqRows=(j.requests||[]).map(function(x){var t=(x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه'); var d=x.mode==='hourly'?(x.startDate+' '+x.fromTime+'-'+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:'')); return '<tr><td>'+t+'</td><td>'+d+'</td><td>'+(x.place||'—')+'</td><td>'+(x.reason||'—')+'</td></tr>'}).join('');
-    document.getElementById('tsBox').innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year+'<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th></tr><tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>'+(reqRows?'<h2 style="margin-top:12px">مرخصی/مأموریت تأییدشده</h2><table><tr><th>نوع</th><th>بازه</th><th>محل</th><th>دلیل</th></tr>'+reqRows+'</table>':'')+'</div>';
+    var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
+    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th></tr>';
+    html+='<tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>';
+    if(j.daily&&j.daily.days&&j.daily.days.length){
+      html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
+      html+='<div style="overflow:auto"><table style="font-size:0.78rem;min-width:720px"><thead><tr>';
+      html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>';
+      html+='<th>مأموریت ساعتی</th><th>مأموریت روزانه</th><th>مرخصی ساعتی</th><th>مرخصی روزانه</th><th>توضیح</th>';
+      html+='</tr></thead><tbody>';
+      j.daily.days.forEach(function(d){
+        html+='<tr><td>'+d.date+'</td><td></td><td></td><td></td><td></td>';
+        html+='<td>'+(d.missionHourly||'')+'</td><td>'+(d.missionDaily||'')+'</td>';
+        html+='<td>'+(d.leaveHourly||'')+'</td><td>'+(d.leaveDaily||'')+'</td>';
+        html+='<td>'+(d.note||'')+'</td></tr>';
+      });
+      html+='</tbody></table></div>';
+    }
+    document.getElementById('tsBox').innerHTML=html+'</div>';
   }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
 }
 async function changePass(){
