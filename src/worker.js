@@ -322,6 +322,7 @@ async function stamp(html, user, env) {
       '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="reqs">مدیریت درخواست‌ها</button>' +
       '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="upload">آپلود فایل کارکرد</button>' +
       '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="portalview">نمایش در پرتال کارمند</button>' +
+      '<button type="button" class="btn btn-outline btn-sm psp-subtab" data-sub="contracts">قراردادها</button>' +
       '</div>' +
       '<div class="psp-subpanel" id="pspSub-ts">' +
       '<div class="section-title">تایم‌شیت پرتال کارکنان</div>' +
@@ -387,6 +388,27 @@ async function stamp(html, user, env) {
       '<button type="button" class="btn btn-primary btn-sm" id="pspPortalViewSave">ذخیره تنظیمات</button>' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspPortalViewReload">بروزرسانی لیست‌ها</button>' +
       '<span id="pspPortalViewStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
+      '<div class="psp-subpanel" id="pspSub-contracts" style="display:none;">' +
+      '<div class="section-title">قراردادهای کارکنان</div>' +
+      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;line-height:1.6;">تولید قرارداد فردی یا گروهی. فقط پس از <b>تأیید ادمین</b> محاسبه حقوق مجاز است. حذف نیاز به دو بار تأیید دارد.</p>' +
+      '<div class="form-grid" style="margin-bottom:10px;">' +
+      '<div class="form-group"><label>کد پرسنلی (چند نفر: با ویرگول)</label><input id="pspCtrCode" placeholder="1001 یا 1001,1002" autocomplete="off"></div>' +
+      '<div class="form-group"><label>از تاریخ</label><input id="pspCtrFrom" placeholder="1405/01/01" dir="ltr"></div>' +
+      '<div class="form-group"><label>تا تاریخ</label><input id="pspCtrTo" placeholder="1405/12/29" dir="ltr"></div>' +
+      '<div class="form-group"><label>نوع</label><select id="pspCtrType"><option value="fixed">مدت‌موقت</option><option value="permanent">دائم</option><option value="hourly">ساعتی</option><option value="daily">روزمزد</option><option value="other">سایر</option></select></div>' +
+      '<div class="form-group"><label>توضیح</label><input id="pspCtrNote" placeholder="اختیاری"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspCtrCreate">صدور قرارداد</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspCtrLoad">بارگذاری لیست</button></div></div>' +
+      '<div style="margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:0.8rem;">' +
+      '<label><input type="checkbox" id="pspCtrShowDurDef" checked> نمایش مدت به کارمند (پیش‌فرض)</label>' +
+      '<select id="pspCtrFilter"><option value="all">همه</option><option value="active">جاری</option><option value="pending">منتظر تأیید</option><option value="expired">پایان‌یافته</option><option value="unapproved">بدون تأیید حقوق</option></select>' +
+      '</div>' +
+      '<div id="pspCtrList" style="overflow:auto;max-height:420px;"></div>' +
+      '<span id="pspCtrStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '<div style="margin-top:12px;padding:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:0.78rem;color:#9a3412;">' +
+      'محاسبه حقوق فقط برای قرارداد <b>تأییدشده</b> مجاز است. رکوردهای تأییدنشده در فیلتر «بدون تأیید حقوق» دیده می‌شوند.' +
+      '</div></div>' +
       '</div>';
 
     // insert panel after other panels
@@ -406,6 +428,7 @@ async function stamp(html, user, env) {
           p.style.display = (p.id === 'pspSub-' + name) ? '' : 'none';
         });
         if (name === 'portalview') loadPortalViewCfg();
+        if (name === 'contracts') loadContracts();
       }
       document.querySelectorAll('.psp-subtab').forEach(function(b){
         b.onclick = function(){ showSub(b.getAttribute('data-sub')); };
@@ -530,9 +553,122 @@ async function stamp(html, user, env) {
           else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
         }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
       };
+      
       var rel = document.getElementById('pspPortalViewReload');
       if (rel) rel.onclick = loadPortalViewCfg;
+
+      // ---- Contracts ----
+      function ctrTypeFa(t){
+        return ({fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'})[t]||t||'—';
+      }
+      function ctrStatusFa(c){
+        if (c.adminApproved) {
+          if (c.status === 'expired' || c.status === 'terminated') return '<span style="color:#b45309">پایان‌یافته</span>';
+          return '<span style="color:#15803d">تأییدشده / جاری</span>';
+        }
+        return '<span style="color:#b91c1c">منتظر تأیید ادمین</span>';
+      }
+      function loadContracts(){
+        var st = document.getElementById('pspCtrStatus');
+        if (st) st.textContent = 'در حال بارگذاری…';
+        var filter = (document.getElementById('pspCtrFilter')||{}).value || 'all';
+        fetch('/api/admin/contracts?filter=' + encodeURIComponent(filter), { credentials:'same-origin' })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (!j.ok) { if (st) st.textContent = j.message||j.error||'خطا'; return; }
+            renderContracts(j.contracts||[]);
+            if (st) st.textContent = (j.contracts||[]).length + ' قرارداد';
+          }).catch(function(){ if (st) st.textContent = 'خطا در ارتباط'; });
+      }
+      function renderContracts(list){
+        var box = document.getElementById('pspCtrList');
+        if (!box) return;
+        if (!list.length) { box.innerHTML = '<p style="font-size:0.85rem;color:#64748b;">قراردادی ثبت نشده.</p>'; return; }
+        var html = '<table style="font-size:0.75rem;min-width:960px;"><thead><tr>'+
+          '<th>کد</th><th>نام</th><th>نوع</th><th>از</th><th>تا</th><th>وضعیت</th><th>محاسبه حقوق</th><th>نمایش مدت به کارمند</th><th>فایل امضا</th><th>عملیات</th></tr></thead><tbody>';
+        list.forEach(function(c){
+          html += '<tr data-id="'+c.id+'">'+
+            '<td>'+c.empCode+'</td><td>'+(c.empName||'')+'</td><td>'+ctrTypeFa(c.type)+'</td>'+
+            '<td dir="ltr">'+(c.startDate||'')+'</td><td dir="ltr">'+(c.endDate||'')+'</td>'+
+            '<td>'+ctrStatusFa(c)+'</td>'+
+            '<td>'+(c.adminApproved?'<span style="color:#15803d">مجاز</span>':'<span style="color:#b91c1c">غیرمجاز</span>')+'</td>'+
+            '<td style="text-align:center;"><input type="checkbox" class="psp-ctr-showdur" data-id="'+c.id+'"'+(c.showDurationToEmployee?' checked':'')+'></td>'+
+            '<td style="font-size:0.72rem;">'+(c.signedFileName?('✓ '+c.signedFileName):'—')+'</td>'+
+            '<td style="white-space:nowrap;">'+
+              (c.adminApproved?'':'<button type="button" class="btn btn-primary btn-sm psp-ctr-approve" data-id="'+c.id+'">تأیید حقوق</button> ')+
+              (c.adminApproved?'<button type="button" class="btn btn-outline btn-sm psp-ctr-revoke" data-id="'+c.id+'">لغو تأیید</button> ':'')+
+              '<button type="button" class="btn btn-outline btn-sm psp-ctr-del" data-id="'+c.id+'" style="color:#b91c1c;">حذف</button>'+
+            '</td></tr>';
+        });
+        html += '</tbody></table>';
+        box.innerHTML = html;
+        box.querySelectorAll('.psp-ctr-approve').forEach(function(b){
+          b.onclick = function(){ ctrAction(b.getAttribute('data-id'), 'approve'); };
+        });
+        box.querySelectorAll('.psp-ctr-revoke').forEach(function(b){
+          b.onclick = function(){ if(confirm('لغو تأیید محاسبه حقوق؟')) ctrAction(b.getAttribute('data-id'), 'revoke'); };
+        });
+        box.querySelectorAll('.psp-ctr-del').forEach(function(b){
+          b.onclick = function(){
+            var id = b.getAttribute('data-id');
+            if (!confirm('حذف قرارداد؟ (تأیید ۱ از ۲)')) return;
+            if (!confirm('آیا مطمئن هستید؟ این عمل قابل بازگشت نیست. (تأیید ۲ از ۲)')) return;
+            ctrAction(id, 'delete');
+          };
+        });
+        box.querySelectorAll('.psp-ctr-showdur').forEach(function(c){
+          c.onchange = function(){
+            fetch('/api/admin/contracts', {
+              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+              body: JSON.stringify({ action:'set_show_duration', id: c.getAttribute('data-id'), showDurationToEmployee: !!c.checked })
+            }).then(function(r){return r.json();}).then(function(j){
+              var st=document.getElementById('pspCtrStatus');
+              if (st) st.textContent = j.ok ? 'ذخیره شد' : (j.message||'خطا');
+            });
+          };
+        });
+      }
+      function ctrAction(id, action){
+        fetch('/api/admin/contracts', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+          body: JSON.stringify({ action: action, id: id })
+        }).then(function(r){return r.json();}).then(function(j){
+          var st=document.getElementById('pspCtrStatus');
+          if (!j.ok) { if(st) st.textContent = j.message||j.error||'خطا'; return; }
+          if (st) st.textContent = action==='delete'?'حذف شد.':(action==='approve'?'تأیید شد.':'انجام شد.');
+          loadContracts();
+        });
+      }
+      var ctrCreate = document.getElementById('pspCtrCreate');
+      if (ctrCreate) ctrCreate.onclick = function(){
+        var codes = (document.getElementById('pspCtrCode').value||'').split(/[,،\s]+/).map(function(s){return s.trim();}).filter(Boolean);
+        if (!codes.length) { alert('حداقل یک کد پرسنلی وارد کنید.'); return; }
+        var body = {
+          action: 'create',
+          codes: codes,
+          startDate: (document.getElementById('pspCtrFrom').value||'').trim(),
+          endDate: (document.getElementById('pspCtrTo').value||'').trim(),
+          type: document.getElementById('pspCtrType').value,
+          note: (document.getElementById('pspCtrNote').value||'').trim(),
+          showDurationToEmployee: !!(document.getElementById('pspCtrShowDurDef')||{}).checked
+        };
+        if (!body.startDate) { alert('تاریخ شروع الزامی است.'); return; }
+        fetch('/api/admin/contracts', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+          body: JSON.stringify(body)
+        }).then(function(r){return r.json();}).then(function(j){
+          var st=document.getElementById('pspCtrStatus');
+          if (!j.ok) { if(st) st.textContent = j.message||j.error||'خطا'; alert(j.message||'خطا'); return; }
+          if (st) st.textContent = (j.created||0)+' قرارداد ایجاد شد (منتظر تأیید ادمین برای محاسبه حقوق).';
+          loadContracts();
+        });
+      };
+      var ctrLoad = document.getElementById('pspCtrLoad');
+      if (ctrLoad) ctrLoad.onclick = loadContracts;
+      var ctrFilter = document.getElementById('pspCtrFilter');
+      if (ctrFilter) ctrFilter.onchange = loadContracts;
     })();
+
 
     document.getElementById('pspTsLoad').onclick = function() {
       fetch('/api/admin/timesheet', {
@@ -972,6 +1108,8 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
         if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
+        if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
+        if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
       }
     }
   } catch (e) { /* non-fatal */ }
@@ -1871,7 +2009,12 @@ async function handleEmpCreateRequest(request, env) {
     };
     if (grantId) {
       const g = gd.obj.attendanceGrants.find(function (x) { return x.id === grantId; });
-      if (g) g.usedRequestId = req.id;
+      if (g) {
+        g.usedRequestId = req.id; // hide from list while pending approval
+        g.reservedRequestId = req.id;
+        g.consumed = false;
+      }
+      req.grantId = grantId;
     }
     gd.obj.attendanceRequests.unshift(req);
     // keep last 2000
@@ -1979,6 +2122,27 @@ async function handleEmpDecideRequest(request, env) {
     } else {
       return jsonResponse({ ok: false, error: 'already_decided', message: 'این درخواست در وضعیت فعلی برای شما قابل تصمیم‌گیری نیست.' }, 400);
     }
+    
+    // consume / restore admin grant linked to this request
+    if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+    const linkedGrant = gd.obj.attendanceGrants.find(function (g) {
+      return g && (String(g.usedRequestId) === String(req.id) || (req.grantId && String(g.id) === String(req.grantId)));
+    });
+    if (linkedGrant) {
+      if (req.status === 'approved') {
+        linkedGrant.usedRequestId = req.id;
+        linkedGrant.consumed = true;
+        linkedGrant.consumedAt = new Date().toISOString();
+        linkedGrant.consumedBy = sess.code;
+      } else if (req.status === 'rejected') {
+        // return grant to employee so they can use it again
+        linkedGrant.usedRequestId = null;
+        linkedGrant.consumed = false;
+        linkedGrant.consumedAt = '';
+        linkedGrant.reservedRequestId = null;
+      }
+    }
+
     const put = await storePutData(cfg, gd.version, gd.obj, 'mgr:' + sess.code);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
@@ -2396,7 +2560,7 @@ async function handleEmpAttendanceTypes(request, env) {
   let types = (gd.obj && gd.obj.attendanceTypes) || [];
   if (!types.length) types = defaultAttendanceTypes();
   const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
-    return String(g.empCode) === String(sess.code) && !g.usedRequestId;
+    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId;
   });
   // hide admin-grant types unless employee has an open grant
   const visible = types.filter(function (t) {
@@ -2788,6 +2952,8 @@ async function route(request, env, users, found) {
   if (path.indexOf('/api/state/') === 0) return handleState(request, who, env, path);
   if (path === '/api/payroll') return handlePayroll(request, user);
   if (path === '/api/calc') return handleCalc(request, user);
+  if (path === '/api/admin/contracts') return handleAdminContracts(request, who, env);
+  if (path === '/api/admin/payroll-contract-check') return handleAdminPayrollContractCheck(request, who, env);
   if (path === '/api/admin/portal-view') {
     if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
     return handleAdminSavePortalView(request, who, env);
@@ -3180,6 +3346,223 @@ async function handleAdminSavePortalView(request, who, env) {
 }
 
 
+
+// ---------- Contracts ----------
+function contractIsExpired(c, todayYMD) {
+  if (!c || !c.endDate) return false;
+  if (c.status === 'terminated' || c.status === 'expired') return true;
+  // simple string compare for Jalali yyyy/mm/dd
+  const a = String(c.endDate).replace(/-/g, '/');
+  const b = String(todayYMD || '').replace(/-/g, '/');
+  if (!b) return false;
+  return a < b;
+}
+
+function todayJalaliApprox() {
+  // fallback: leave empty — client filter uses status; server marks expired when endDate past stored flag
+  return '';
+}
+
+async function handleAdminContracts(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  if (request.method === 'GET') {
+    const url = new URL(request.url);
+    const filter = url.searchParams.get('filter') || 'all';
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    let list = (gd.obj && gd.obj.contracts) || [];
+    // refresh expired flag
+    list = list.map(function (c) {
+      const copy = Object.assign({}, c);
+      if (copy.endDate && copy.adminApproved && copy.status !== 'terminated') {
+        // keep status; client can still filter
+      }
+      return copy;
+    });
+    if (filter === 'pending' || filter === 'unapproved') list = list.filter(function (c) { return !c.adminApproved; });
+    else if (filter === 'active') list = list.filter(function (c) { return c.adminApproved && c.status !== 'expired' && c.status !== 'terminated'; });
+    else if (filter === 'expired') list = list.filter(function (c) { return c.status === 'expired' || c.status === 'terminated'; });
+    return jsonResponse({ ok: true, contracts: list });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const action = String(body.action || 'create');
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!Array.isArray(gd.obj.contracts)) gd.obj.contracts = [];
+
+    if (action === 'create') {
+      const codes = Array.isArray(body.codes) ? body.codes.map(String) : [];
+      if (!codes.length) return jsonResponse({ ok: false, message: 'کد پرسنلی الزامی است.' }, 400);
+      const startDate = String(body.startDate || '').trim();
+      const endDate = String(body.endDate || '').trim();
+      if (!startDate) return jsonResponse({ ok: false, message: 'تاریخ شروع الزامی است.' }, 400);
+      const type = String(body.type || 'fixed');
+      const note = String(body.note || '').trim();
+      const showDur = body.showDurationToEmployee !== false;
+      let created = 0;
+      const missing = [];
+      codes.forEach(function (code) {
+        const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(code); });
+        if (!emp) { missing.push(code); return; }
+        gd.obj.contracts.unshift({
+          id: 'ctr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+          empCode: String(emp.code),
+          empName: emp.fullName || '',
+          startDate: startDate,
+          endDate: endDate,
+          type: type,
+          note: note,
+          status: 'pending',
+          adminApproved: false,
+          adminApprovedAt: '',
+          adminApprovedBy: '',
+          showDurationToEmployee: showDur,
+          signedFileName: '',
+          signedUploadedAt: '',
+          createdAt: new Date().toISOString(),
+          createdBy: who.name
+        });
+        created++;
+      });
+      if (gd.obj.contracts.length > 5000) gd.obj.contracts.length = 5000;
+      const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+      if (put.fail) return storeFailResponse(put.fail);
+      if (put.conflict) continue;
+      return jsonResponse({ ok: true, created: created, missing: missing });
+    }
+
+    const id = String(body.id || '');
+    const ctr = gd.obj.contracts.find(function (c) { return c.id === id; });
+    if (!ctr && action !== 'create') return jsonResponse({ ok: false, message: 'قرارداد یافت نشد.' }, 404);
+
+    if (action === 'approve') {
+      ctr.adminApproved = true;
+      ctr.status = 'active';
+      ctr.adminApprovedAt = new Date().toISOString();
+      ctr.adminApprovedBy = who.name;
+    } else if (action === 'revoke') {
+      ctr.adminApproved = false;
+      ctr.status = 'pending';
+      ctr.adminApprovedAt = '';
+      ctr.adminApprovedBy = '';
+    } else if (action === 'delete') {
+      gd.obj.contracts = gd.obj.contracts.filter(function (c) { return c.id !== id; });
+    } else if (action === 'set_show_duration') {
+      ctr.showDurationToEmployee = !!body.showDurationToEmployee;
+    } else if (action === 'mark_expired') {
+      ctr.status = 'expired';
+    } else {
+      return jsonResponse({ ok: false, message: 'عملیات نامعتبر' }, 400);
+    }
+
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleEmpContracts(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const list = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
+      return String(c.empCode) === String(sess.code);
+    }).map(function (c) {
+      const out = {
+        id: c.id,
+        type: c.type,
+        status: c.status,
+        adminApproved: !!c.adminApproved,
+        signedFileName: c.signedFileName || '',
+        note: c.note || '',
+        showDuration: !!c.showDurationToEmployee
+      };
+      if (c.showDurationToEmployee) {
+        out.startDate = c.startDate || '';
+        out.endDate = c.endDate || '';
+      }
+      return out;
+    });
+    return jsonResponse({ ok: true, contracts: list });
+  }
+
+  // POST: upload signed metadata (filename + optional small base64)
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const id = String(r.body.id || '');
+  const fileName = String(r.body.fileName || '').trim().slice(0, 200);
+  const fileData = String(r.body.fileData || ''); // data URL optional, size-limited
+  if (!id || !fileName) return jsonResponse({ ok: false, message: 'شناسه و نام فایل الزامی است.' }, 400);
+  if (fileData && fileData.length > 400000) {
+    return jsonResponse({ ok: false, message: 'حجم فایل زیاد است (حداکثر حدود ۳۰۰KB).' }, 400);
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.contracts)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const ctr = gd.obj.contracts.find(function (c) {
+      return c.id === id && String(c.empCode) === String(sess.code);
+    });
+    if (!ctr) return jsonResponse({ ok: false, message: 'قرارداد یافت نشد.' }, 404);
+    ctr.signedFileName = fileName;
+    ctr.signedUploadedAt = new Date().toISOString();
+    if (fileData) ctr.signedFileData = fileData;
+    const put = await storePutData(cfg, gd.version, gd.obj, 'emp:' + sess.code);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminPayrollContractCheck(request, who, env) {
+  // list employees without approved active contract (for calc warning)
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const emps = (gd.obj && gd.obj.employees) || [];
+  const contracts = (gd.obj && gd.obj.contracts) || [];
+  const unapproved = [];
+  emps.forEach(function (e) {
+    if (e.status === 'inactive') return;
+    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
+    const ok = mine.some(function (c) { return c.adminApproved && c.status !== 'terminated'; });
+    if (!ok) {
+      unapproved.push({
+        code: e.code,
+        fullName: e.fullName || '',
+        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
+      });
+    }
+  });
+  return jsonResponse({ ok: true, unapproved: unapproved });
+}
+
+
 export default {
   async fetch(request, env) {
     let users;
@@ -3194,6 +3577,7 @@ export default {
     const url = new URL(request.url);
 
     // ---- Employee portal routes (no admin session required) ----
+    if (url.pathname === '/api/emp/contracts') return handleEmpContracts(request, env);
     if (url.pathname === '/api/emp/decree') return handleEmpDecree(request, env);
     if (url.pathname === '/api/emp/profile') return handleEmpProfile(request, env);
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
@@ -3316,6 +3700,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
       <button class="tab" data-tab="decree" id="tabDecree" onclick="showTab('decree')">حکم</button>
       <button class="tab" data-tab="profile" id="tabProfile" onclick="showTab('profile')">مشخصات پرسنلی</button>
+      <button class="tab" data-tab="contracts" id="tabContracts" onclick="showTab('contracts')">قراردادها</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
   </div>
@@ -3368,6 +3753,11 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی</p>
     <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
+  <div class="card panel hidden" id="panel-contracts">
+    <h2>قراردادهای من</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">مدت قرارداد فقط در صورت مجاز بودن توسط ادمین نمایش داده می‌شود. می‌توانید فایل قرارداد امضاشده را بارگذاری کنید.</p>
+    <div id="contractsBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
   <div class="card panel hidden" id="panel-password">
     <h2>تغییر رمز عبور</h2>
     <label>رمز فعلی</label><input id="oldPass" type="password">
@@ -3389,7 +3779,53 @@ function showTab(name){
   if(name==='timesheet') loadTimesheet();
   if(name==='decree') loadDecree();
   if(name==='profile') loadProfile();
+  if(name==='contracts') loadContractsEmp();
 }
+async function loadContractsEmp(){
+  var box=document.getElementById('contractsBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/contracts',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var list=j.contracts||[];
+    if(!list.length){ box.innerHTML='<div class="sub">قراردادی برای شما ثبت نشده.</div>'; return; }
+    var typeFa={fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'};
+    var html='';
+    list.forEach(function(c){
+      html+='<div class="box" style="margin-bottom:10px;">';
+      html+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>'+(typeFa[c.type]||c.type)+'</b>';
+      html+=(c.adminApproved?'<span class="badge b-approved">تأیید حقوق</span>':'<span class="badge b-pending">منتظر تأیید</span>');
+      html+='</div>';
+      if(c.showDuration){ html+='<div class="meta" style="margin-top:6px;">مدت: <span dir="ltr">'+(c.startDate||'')+(c.endDate?' تا '+c.endDate:'')+'</span></div>'; }
+      else { html+='<div class="meta" style="margin-top:6px;color:#64748b;">مدت قرارداد برای شما قابل مشاهده نیست.</div>'; }
+      if(c.note) html+='<div class="meta">توضیح: '+c.note+'</div>';
+      html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+(c.signedFileName||'—')+'</div>';
+      html+='<div style="margin-top:8px;"><label style="font-size:0.78rem;">آپلود قرارداد امضاشده</label>';
+      html+='<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" data-ctr="'+c.id+'" class="ctr-file" style="font-size:0.78rem;margin-top:4px;"></div>';
+      html+='</div>';
+    });
+    box.innerHTML=html;
+    box.querySelectorAll('.ctr-file').forEach(function(inp){
+      inp.onchange=function(){
+        var f=inp.files&&inp.files[0]; if(!f) return;
+        if(f.size>300000){ alert('حداکثر حجم حدود ۳۰۰KB'); return; }
+        var reader=new FileReader();
+        reader.onload=async function(){
+          try{
+            var rr=await fetch('/api/emp/contracts',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+              body:JSON.stringify({id:inp.getAttribute('data-ctr'),fileName:f.name,fileData:reader.result})});
+            var jj=await rr.json();
+            if(!jj.ok){ alert(jj.message||'خطا'); return; }
+            alert('فایل ثبت شد.'); loadContractsEmp();
+          }catch(e){ alert('خطا در ارسال'); }
+        };
+        reader.readAsDataURL(f);
+      };
+    });
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
+}
+
 async function loadDecree(){
   var box=document.getElementById('decreeBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
