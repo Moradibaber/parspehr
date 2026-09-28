@@ -388,27 +388,42 @@ async function stamp(html, user, env) {
       '<button type="button" class="btn btn-primary btn-sm" id="pspPortalViewSave">ذخیره تنظیمات</button>' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspPortalViewReload">بروزرسانی لیست‌ها</button>' +
       '<span id="pspPortalViewStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
+      
       '<div class="psp-subpanel" id="pspSub-contracts" style="display:none;">' +
       '<div class="section-title">قراردادهای کارکنان</div>' +
-      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;line-height:1.6;">تولید قرارداد فردی یا گروهی. فقط پس از <b>تأیید ادمین</b> محاسبه حقوق مجاز است. حذف نیاز به دو بار تأیید دارد.</p>' +
+      '<p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;line-height:1.6;">صدور قرارداد فردی/گروهی با انتخاب از لیست. آپلود قرارداد امضاشده فقط توسط <b>ادمین</b> است. مشاهده توسط کارمند اختیاری است.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;">' +
-      '<div class="form-group"><label>کد پرسنلی (چند نفر: با ویرگول)</label><input id="pspCtrCode" placeholder="1001 یا 1001,1002" autocomplete="off"></div>' +
       '<div class="form-group"><label>از تاریخ</label><input id="pspCtrFrom" placeholder="1405/01/01" dir="ltr"></div>' +
       '<div class="form-group"><label>تا تاریخ</label><input id="pspCtrTo" placeholder="1405/12/29" dir="ltr"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspCtrType"><option value="fixed">مدت‌موقت</option><option value="permanent">دائم</option><option value="hourly">ساعتی</option><option value="daily">روزمزد</option><option value="other">سایر</option></select></div>' +
       '<div class="form-group"><label>توضیح</label><input id="pspCtrNote" placeholder="اختیاری"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;flex-wrap:wrap;">' +
-      '<button type="button" class="btn btn-primary btn-sm" id="pspCtrCreate">صدور قرارداد</button>' +
-      '<button type="button" class="btn btn-outline btn-sm" id="pspCtrLoad">بارگذاری لیست</button></div></div>' +
+      '</div>' +
       '<div style="margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:0.8rem;">' +
-      '<label><input type="checkbox" id="pspCtrShowDurDef" checked> نمایش مدت به کارمند (پیش‌فرض)</label>' +
+      '<label><input type="checkbox" id="pspCtrShowDurDef" checked> نمایش مدت قرارداد به کارمند (پیش‌فرض)</label>' +
+      '<label><input type="checkbox" id="pspCtrVisibleDef" checked> قابل مشاهده بودن قرارداد در پرتال کارمند (پیش‌فرض)</label>' +
+      '</div>' +
+      '<div style="margin-bottom:10px;border:1px solid #99f6e4;border-radius:10px;padding:10px;background:#fafafa;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">' +
+      '<b style="color:#0f766e;font-size:0.85rem;">انتخاب کارکنان</b>' +
+      '<span style="font-size:0.78rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      '<input id="pspCtrEmpSearch" placeholder="جستجوی نام یا کد…" style="padding:4px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;min-width:140px;">' +
+      '<label><input type="checkbox" id="pspCtrEmpAll"> انتخاب همه (فیلترشده)</label>' +
+      '<label style="cursor:pointer;color:#0f766e;"><input type="file" id="pspCtrExcel" accept=".xlsx,.xls,.csv,.txt" style="display:none;"> بارگذاری لیست از اکسل/CSV</label>' +
+      '</span></div>' +
+      '<div id="pspCtrEmpList" style="max-height:200px;overflow:auto;font-size:0.78rem;"></div>' +
+      '<div style="font-size:0.72rem;color:#64748b;margin-top:6px;">فرمت اکسل/CSV: ستون اول کد پرسنلی (یا ستون‌های code / کد). پس از بارگذاری همان افراد تیک می‌خورند.</div>' +
+      '</div>' +
+      '<div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspCtrCreate">صدور قرارداد برای انتخاب‌شده‌ها</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspCtrLoad">بارگذاری لیست قراردادها</button>' +
       '<select id="pspCtrFilter"><option value="all">همه</option><option value="active">جاری</option><option value="pending">منتظر تأیید</option><option value="expired">پایان‌یافته</option><option value="unapproved">بدون تأیید حقوق</option></select>' +
       '</div>' +
       '<div id="pspCtrList" style="overflow:auto;max-height:420px;"></div>' +
       '<span id="pspCtrStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '<div style="margin-top:12px;padding:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:0.78rem;color:#9a3412;">' +
-      'محاسبه حقوق فقط برای قرارداد <b>تأییدشده</b> مجاز است. رکوردهای تأییدنشده در فیلتر «بدون تأیید حقوق» دیده می‌شوند.' +
+      'محاسبه حقوق فقط برای قرارداد <b>تأییدشده</b> مجاز است. آپلود فایل امضا فقط از همین صفحه توسط ادمین انجام می‌شود.' +
       '</div></div>' +
+
       '</div>';
 
     // insert panel after other panels
@@ -428,7 +443,7 @@ async function stamp(html, user, env) {
           p.style.display = (p.id === 'pspSub-' + name) ? '' : 'none';
         });
         if (name === 'portalview') loadPortalViewCfg();
-        if (name === 'contracts') loadContracts();
+        if (name === 'contracts') { loadCtrEmployees(); loadContracts(); }
       }
       document.querySelectorAll('.psp-subtab').forEach(function(b){
         b.onclick = function(){ showSub(b.getAttribute('data-sub')); };
@@ -557,7 +572,9 @@ async function stamp(html, user, env) {
       var rel = document.getElementById('pspPortalViewReload');
       if (rel) rel.onclick = loadPortalViewCfg;
 
+      
       // ---- Contracts ----
+      window.__pspCtrEmps = [];
       function ctrTypeFa(t){
         return ({fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'})[t]||t||'—';
       }
@@ -567,6 +584,39 @@ async function stamp(html, user, env) {
           return '<span style="color:#15803d">تأییدشده / جاری</span>';
         }
         return '<span style="color:#b91c1c">منتظر تأیید ادمین</span>';
+      }
+      function loadCtrEmployees(){
+        fetch('/api/admin/portal-view', { credentials:'same-origin' })
+          .then(function(r){ return r.json(); })
+          .then(function(j){
+            if (!j.ok) return;
+            window.__pspCtrEmps = j.employees || [];
+            renderCtrEmpList();
+          }).catch(function(){});
+      }
+      function renderCtrEmpList(){
+        var box = document.getElementById('pspCtrEmpList');
+        if (!box) return;
+        var q = ((document.getElementById('pspCtrEmpSearch')||{}).value || '').trim().toLowerCase();
+        var list = window.__pspCtrEmps || [];
+        if (q) {
+          list = list.filter(function(e){
+            return String(e.code).toLowerCase().indexOf(q) >= 0 || String(e.fullName||'').toLowerCase().indexOf(q) >= 0;
+          });
+        }
+        if (!list.length) {
+          box.innerHTML = '<div style="color:#64748b;">کارمندی یافت نشد.</div>';
+          return;
+        }
+        var html = '';
+        list.forEach(function(e){
+          html += '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-ctr-emp" value="'+e.code+'"> '+
+            (e.fullName||'')+' <span style="color:#64748b;">('+e.code+')'+(e.unit?' — '+e.unit:'')+'</span></label>';
+        });
+        box.innerHTML = html;
+      }
+      function selectedCtrCodes(){
+        return Array.prototype.map.call(document.querySelectorAll('.psp-ctr-emp:checked'), function(c){ return c.value; });
       }
       function loadContracts(){
         var st = document.getElementById('pspCtrStatus');
@@ -584,8 +634,9 @@ async function stamp(html, user, env) {
         var box = document.getElementById('pspCtrList');
         if (!box) return;
         if (!list.length) { box.innerHTML = '<p style="font-size:0.85rem;color:#64748b;">قراردادی ثبت نشده.</p>'; return; }
-        var html = '<table style="font-size:0.75rem;min-width:960px;"><thead><tr>'+
-          '<th>کد</th><th>نام</th><th>نوع</th><th>از</th><th>تا</th><th>وضعیت</th><th>محاسبه حقوق</th><th>نمایش مدت به کارمند</th><th>فایل امضا</th><th>عملیات</th></tr></thead><tbody>';
+        var html = '<table style="font-size:0.75rem;min-width:1100px;"><thead><tr>'+
+          '<th>کد</th><th>نام</th><th>نوع</th><th>از</th><th>تا</th><th>وضعیت</th><th>محاسبه حقوق</th>'+
+          '<th>نمایش مدت</th><th>قابل مشاهده در پرتال</th><th>فایل امضا (ادمین)</th><th>عملیات</th></tr></thead><tbody>';
         list.forEach(function(c){
           html += '<tr data-id="'+c.id+'">'+
             '<td>'+c.empCode+'</td><td>'+(c.empName||'')+'</td><td>'+ctrTypeFa(c.type)+'</td>'+
@@ -593,7 +644,11 @@ async function stamp(html, user, env) {
             '<td>'+ctrStatusFa(c)+'</td>'+
             '<td>'+(c.adminApproved?'<span style="color:#15803d">مجاز</span>':'<span style="color:#b91c1c">غیرمجاز</span>')+'</td>'+
             '<td style="text-align:center;"><input type="checkbox" class="psp-ctr-showdur" data-id="'+c.id+'"'+(c.showDurationToEmployee?' checked':'')+'></td>'+
-            '<td style="font-size:0.72rem;">'+(c.signedFileName?('✓ '+c.signedFileName):'—')+'</td>'+
+            '<td style="text-align:center;"><input type="checkbox" class="psp-ctr-visible" data-id="'+c.id+'"'+(c.visibleToEmployee!==false?' checked':'')+'></td>'+
+            '<td style="font-size:0.72rem;min-width:140px;">'+
+              (c.signedFileName?('<div>✓ '+c.signedFileName+'</div>'):'<div style="color:#64748b;">—</div>')+
+              '<label style="color:#0f766e;cursor:pointer;font-size:0.72rem;">آپلود<input type="file" class="psp-ctr-upload" data-id="'+c.id+'" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;"></label>'+
+            '</td>'+
             '<td style="white-space:nowrap;">'+
               (c.adminApproved?'':'<button type="button" class="btn btn-primary btn-sm psp-ctr-approve" data-id="'+c.id+'">تأیید حقوق</button> ')+
               (c.adminApproved?'<button type="button" class="btn btn-outline btn-sm psp-ctr-revoke" data-id="'+c.id+'">لغو تأیید</button> ':'')+
@@ -612,7 +667,7 @@ async function stamp(html, user, env) {
           b.onclick = function(){
             var id = b.getAttribute('data-id');
             if (!confirm('حذف قرارداد؟ (تأیید ۱ از ۲)')) return;
-            if (!confirm('آیا مطمئن هستید؟ این عمل قابل بازگشت نیست. (تأیید ۲ از ۲)')) return;
+            if (!confirm('آیا مطمئن هستید؟ قابل بازگشت نیست. (تأیید ۲ از ۲)')) return;
             ctrAction(id, 'delete');
           };
         });
@@ -627,6 +682,42 @@ async function stamp(html, user, env) {
             });
           };
         });
+        box.querySelectorAll('.psp-ctr-visible').forEach(function(c){
+          c.onchange = function(){
+            fetch('/api/admin/contracts', {
+              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+              body: JSON.stringify({ action:'set_visible', id: c.getAttribute('data-id'), visibleToEmployee: !!c.checked })
+            }).then(function(r){return r.json();}).then(function(j){
+              var st=document.getElementById('pspCtrStatus');
+              if (st) st.textContent = j.ok ? 'ذخیره شد' : (j.message||'خطا');
+            });
+          };
+        });
+        box.querySelectorAll('.psp-ctr-upload').forEach(function(inp){
+          inp.onchange = function(){
+            var f = inp.files && inp.files[0];
+            if (!f) return;
+            if (f.size > 400000) { alert('حداکثر حجم حدود ۳۵۰KB'); return; }
+            var reader = new FileReader();
+            reader.onload = function(){
+              fetch('/api/admin/contracts', {
+                method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+                body: JSON.stringify({
+                  action: 'upload_signed',
+                  id: inp.getAttribute('data-id'),
+                  fileName: f.name,
+                  fileData: reader.result
+                })
+              }).then(function(r){return r.json();}).then(function(j){
+                var st=document.getElementById('pspCtrStatus');
+                if (!j.ok) { if(st) st.textContent = j.message||'خطا'; alert(j.message||'خطا'); return; }
+                if (st) st.textContent = 'فایل امضا ثبت شد.';
+                loadContracts();
+              });
+            };
+            reader.readAsDataURL(f);
+          };
+        });
       }
       function ctrAction(id, action){
         fetch('/api/admin/contracts', {
@@ -639,10 +730,37 @@ async function stamp(html, user, env) {
           loadContracts();
         });
       }
+      function parseCodesFromText(text){
+        var codes = [];
+        var lines = String(text||'').split(/\r?\n/);
+        lines.forEach(function(line, idx){
+          var cells = line.split(/[,;\t]/);
+          if (!cells.length) return;
+          // header skip
+          var first = (cells[0]||'').trim().replace(/^["']|["']$/g,'');
+          if (idx === 0 && /code|کد|پرسنل/i.test(first)) {
+            // find code column
+            return;
+          }
+          if (idx === 0 && /code|کد/i.test(line)) {
+            var hi = cells.findIndex(function(c){ return /code|کد/i.test(c); });
+            if (hi >= 0) {
+              // process rest of lines with that col - store on window
+              window.__pspCtrExcelCol = hi;
+              return;
+            }
+          }
+          var col = window.__pspCtrExcelCol != null ? window.__pspCtrExcelCol : 0;
+          var code = (cells[col]||cells[0]||'').trim().replace(/^["']|["']$/g,'');
+          if (code && !/code|کد|نام/i.test(code) && codes.indexOf(code) < 0) codes.push(code);
+        });
+        window.__pspCtrExcelCol = null;
+        return codes;
+      }
       var ctrCreate = document.getElementById('pspCtrCreate');
       if (ctrCreate) ctrCreate.onclick = function(){
-        var codes = (document.getElementById('pspCtrCode').value||'').split(/[,،\s]+/).map(function(s){return s.trim();}).filter(Boolean);
-        if (!codes.length) { alert('حداقل یک کد پرسنلی وارد کنید.'); return; }
+        var codes = selectedCtrCodes();
+        if (!codes.length) { alert('حداقل یک نفر را از لیست تیک بزنید.'); return; }
         var body = {
           action: 'create',
           codes: codes,
@@ -650,7 +768,8 @@ async function stamp(html, user, env) {
           endDate: (document.getElementById('pspCtrTo').value||'').trim(),
           type: document.getElementById('pspCtrType').value,
           note: (document.getElementById('pspCtrNote').value||'').trim(),
-          showDurationToEmployee: !!(document.getElementById('pspCtrShowDurDef')||{}).checked
+          showDurationToEmployee: !!(document.getElementById('pspCtrShowDurDef')||{}).checked,
+          visibleToEmployee: !!(document.getElementById('pspCtrVisibleDef')||{}).checked
         };
         if (!body.startDate) { alert('تاریخ شروع الزامی است.'); return; }
         fetch('/api/admin/contracts', {
@@ -659,7 +778,7 @@ async function stamp(html, user, env) {
         }).then(function(r){return r.json();}).then(function(j){
           var st=document.getElementById('pspCtrStatus');
           if (!j.ok) { if(st) st.textContent = j.message||j.error||'خطا'; alert(j.message||'خطا'); return; }
-          if (st) st.textContent = (j.created||0)+' قرارداد ایجاد شد (منتظر تأیید ادمین برای محاسبه حقوق).';
+          if (st) st.textContent = (j.created||0)+' قرارداد ایجاد شد.';
           loadContracts();
         });
       };
@@ -667,7 +786,41 @@ async function stamp(html, user, env) {
       if (ctrLoad) ctrLoad.onclick = loadContracts;
       var ctrFilter = document.getElementById('pspCtrFilter');
       if (ctrFilter) ctrFilter.onchange = loadContracts;
+      var empSearch = document.getElementById('pspCtrEmpSearch');
+      if (empSearch) empSearch.oninput = renderCtrEmpList;
+      var empAll = document.getElementById('pspCtrEmpAll');
+      if (empAll) empAll.onchange = function(){
+        document.querySelectorAll('.psp-ctr-emp').forEach(function(c){ c.checked = empAll.checked; });
+      };
+      var excelInp = document.getElementById('pspCtrExcel');
+      if (excelInp) excelInp.onchange = function(){
+        var f = excelInp.files && excelInp.files[0];
+        if (!f) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          var codes = parseCodesFromText(reader.result);
+          if (!codes.length) { alert('کدی از فایل خوانده نشد. ستون اول را کد پرسنلی بگذارید.'); return; }
+          // tick matching employees
+          var set = {};
+          codes.forEach(function(c){ set[String(c)] = true; });
+          document.querySelectorAll('.psp-ctr-emp').forEach(function(cb){
+            if (set[cb.value]) cb.checked = true;
+          });
+          // if some codes not in current filter list, expand: clear search and retick
+          var missing = codes.filter(function(c){
+            return !(window.__pspCtrEmps||[]).some(function(e){ return String(e.code)===String(c); });
+          });
+          var st=document.getElementById('pspCtrStatus');
+          if (st) st.textContent = codes.length + ' کد از فایل — ' + document.querySelectorAll('.psp-ctr-emp:checked').length + ' نفر تیک خورد' +
+            (missing.length ? (' | یافت‌نشده: '+missing.slice(0,10).join(', ')) : '');
+          excelInp.value = '';
+        };
+        reader.readAsText(f);
+      };
+      // preload employees when opening contracts tab
+      var _origShowSub = null;
     })();
+
 
 
     document.getElementById('pspTsLoad').onclick = function() {
@@ -3411,6 +3564,7 @@ async function handleAdminContracts(request, who, env) {
       const type = String(body.type || 'fixed');
       const note = String(body.note || '').trim();
       const showDur = body.showDurationToEmployee !== false;
+      const visibleEmp = body.visibleToEmployee !== false;
       let created = 0;
       const missing = [];
       codes.forEach(function (code) {
@@ -3429,6 +3583,7 @@ async function handleAdminContracts(request, who, env) {
           adminApprovedAt: '',
           adminApprovedBy: '',
           showDurationToEmployee: showDur,
+          visibleToEmployee: visibleEmp,
           signedFileName: '',
           signedUploadedAt: '',
           createdAt: new Date().toISOString(),
@@ -3461,6 +3616,19 @@ async function handleAdminContracts(request, who, env) {
       gd.obj.contracts = gd.obj.contracts.filter(function (c) { return c.id !== id; });
     } else if (action === 'set_show_duration') {
       ctr.showDurationToEmployee = !!body.showDurationToEmployee;
+    } else if (action === 'set_visible') {
+      ctr.visibleToEmployee = !!body.visibleToEmployee;
+    } else if (action === 'upload_signed') {
+      const fileName = String(body.fileName || '').trim().slice(0, 200);
+      const fileData = String(body.fileData || '');
+      if (!fileName) return jsonResponse({ ok: false, message: 'نام فایل الزامی است.' }, 400);
+      if (fileData && fileData.length > 500000) {
+        return jsonResponse({ ok: false, message: 'حجم فایل زیاد است.' }, 400);
+      }
+      ctr.signedFileName = fileName;
+      ctr.signedUploadedAt = new Date().toISOString();
+      ctr.signedUploadedBy = who.name;
+      if (fileData) ctr.signedFileData = fileData;
     } else if (action === 'mark_expired') {
       ctr.status = 'expired';
     } else {
@@ -3478,61 +3646,32 @@ async function handleAdminContracts(request, who, env) {
 async function handleEmpContracts(request, env) {
   const sess = await readEmpSession(request, env);
   if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  if (request.method !== 'GET') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'آپلود قرارداد فقط توسط ادمین انجام می‌شود.' }, 403);
+  }
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-
-  if (request.method === 'GET') {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    const list = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
-      return String(c.empCode) === String(sess.code);
-    }).map(function (c) {
-      const out = {
-        id: c.id,
-        type: c.type,
-        status: c.status,
-        adminApproved: !!c.adminApproved,
-        signedFileName: c.signedFileName || '',
-        note: c.note || '',
-        showDuration: !!c.showDurationToEmployee
-      };
-      if (c.showDurationToEmployee) {
-        out.startDate = c.startDate || '';
-        out.endDate = c.endDate || '';
-      }
-      return out;
-    });
-    return jsonResponse({ ok: true, contracts: list });
-  }
-
-  // POST: upload signed metadata (filename + optional small base64)
-  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const id = String(r.body.id || '');
-  const fileName = String(r.body.fileName || '').trim().slice(0, 200);
-  const fileData = String(r.body.fileData || ''); // data URL optional, size-limited
-  if (!id || !fileName) return jsonResponse({ ok: false, message: 'شناسه و نام فایل الزامی است.' }, 400);
-  if (fileData && fileData.length > 400000) {
-    return jsonResponse({ ok: false, message: 'حجم فایل زیاد است (حداکثر حدود ۳۰۰KB).' }, 400);
-  }
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    if (!gd.obj || !Array.isArray(gd.obj.contracts)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
-    const ctr = gd.obj.contracts.find(function (c) {
-      return c.id === id && String(c.empCode) === String(sess.code);
-    });
-    if (!ctr) return jsonResponse({ ok: false, message: 'قرارداد یافت نشد.' }, 404);
-    ctr.signedFileName = fileName;
-    ctr.signedUploadedAt = new Date().toISOString();
-    if (fileData) ctr.signedFileData = fileData;
-    const put = await storePutData(cfg, gd.version, gd.obj, 'emp:' + sess.code);
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) continue;
-    return jsonResponse({ ok: true });
-  }
-  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const list = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
+    return String(c.empCode) === String(sess.code) && c.visibleToEmployee !== false;
+  }).map(function (c) {
+    const out = {
+      id: c.id,
+      type: c.type,
+      status: c.status,
+      adminApproved: !!c.adminApproved,
+      signedFileName: c.signedFileName || '',
+      note: c.note || '',
+      showDuration: !!c.showDurationToEmployee
+    };
+    if (c.showDurationToEmployee) {
+      out.startDate = c.startDate || '';
+      out.endDate = c.endDate || '';
+    }
+    return out;
+  });
+  return jsonResponse({ ok: true, contracts: list });
 }
 
 async function handleAdminPayrollContractCheck(request, who, env) {
@@ -3755,7 +3894,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel hidden" id="panel-contracts">
     <h2>قراردادهای من</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">مدت قرارداد فقط در صورت مجاز بودن توسط ادمین نمایش داده می‌شود. می‌توانید فایل قرارداد امضاشده را بارگذاری کنید.</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">مدت قرارداد در صورت مجاز بودن توسط ادمین نمایش داده می‌شود. فایل امضا فقط توسط ادمین بارگذاری می‌شود.</p>
     <div id="contractsBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-password">
@@ -3800,29 +3939,10 @@ async function loadContractsEmp(){
       if(c.showDuration){ html+='<div class="meta" style="margin-top:6px;">مدت: <span dir="ltr">'+(c.startDate||'')+(c.endDate?' تا '+c.endDate:'')+'</span></div>'; }
       else { html+='<div class="meta" style="margin-top:6px;color:#64748b;">مدت قرارداد برای شما قابل مشاهده نیست.</div>'; }
       if(c.note) html+='<div class="meta">توضیح: '+c.note+'</div>';
-      html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+(c.signedFileName||'—')+'</div>';
-      html+='<div style="margin-top:8px;"><label style="font-size:0.78rem;">آپلود قرارداد امضاشده</label>';
-      html+='<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" data-ctr="'+c.id+'" class="ctr-file" style="font-size:0.78rem;margin-top:4px;"></div>';
+      html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+(c.signedFileName?('ثبت شده — '+c.signedFileName):'هنوز بارگذاری نشده')+'</div>';
       html+='</div>';
     });
     box.innerHTML=html;
-    box.querySelectorAll('.ctr-file').forEach(function(inp){
-      inp.onchange=function(){
-        var f=inp.files&&inp.files[0]; if(!f) return;
-        if(f.size>300000){ alert('حداکثر حجم حدود ۳۰۰KB'); return; }
-        var reader=new FileReader();
-        reader.onload=async function(){
-          try{
-            var rr=await fetch('/api/emp/contracts',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
-              body:JSON.stringify({id:inp.getAttribute('data-ctr'),fileName:f.name,fileData:reader.result})});
-            var jj=await rr.json();
-            if(!jj.ok){ alert(jj.message||'خطا'); return; }
-            alert('فایل ثبت شد.'); loadContractsEmp();
-          }catch(e){ alert('خطا در ارسال'); }
-        };
-        reader.readAsDataURL(f);
-      };
-    });
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
 }
 
