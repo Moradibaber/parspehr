@@ -297,10 +297,18 @@ async function stamp(html, user, env) {
   setInterval(addResetButtons, 1500);
   setTimeout(addResetButtons, 2000);
   function ensurePortalTab() {
-    if (document.getElementById('pspPortalTabBtn')) return;
-    var tabs = document.querySelector('.tabs');
+    var existingBtn = document.getElementById('pspPortalTabBtn');
+    var existingPanel = document.getElementById('panel-portalatt');
+    if (existingBtn && existingPanel) return;
+    var tabs = document.querySelector('.tabs') || document.querySelector('.tab-bar') || document.querySelector('nav.tabs') || document.querySelector('[class*="tabs"]');
     if (!tabs) return;
-    // Proper separate tab (same mechanism as other tabs: panel-{id})
+    // remove orphan button without panel
+    if (existingBtn && !existingPanel) {
+      try { existingBtn.parentNode.removeChild(existingBtn); } catch (e) {}
+    }
+    if (existingPanel && !existingBtn) {
+      try { existingPanel.parentNode.removeChild(existingPanel); } catch (e) {}
+    }
     var btn = document.createElement('button');
     btn.id = 'pspPortalTabBtn';
     btn.className = 'tab-btn';
@@ -819,11 +827,14 @@ async function stamp(html, user, env) {
       };
       // preload employees when opening contracts tab
       var _origShowSub = null;
-    })();
+    })()
+    try {
+;
 
 
 
-    document.getElementById('pspTsLoad').onclick = function() {
+    var __tsLoad = document.getElementById('pspTsLoad');
+    if (__tsLoad) __tsLoad.onclick = function() {
       fetch('/api/admin/timesheet', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
         body: JSON.stringify({
@@ -1111,9 +1122,12 @@ async function stamp(html, user, env) {
         btn.classList.remove('active');
       });
     });
+      } catch (e) { console.error('psp portal tab', e); }
   }
-  setTimeout(ensurePortalTab, 1200);
-  setInterval(ensurePortalTab, 4000);
+  setTimeout(ensurePortalTab, 600);
+  setTimeout(ensurePortalTab, 1500);
+  setTimeout(ensurePortalTab, 3000);
+  setInterval(ensurePortalTab, 5000);
 })();
 </script>`;
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
