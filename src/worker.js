@@ -296,13 +296,56 @@ async function stamp(html, user, env) {
   }
   setInterval(addResetButtons, 1500);
   setTimeout(addResetButtons, 2000);
+
+  function ensurePortalFab(btn, panel) {
+    if (document.getElementById('pspPortalFab')) return;
+    var fab = document.createElement('button');
+    fab.id = 'pspPortalFab';
+    fab.type = 'button';
+    fab.textContent = 'مأموریت / مرخصی';
+    fab.title = 'باز کردن بخش مأموریت و مرخصی';
+    fab.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:99999;padding:10px 14px;border:0;border-radius:999px;background:#0f766e;color:#fff;font-weight:700;font-size:0.85rem;box-shadow:0 6px 20px rgba(15,118,110,0.35);cursor:pointer;font-family:inherit;';
+    fab.onclick = function() {
+      if (btn) {
+        btn.click();
+        try { btn.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'}); } catch(e) {}
+      }
+      if (panel) {
+        document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+        panel.classList.add('active');
+        panel.style.display = '';
+        try { panel.scrollIntoView({behavior:'smooth', block:'start'}); } catch(e) {}
+      }
+    };
+    document.body.appendChild(fab);
+  }
+
   function ensurePortalTab() {
     var existingBtn = document.getElementById('pspPortalTabBtn');
     var existingPanel = document.getElementById('panel-portalatt');
-    if (existingBtn && existingPanel) return;
-    var tabs = document.querySelector('.tabs') || document.querySelector('.tab-bar') || document.querySelector('nav.tabs') || document.querySelector('[class*="tabs"]');
-    if (!tabs) return;
-    // remove orphan button without panel
+    if (existingBtn && existingPanel) {
+      // still ensure floating fallback exists
+      ensurePortalFab(existingBtn, existingPanel);
+      return;
+    }
+    // Find tab strip: parent of any existing tab button
+    var sample = document.querySelector('button.tab-btn[data-tab], button.tab-btn, .tabs button, [class*="tab"] button[data-tab]');
+    if (!sample) sample = document.querySelector('button.tab-btn');
+    var tabs = null;
+    if (sample && sample.parentElement) tabs = sample.parentElement;
+    if (!tabs) tabs = document.querySelector('.tabs, .tab-bar, nav.tabs, .tablist, [role="tablist"]');
+    if (!tabs) {
+      // last resort: create a strip under the main header
+      var header = document.querySelector('header, .app-header, .topbar, .navbar') || document.body;
+      tabs = document.getElementById('pspPortalTabStrip');
+      if (!tabs) {
+        tabs = document.createElement('div');
+        tabs.id = 'pspPortalTabStrip';
+        tabs.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;background:#f0fdfa;border-bottom:1px solid #99f6e4;';
+        if (header.parentNode) header.parentNode.insertBefore(tabs, header.nextSibling);
+        else document.body.insertBefore(tabs, document.body.firstChild);
+      }
+    }
     if (existingBtn && !existingPanel) {
       try { existingBtn.parentNode.removeChild(existingBtn); } catch (e) {}
     }
@@ -311,10 +354,11 @@ async function stamp(html, user, env) {
     }
     var btn = document.createElement('button');
     btn.id = 'pspPortalTabBtn';
-    btn.className = 'tab-btn';
+    btn.className = (sample && sample.className) ? sample.className : 'tab-btn';
     btn.type = 'button';
     btn.setAttribute('data-tab', 'portalatt');
     btn.textContent = 'مأموریت/مرخصی و سایر';
+    btn.style.cssText = (btn.style.cssText||'') + ';cursor:pointer;';
     tabs.appendChild(btn);
 
     var panel = document.createElement('div');
@@ -438,6 +482,7 @@ async function stamp(html, user, env) {
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
     if (host) host.appendChild(panel);
     else document.body.appendChild(panel);
+    ensurePortalFab(btn, panel);
 
     (function(){
       function showSub(name){
@@ -1124,10 +1169,23 @@ async function stamp(html, user, env) {
     });
       } catch (e) { console.error('psp portal tab', e); }
   }
-  setTimeout(ensurePortalTab, 600);
-  setTimeout(ensurePortalTab, 1500);
-  setTimeout(ensurePortalTab, 3000);
-  setInterval(ensurePortalTab, 5000);
+  function bootPortalTab() {
+    try { ensurePortalTab(); } catch (e) { console.error('psp ensurePortalTab', e); }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootPortalTab);
+  }
+  bootPortalTab();
+  setTimeout(bootPortalTab, 500);
+  setTimeout(bootPortalTab, 1500);
+  setTimeout(bootPortalTab, 3000);
+  setTimeout(bootPortalTab, 6000);
+  setInterval(bootPortalTab, 8000);
+  try {
+    var obs = new MutationObserver(function() { bootPortalTab(); });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function(){ try { obs.disconnect(); } catch(e){} }, 20000);
+  } catch (e) {}
 })();
 </script>`;
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
