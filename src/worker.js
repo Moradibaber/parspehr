@@ -454,17 +454,20 @@ async function stamp(html, user, env) {
       '<label><input type="checkbox" id="pspCtrShowDurDef" checked> نمایش مدت قرارداد به کارمند (پیش‌فرض)</label>' +
       '<label><input type="checkbox" id="pspCtrVisibleDef" checked> قابل مشاهده بودن قرارداد در پرتال کارمند (پیش‌فرض)</label>' +
       '</div>' +
-      '<div style="margin-bottom:10px;border:1px solid #99f6e4;border-radius:10px;padding:10px;background:#fafafa;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">' +
-      '<b style="color:#0f766e;font-size:0.85rem;">انتخاب کارکنان</b>' +
-      '<span style="font-size:0.78rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
-      '<input id="pspCtrEmpSearch" placeholder="جستجوی نام یا کد…" style="padding:4px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;min-width:140px;">' +
-      '<label><input type="checkbox" id="pspCtrEmpAll"> انتخاب همه (فیلترشده)</label>' +
-      '<label style="cursor:pointer;color:#0f766e;"><input type="file" id="pspCtrExcel" accept=".xlsx,.xls,.csv,.txt" style="display:none;"> بارگذاری لیست از اکسل/CSV</label>' +
-      '</span></div>' +
-      '<div id="pspCtrEmpList" style="max-height:200px;overflow:auto;font-size:0.78rem;"></div>' +
-      '<div style="font-size:0.72rem;color:#64748b;margin-top:6px;">فرمت اکسل/CSV: ستون اول کد پرسنلی (یا ستون‌های code / کد). پس از بارگذاری همان افراد تیک می‌خورند.</div>' +
+      '<div style="margin-bottom:10px;border:1px solid #99f6e4;border-radius:10px;background:#fafafa;overflow:hidden;">' +
+      '<button type="button" id="pspCtrEmpToggle" style="width:100%;text-align:right;padding:10px 12px;border:0;background:#ecfdf5;cursor:pointer;font-family:inherit;font-size:0.85rem;color:#0f766e;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+      '<span id="pspCtrEmpSummary">انتخاب کارکنان — هیچ‌کس انتخاب نشده</span>' +
+      '<span id="pspCtrEmpChevron" style="font-size:0.75rem;color:#64748b;">▼ باز کردن</span>' +
+      '</button>' +
+      '<div id="pspCtrEmpDropdown" style="display:none;padding:10px;border-top:1px solid #99f6e4;">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;font-size:0.78rem;">' +
+      '<input id="pspCtrEmpSearch" placeholder="جستجوی نام یا کد…" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;">' +
+      '<label style="white-space:nowrap;"><input type="checkbox" id="pspCtrEmpAll"> انتخاب همه (فیلترشده)</label>' +
+      '<label style="cursor:pointer;color:#0f766e;white-space:nowrap;"><input type="file" id="pspCtrExcel" accept=".xlsx,.xls,.csv,.txt" style="display:none;">📥 اکسل/CSV</label>' +
       '</div>' +
+      '<div id="pspCtrEmpList" style="max-height:220px;overflow:auto;font-size:0.78rem;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fff;"></div>' +
+      '<div style="font-size:0.72rem;color:#64748b;margin-top:6px;">فرمت اکسل/CSV: ستون اول کد پرسنلی. افراد متناظر تیک می‌خورند.</div>' +
+      '</div></div>' +
       '<div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="btn btn-primary btn-sm" id="pspCtrCreate">صدور قرارداد برای انتخاب‌شده‌ها</button>' +
       '<button type="button" class="btn btn-outline btn-sm" id="pspCtrLoad">بارگذاری لیست قراردادها</button>' +
@@ -647,10 +650,19 @@ async function stamp(html, user, env) {
             renderCtrEmpList();
           }).catch(function(){});
       }
+      function updateCtrEmpSummary(){
+        var n = document.querySelectorAll('.psp-ctr-emp:checked').length;
+        var sum = document.getElementById('pspCtrEmpSummary');
+        if (!sum) return;
+        if (n === 0) sum.textContent = 'انتخاب کارکنان — هیچ‌کس انتخاب نشده';
+        else sum.textContent = 'انتخاب کارکنان — ' + n + ' نفر انتخاب شده';
+      }
       function renderCtrEmpList(){
         var box = document.getElementById('pspCtrEmpList');
         if (!box) return;
         var q = ((document.getElementById('pspCtrEmpSearch')||{}).value || '').trim().toLowerCase();
+        var prevChecked = {};
+        document.querySelectorAll('.psp-ctr-emp:checked').forEach(function(c){ prevChecked[c.value] = true; });
         var list = window.__pspCtrEmps || [];
         if (q) {
           list = list.filter(function(e){
@@ -658,15 +670,23 @@ async function stamp(html, user, env) {
           });
         }
         if (!list.length) {
-          box.innerHTML = '<div style="color:#64748b;">کارمندی یافت نشد.</div>';
+          box.innerHTML = '<div style="color:#64748b;padding:6px;">کارمندی یافت نشد.</div>';
+          updateCtrEmpSummary();
           return;
         }
         var html = '';
         list.forEach(function(e){
-          html += '<label style="display:block;margin:3px 0;"><input type="checkbox" class="psp-ctr-emp" value="'+e.code+'"> '+
-            (e.fullName||'')+' <span style="color:#64748b;">('+e.code+')'+(e.unit?' — '+e.unit:'')+'</span></label>';
+          var ck = prevChecked[String(e.code)] ? ' checked' : '';
+          html += '<label style="display:flex;align-items:center;gap:8px;margin:0;padding:5px 6px;border-radius:6px;cursor:pointer;">' +
+            '<input type="checkbox" class="psp-ctr-emp" value="'+e.code+'"'+ck+'>' +
+            '<span style="flex:1;">'+(e.fullName||'')+'</span>' +
+            '<span style="color:#64748b;font-size:0.72rem;direction:ltr;">'+e.code+(e.unit?' · '+e.unit:'')+'</span></label>';
         });
         box.innerHTML = html;
+        box.querySelectorAll('.psp-ctr-emp').forEach(function(c){
+          c.onchange = updateCtrEmpSummary;
+        });
+        updateCtrEmpSummary();
       }
       function selectedCtrCodes(){
         return Array.prototype.map.call(document.querySelectorAll('.psp-ctr-emp:checked'), function(c){ return c.value; });
@@ -844,6 +864,24 @@ async function stamp(html, user, env) {
       var empAll = document.getElementById('pspCtrEmpAll');
       if (empAll) empAll.onchange = function(){
         document.querySelectorAll('.psp-ctr-emp').forEach(function(c){ c.checked = empAll.checked; });
+        updateCtrEmpSummary();
+      };
+      var empToggle = document.getElementById('pspCtrEmpToggle');
+      if (empToggle) empToggle.onclick = function(){
+        var dd = document.getElementById('pspCtrEmpDropdown');
+        var ch = document.getElementById('pspCtrEmpChevron');
+        if (!dd) return;
+        var open = dd.style.display === 'none' || !dd.style.display;
+        // currently hidden if display none
+        if (dd.style.display === 'none') {
+          dd.style.display = 'block';
+          if (ch) ch.textContent = '▲ بستن';
+          if (!(window.__pspCtrEmps||[]).length) loadCtrEmployees();
+          else renderCtrEmpList();
+        } else {
+          dd.style.display = 'none';
+          if (ch) ch.textContent = '▼ باز کردن';
+        }
       };
       var excelInp = document.getElementById('pspCtrExcel');
       if (excelInp) excelInp.onchange = function(){
@@ -864,6 +902,7 @@ async function stamp(html, user, env) {
             return !(window.__pspCtrEmps||[]).some(function(e){ return String(e.code)===String(c); });
           });
           var st=document.getElementById('pspCtrStatus');
+          updateCtrEmpSummary();
           if (st) st.textContent = codes.length + ' کد از فایل — ' + document.querySelectorAll('.psp-ctr-emp:checked').length + ' نفر تیک خورد' +
             (missing.length ? (' | یافت‌نشده: '+missing.slice(0,10).join(', ')) : '');
           excelInp.value = '';
