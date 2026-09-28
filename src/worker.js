@@ -785,9 +785,9 @@ async function stamp(html, user, env) {
       }
       function parseCodesFromText(text){
         var codes = [];
-        var lines = String(text||'').split(/\r?\n/);
+        var lines = String(text||'').split(/\\r?\\n/);
         lines.forEach(function(line, idx){
-          var cells = line.split(/[,;\t]/);
+          var cells = line.split(/[,;\\t]/);
           if (!cells.length) return;
           // header skip
           var first = (cells[0]||'').trim().replace(/^["']|["']$/g,'');
@@ -3966,7 +3966,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel hidden" id="panel-contracts">
     <h2>قراردادهای من</h2>
-    <p class="sub" style="text-align:right;margin-bottom:10px;">مدت قرارداد در صورت مجاز بودن توسط ادمین نمایش داده می‌شود. فایل امضا فقط توسط ادمین بارگذاری می‌شود.</p>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">در صورت مجاز بودن، مدت قرارداد نمایش داده می‌شود.</p>
     <div id="contractsBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
   <div class="card panel hidden" id="panel-password">
@@ -4006,12 +4006,10 @@ async function loadContractsEmp(){
     list.forEach(function(c){
       html+='<div class="box" style="margin-bottom:10px;">';
       html+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>'+(typeFa[c.type]||c.type)+'</b>';
-      html+=(c.adminApproved?'<span class="badge b-approved">تأیید حقوق</span>':'<span class="badge b-pending">منتظر تأیید</span>');
       html+='</div>';
       if(c.showDuration){ html+='<div class="meta" style="margin-top:6px;">مدت: <span dir="ltr">'+(c.startDate||'')+(c.endDate?' تا '+c.endDate:'')+'</span></div>'; }
-      else { html+='<div class="meta" style="margin-top:6px;color:#64748b;">مدت قرارداد برای شما قابل مشاهده نیست.</div>'; }
       if(c.note) html+='<div class="meta">توضیح: '+c.note+'</div>';
-      html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+(c.signedFileName?('ثبت شده — '+c.signedFileName):'هنوز بارگذاری نشده')+'</div>';
+      if(c.signedFileName) html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+c.signedFileName+'</div>';
       html+='</div>';
     });
     box.innerHTML=html;
