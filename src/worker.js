@@ -1225,6 +1225,205 @@ async function stamp(html, user, env) {
     obs.observe(document.documentElement, { childList: true, subtree: true });
     setTimeout(function(){ try { obs.disconnect(); } catch(e){} }, 20000);
   } catch (e) {}
+
+  // ---- Reorganize main tabs into sub-tabs ----
+  function pspFindTabBtn(labelPart) {
+    var btns = document.querySelectorAll('button.tab-btn, .tabs button, [class*="tab"] button');
+    for (var i = 0; i < btns.length; i++) {
+      var t = (btns[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (t.indexOf(labelPart) >= 0) return btns[i];
+    }
+    return null;
+  }
+  function pspGetPanelForBtn(btn) {
+    if (!btn) return null;
+    var id = btn.getAttribute('data-tab');
+    if (id) {
+      var p = document.getElementById('panel-' + id);
+      if (p) return p;
+    }
+    // try matching by active panel when clicked - store data-panel-id if present
+    var pid = btn.getAttribute('data-panel');
+    if (pid) return document.getElementById(pid);
+    return null;
+  }
+  function pspMakeSubTabs(parentLabel, childLabels) {
+    var parentBtn = pspFindTabBtn(parentLabel);
+    if (!parentBtn) return;
+    var parentPanel = pspGetPanelForBtn(parentBtn);
+    // gather child buttons
+    var children = [];
+    childLabels.forEach(function(lab) {
+      var b = pspFindTabBtn(lab);
+      if (b && b !== parentBtn) children.push({ btn: b, label: lab, panel: pspGetPanelForBtn(b) });
+    });
+    if (!children.length) return;
+    // hide child tab buttons from main strip
+    children.forEach(function(c) {
+      c.btn.style.display = 'none';
+      c.btn.setAttribute('data-psp-subbed', '1');
+    });
+    // mark parent
+    parentBtn.setAttribute('data-psp-parent', '1');
+    // create subtab bar inside parent panel or a wrapper
+    var hostPanel = parentPanel;
+    if (!hostPanel) {
+      // create a host that shows when parent is active
+      hostPanel = document.createElement('div');
+      hostPanel.id = 'psp-subhost-' + (parentBtn.getAttribute('data-tab') || parentLabel);
+      hostPanel.className = 'panel';
+      hostPanel.style.display = 'none';
+      var panelsParent = (document.querySelector('.panel') || {}).parentNode || document.body;
+      panelsParent.appendChild(hostPanel);
+      parentBtn.addEventListener('click', function() {
+        setTimeout(function() {
+          document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+          hostPanel.classList.add('active');
+          hostPanel.style.display = '';
+        }, 30);
+      });
+    }
+    var barId = 'psp-subbar-' + (parentBtn.getAttribute('data-tab') || Math.random().toString(36).slice(2,7));
+    if (document.getElementById(barId)) return;
+    var bar = document.createElement('div');
+    bar.id = barId;
+    bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin:0 0 12px;padding:6px;background:#f0fdfa;border-radius:10px;border:1px solid #99f6e4;';
+    // first sub-tab = parent content itself labeled as main
+    var subBtns = [];
+    function makeSub(label, onClick, active) {
+      var sb = document.createElement('button');
+      sb.type = 'button';
+      sb.className = 'btn btn-sm' + (active ? '' : ' btn-outline');
+      if (active) { sb.style.background = '#0f766e'; sb.style.color = '#fff'; }
+      sb.textContent = label;
+      sb.style.fontFamily = 'inherit';
+      sb.onclick = function() {
+        subBtns.forEach(function(x) {
+          x.classList.add('btn-outline');
+          x.style.background = '';
+          x.style.color = '';
+        });
+        sb.classList.remove('btn-outline');
+        sb.style.background = '#0f766e';
+        sb.style.color = '#fff';
+        onClick();
+      };
+      bar.appendChild(sb);
+      subBtns.push(sb);
+      return sb;
+    }
+    // Parent original content as first option
+    var parentContentWrap = null;
+    if (parentPanel) {
+      parentContentWrap = document.createElement('div');
+      parentContentWrap.className = 'psp-sub-content';
+      // move existing children of panel into wrap
+      while (parentPanel.firstChild) parentContentWrap.appendChild(parentPanel.firstChild);
+      parentPanel.appendChild(bar);
+      parentPanel.appendChild(parentContentWrap);
+      makeSub(parentLabel, function() {
+        parentContentWrap.style.display = '';
+        children.forEach(function(c) {
+          if (c.panel) { c.panel.classList.remove('active'); c.panel.style.display = 'none'; }
+        });
+      }, true);
+    } else {
+      hostPanel.appendChild(bar);
+    }
+    children.forEach(function(c) {
+      makeSub(c.label, function() {
+        if (parentContentWrap) parentContentWrap.style.display = 'none';
+        children.forEach(function(o) {
+          if (o.panel) { o.panel.classList.remove('active'); o.panel.style.display = 'none'; }
+        });
+        if (c.panel) {
+          // move or show child panel content under parent
+          c.panel.classList.add('active');
+          c.panel.style.display = '';
+          // if child panel is separate, ensure visible
+          try {
+            if (parentPanel && c.panel.parentNode !== parentPanel) {
+              // show in place - keep in DOM but make active
+            }
+          } catch (e) {}
+        } else {
+          // trigger original button click to let app show panel
+          try { c.btn.style.display = ''; c.btn.click(); c.btn.style.display = 'none'; } catch (e) {}
+        }
+      }, false);
+    });
+  }
+  function pspReorganizeTabs() {
+    if (window.__pspTabsReorg) return;
+    // wait until tab buttons exist
+    var any = document.querySelector('button.tab-btn, .tabs button');
+    if (!any) return;
+    window.__pspTabsReorg = true;
+    try {
+      // غیرفعال‌ها under کارکنان فعال
+      pspMakeSubTabs('کارکنان فعال', ['غیر فعال', 'غیرفعال']);
+      // آیتم‌های سفارشی + ثابت‌های ماهانه under آیتم‌های حقوق و مزایا
+      pspMakeSubTabs('آیتم‌های حقوق', ['آیتم‌های سفارشی', 'ثابت‌های ماهانه', 'ثابت های ماهانه']);
+      // نرخ بیمه و مالیات under تسویه مالیات سالانه
+      pspMakeSubTabs('تسویه مالیات', ['نرخ بیمه', 'نرخ مالیات']);
+      // لاگ تغییرات under تأیید تغییرات
+      pspMakeSubTabs('تایید تغییرات', ['لاگ تغییرات']);
+      pspMakeSubTabs('تأیید تغییرات', ['لاگ تغییرات']);
+      // ورود داده‌های ماهانه under محاسبه و نتیجه
+      pspMakeSubTabs('محاسبه و نتیجه', ['ورود داده‌های ماهانه', 'ورود داده های ماهانه']);
+    } catch (e) { console.error('psp reorg tabs', e); window.__pspTabsReorg = false; }
+  }
+  setTimeout(pspReorganizeTabs, 800);
+  setTimeout(pspReorganizeTabs, 2000);
+  setTimeout(pspReorganizeTabs, 4000);
+
+  // ---- Register new tabs/options into operator access list if present ----
+  function pspRegisterAccessItems() {
+    var extra = [
+      'مأموریت/مرخصی و سایر',
+      'تایم‌شیت و کارکرد',
+      'انواع مرخصی/مأموریت',
+      'مجوزها',
+      'مدیریت درخواست‌ها',
+      'آپلود فایل کارکرد',
+      'نمایش در پرتال کارمند',
+      'قراردادها',
+      'حکم (پرتال کارمند)',
+      'مشخصات پرسنلی (پرتال)'
+    ];
+    // common patterns: checkboxes in دسترسی اپراتور panel
+    var panel = null;
+    document.querySelectorAll('.panel, .card, form, [id*="access"], [id*="operator"]').forEach(function(el) {
+      var t = (el.textContent || '');
+      if (t.indexOf('دسترسی') >= 0 && (t.indexOf('اپراتور') >= 0 || t.indexOf('تب') >= 0)) panel = el;
+    });
+    if (!panel) return;
+    // find container of existing tab checkboxes
+    var labels = panel.querySelectorAll('label');
+    var host = null;
+    for (var i = 0; i < labels.length; i++) {
+      var lt = (labels[i].textContent || '').trim();
+      if (lt.indexOf('کارکنان') >= 0 || lt.indexOf('محاسبه') >= 0) {
+        host = labels[i].parentNode;
+        break;
+      }
+    }
+    if (!host) host = panel;
+    extra.forEach(function(name) {
+      // skip if already exists
+      var exists = false;
+      host.querySelectorAll('label').forEach(function(l) {
+        if ((l.textContent || '').indexOf(name) >= 0) exists = true;
+      });
+      if (exists) return;
+      var lab = document.createElement('label');
+      lab.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin:4px 6px;font-size:0.8rem;';
+      lab.innerHTML = '<input type="checkbox" class="psp-access-item" data-psp-access="'+name+'" checked> ' + name;
+      host.appendChild(lab);
+    });
+  }
+  setTimeout(pspRegisterAccessItems, 1500);
+  setTimeout(pspRegisterAccessItems, 3500);
 })();
 </script>`;
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
@@ -2823,13 +3022,42 @@ async function handleEmpAttendanceTypes(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   let types = (gd.obj && gd.obj.attendanceTypes) || [];
   if (!types.length) types = defaultAttendanceTypes();
+  const allReqs = (gd.obj && gd.obj.attendanceRequests) || [];
   const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
     return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId;
   });
-  // hide admin-grant types unless employee has an open grant
+  const settings = (gd.obj && gd.obj.settings) || {};
+  const cy = Number(settings.currentYear) || 1405;
+
+  function hasApprovedOrPending(typeId, yearOnly) {
+    return allReqs.some(function (r) {
+      if (String(r.empCode) !== String(sess.code)) return false;
+      if (String(r.typeId) !== String(typeId)) return false;
+      if (r.status === 'rejected') return false;
+      // pending or approved counts as used for once_* limits
+      if (yearOnly != null) {
+        const p = parseJalaliYMD(r.startDate);
+        if (!p || p.y !== yearOnly) return false;
+      }
+      return true;
+    });
+  }
+
   const visible = types.filter(function (t) {
-    if (!t.requiresAdminGrant) return true;
-    return grants.some(function (g) { return String(g.typeId) === String(t.id); });
+    if (!t) return false;
+    // admin-grant types: only if open unused grant
+    if (t.requiresAdminGrant) {
+      return grants.some(function (g) { return String(g.typeId) === String(t.id); });
+    }
+    // once_employment: hide after any non-rejected use
+    if (t.frequency === 'once_employment') {
+      if (hasApprovedOrPending(t.id, null)) return false;
+    }
+    // once_year: hide after use in current year
+    if (t.frequency === 'once_year') {
+      if (hasApprovedOrPending(t.id, cy)) return false;
+    }
+    return true;
   });
   return jsonResponse({ ok: true, types: visible, grants: grants });
 }
@@ -4041,16 +4269,46 @@ async function loadContractsEmp(){
     var list=j.contracts||[];
     if(!list.length){ box.innerHTML='<div class="sub">قراردادی برای شما ثبت نشده.</div>'; return; }
     var typeFa={fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'};
-    var html='';
-    list.forEach(function(c){
-      html+='<div class="box" style="margin-bottom:10px;">';
-      html+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>'+(typeFa[c.type]||c.type)+'</b>';
-      html+='</div>';
-      if(c.showDuration){ html+='<div class="meta" style="margin-top:6px;">مدت: <span dir="ltr">'+(c.startDate||'')+(c.endDate?' تا '+c.endDate:'')+'</span></div>'; }
-      if(c.note) html+='<div class="meta">توضیح: '+c.note+'</div>';
-      if(c.signedFileName) html+='<div style="margin-top:8px;font-size:0.8rem;">فایل امضا: '+c.signedFileName+'</div>';
-      html+='</div>';
+    var ordinals=['اول','دوم','سوم','چهارم','پنجم','ششم','هفتم','هشتم','نهم','دهم'];
+    function monthsBetween(a,b){
+      if(!a||!b) return null;
+      var ma=String(a).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      var mb=String(b).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if(!ma||!mb) return null;
+      var months=(+mb[1]-+ma[1])*12+(+mb[2]-+ma[2]);
+      if(+mb[3]>=+ma[3]) months+=1; // inclusive rough
+      if(months<1) months=1;
+      return months;
+    }
+    // oldest first for ordinal numbering
+    var sorted=list.slice().sort(function(a,b){
+      return String(a.startDate||'').localeCompare(String(b.startDate||''));
     });
+    var orderMap={};
+    sorted.forEach(function(c,i){ orderMap[c.id]=i; });
+    var html='<div class="box" style="overflow:auto;"><table style="width:100%;font-size:0.82rem;">';
+    html+='<thead><tr>';
+    html+='<th style="text-align:right;">دوره قرارداد-نوع</th>';
+    html+='<th style="text-align:center;">مدت قرارداد</th>';
+    html+='<th style="text-align:center;">نوبت قرارداد</th>';
+    html+='</tr></thead><tbody>';
+    list.forEach(function(c){
+      var typ=typeFa[c.type]||c.type||'—';
+      var dur='—';
+      if(c.showDuration){
+        var m=monthsBetween(c.startDate,c.endDate);
+        if(m!=null) dur=m+' ماه';
+        else if(c.startDate||c.endDate) dur=(c.startDate||'')+(c.endDate?' تا '+c.endDate:'');
+      }
+      var oi=orderMap[c.id];
+      var nob=oi!=null?(oi<ordinals.length?'قرارداد '+ordinals[oi]:'قرارداد '+(oi+1)):'—';
+      html+='<tr>';
+      html+='<td style="text-align:right;"><b>'+typ+'</b></td>';
+      html+='<td style="text-align:center;">'+dur+'</td>';
+      html+='<td style="text-align:center;">'+nob+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table></div>';
     box.innerHTML=html;
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
 }
