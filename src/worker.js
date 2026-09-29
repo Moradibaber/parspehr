@@ -3992,9 +3992,25 @@ async function handleEmpContracts(request, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const list = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
+  function monthsBetweenJalali(a, b) {
+    if (!a || !b) return null;
+    const ma = String(a).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    const mb = String(b).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (!ma || !mb) return null;
+    let months = (Number(mb[1]) - Number(ma[1])) * 12 + (Number(mb[2]) - Number(ma[2]));
+    // inclusive month span: Jan 1 to Jun 30/31 => 6 months
+    if (Number(mb[3]) >= Number(ma[3])) months += 1;
+    if (months < 1) months = 1;
+    return months;
+  }
+  const raw = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
     return String(c.empCode) === String(sess.code) && c.visibleToEmployee !== false;
-  }).map(function (c) {
+  });
+  // sort oldest first for ordinal
+  raw.sort(function (a, b) {
+    return String(a.startDate || '').localeCompare(String(b.startDate || ''));
+  });
+  const list = raw.map(function (c, idx) {
     const out = {
       id: c.id,
       type: c.type,
@@ -4002,11 +4018,13 @@ async function handleEmpContracts(request, env) {
       adminApproved: !!c.adminApproved,
       signedFileName: c.signedFileName || '',
       note: c.note || '',
-      showDuration: !!c.showDurationToEmployee
+      showDuration: !!c.showDurationToEmployee,
+      orderIndex: idx
     };
     if (c.showDurationToEmployee) {
       out.startDate = c.startDate || '';
       out.endDate = c.endDate || '';
+      out.durationMonths = monthsBetweenJalali(c.startDate, c.endDate);
     }
     return out;
   });
@@ -4296,11 +4314,11 @@ async function loadContractsEmp(){
       var typ=typeFa[c.type]||c.type||'—';
       var dur='—';
       if(c.showDuration){
-        var m=monthsBetween(c.startDate,c.endDate);
-        if(m!=null) dur=m+' ماه';
+        var m=c.durationMonths!=null?c.durationMonths:monthsBetween(c.startDate,c.endDate);
+        if(m!=null) dur=m+'ماه';
         else if(c.startDate||c.endDate) dur=(c.startDate||'')+(c.endDate?' تا '+c.endDate:'');
       }
-      var oi=orderMap[c.id];
+      var oi=c.orderIndex!=null?c.orderIndex:orderMap[c.id];
       var nob=oi!=null?(oi<ordinals.length?'قرارداد '+ordinals[oi]:'قرارداد '+(oi+1)):'—';
       html+='<tr>';
       html+='<td style="text-align:right;"><b>'+typ+'</b></td>';
