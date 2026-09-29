@@ -55,6 +55,19 @@
     white-space: nowrap;
   }
   .tab-btn.active { background: var(--primary); color: #fff; }
+
+  .psp-subtabs {
+    display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;
+    background:#f0fdfa; padding:6px; border-radius:10px; border:1px solid #99f6e4;
+  }
+  .psp-subtabs .psp-subbtn {
+    padding:5px 10px; border:1px solid #99f6e4; background:#fff; border-radius:6px;
+    font-size:0.75rem; font-weight:600; cursor:pointer; color:#0f766e; font-family:inherit;
+  }
+  .psp-subtabs .psp-subbtn.active {
+    background:#0f766e; color:#fff; border-color:#0f766e;
+  }
+
   .panel { display: none; } .panel.active { display: block; }
   .card {
     background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 12px;
@@ -331,12 +344,12 @@
 
   <div class="tabs no-print">
     <button class="tab-btn active" data-tab="employees">کارکنان فعال</button>
-    <button class="tab-btn" data-tab="inactive">غیر فعال‌ها</button>
+    <button class="tab-btn" data-tab="inactive" style="display:none" data-psp-child="1">غیر فعال‌ها</button>
     <button class="tab-btn" data-tab="allowances">آیتم‌های حقوق و مزایا</button>
-    <button class="tab-btn" data-tab="customitems">آیتم‌های سفارشی</button>
-    <button class="tab-btn" data-tab="settings">نرخ بیمه و مالیات</button>
-    <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
-    <button class="tab-btn" data-tab="monthlyvars">ثابت‌های ماهانه</button>
+    <button class="tab-btn" data-tab="customitems" style="display:none" data-psp-child="1">آیتم‌های سفارشی</button>
+    <button class="tab-btn" data-tab="settings" style="display:none" data-psp-child="1">نرخ بیمه و مالیات</button>
+    <button class="tab-btn" data-tab="dataentry" style="display:none" data-psp-child="1">ورود داده‌های ماهانه</button>
+    <button class="tab-btn" data-tab="monthlyvars" style="display:none" data-psp-child="1">ثابت‌های ماهانه</button>
     <button class="tab-btn" data-tab="colorder">ترتیب ستون‌های ورود داده</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
@@ -350,7 +363,7 @@
     <button class="tab-btn" data-tab="insurancetax">خروجی بیمه و مالیات</button>
     <button class="tab-btn" data-tab="salarygrade">تعیین حقوق</button>
     <button class="tab-btn" data-tab="adjhistory">تاریخچه اصلاحات</button>
-    <button class="tab-btn" data-tab="changelog">لاگ تغییرات</button>
+    <button class="tab-btn" data-tab="changelog" style="display:none" data-psp-child="1">لاگ تغییرات</button>
     <button class="tab-btn" data-tab="permissions" id="tabPermissionsBtn">دسترسی اپراتور</button>
     <button class="tab-btn" data-tab="pending" id="tabPendingBtn">تایید تغییرات</button>
   </div>
@@ -1835,6 +1848,12 @@ var OPERATOR_PERM_DEFS = [
   { group: 'لاگ و تاریخچه', items: [
     { key: 'adj_history', label: 'مشاهده تاریخچه اصلاحات' },
     { key: 'changelog', label: 'مشاهده لاگ تغییرات' }
+  ]},
+  { group: 'پرتال مأموریت/مرخصی و قرارداد', items: [
+    { key: 'portal_att', label: 'تب مأموریت/مرخصی و سایر (تایم‌شیت، انواع، مجوزها)' },
+    { key: 'portal_contracts', label: 'مدیریت قراردادهای کارکنان' },
+    { key: 'portal_view_cfg', label: 'تنظیم نمایش حکم و مشخصات در پرتال کارمند' },
+    { key: 'portal_grants', label: 'صدور مجوز مرخصی/مأموریت' }
   ]}
 ];
 
@@ -1882,7 +1901,11 @@ function defaultOperatorPermissions() {
     salary_grade: true,
     cloud: false,
     adj_history: true,
-    changelog: false
+    changelog: false,
+    portal_att: true,
+    portal_contracts: true,
+    portal_view_cfg: false,
+    portal_grants: true
   };
 }
 
@@ -2780,6 +2803,11 @@ function applyTabVisibilityByPerm() {
   };
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn) {
     var tab = btn.dataset.tab;
+    // child tabs always stay hidden from main strip
+    if (btn.getAttribute('data-psp-child') === '1' || PSP_CHILD_TO_PARENT[tab]) {
+      btn.style.display = 'none';
+      return;
+    }
     if (tab === 'pending' || tab === 'permissions') {
       btn.style.display = isAdmin() ? '' : 'none';
       return;
@@ -2792,6 +2820,7 @@ function applyTabVisibilityByPerm() {
     if (!perm) { btn.style.display = ''; return; }
     btn.style.display = hasPerm(perm) ? '' : 'none';
   });
+  try { pspHideChildTabs(); } catch (e) {}
 }
 
 function pushPending(type, summary, payload) {
@@ -3626,12 +3655,193 @@ function syncEmployeeCustomsToAllowances() {
   });
 }
 
+
+// ---- Sub-tabs: hide moved tabs from main strip; show as sub-tabs under parent ----
+var PSP_SUBTAB_GROUPS = {
+  employees: [
+    { tab: 'employees', label: 'کارکنان فعال' },
+    { tab: 'inactive', label: 'غیر فعال‌ها' }
+  ],
+  allowances: [
+    { tab: 'allowances', label: 'آیتم‌های حقوق و مزایا' },
+    { tab: 'customitems', label: 'آیتم‌های سفارشی' },
+    { tab: 'monthlyvars', label: 'ثابت‌های ماهانه' }
+  ],
+  annualtax: [
+    { tab: 'annualtax', label: 'تسویه مالیات سالانه' },
+    { tab: 'settings', label: 'نرخ بیمه و مالیات' }
+  ],
+  pending: [
+    { tab: 'pending', label: 'تایید تغییرات' },
+    { tab: 'changelog', label: 'لاگ تغییرات' }
+  ],
+  payroll: [
+    { tab: 'payroll', label: 'محاسبه و نتیجه' },
+    { tab: 'dataentry', label: 'ورود داده‌های ماهانه' }
+  ]
+};
+var PSP_CHILD_TO_PARENT = {};
+Object.keys(PSP_SUBTAB_GROUPS).forEach(function(parent) {
+  PSP_SUBTAB_GROUPS[parent].forEach(function(c) {
+    if (c.tab !== parent) PSP_CHILD_TO_PARENT[c.tab] = parent;
+  });
+});
+
+function pspEnsureSubtabsBar(parentTab) {
+  var group = PSP_SUBTAB_GROUPS[parentTab];
+  if (!group) return null;
+  var panel = document.getElementById('panel-' + parentTab);
+  if (!panel) return null;
+  var bar = panel.querySelector('.psp-subtabs[data-parent="' + parentTab + '"]');
+  if (bar) return bar;
+  bar = document.createElement('div');
+  bar.className = 'psp-subtabs no-print';
+  bar.setAttribute('data-parent', parentTab);
+  group.forEach(function(item) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'psp-subbtn' + (item.tab === parentTab ? ' active' : '');
+    b.setAttribute('data-subtab', item.tab);
+    b.textContent = item.label;
+    b.onclick = function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      pspActivateSubtab(parentTab, item.tab);
+    };
+    bar.appendChild(b);
+  });
+  panel.insertBefore(bar, panel.firstChild);
+  return bar;
+}
+
+function pspActivateSubtab(parentTab, subTab) {
+  var group = PSP_SUBTAB_GROUPS[parentTab];
+  if (!group) return;
+  // keep parent main-tab button active
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  var parentBtn = document.querySelector('.tab-btn[data-tab="' + parentTab + '"]');
+  if (parentBtn) parentBtn.classList.add('active');
+  // show only the target panel
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  var target = document.getElementById('panel-' + subTab);
+  if (target) target.classList.add('active');
+  // ensure subtab bar exists on parent panel; if showing child panel, also put bar on child
+  var barHost = document.getElementById('panel-' + (subTab === parentTab ? parentTab : subTab));
+  if (barHost) {
+    var existing = barHost.querySelector('.psp-subtabs');
+    if (!existing) {
+      // clone bar onto child panel top
+      var bar = pspEnsureSubtabsBar(parentTab);
+      if (bar && subTab !== parentTab) {
+        var bar2 = bar.cloneNode(true);
+        bar2.querySelectorAll('.psp-subbtn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
+          btn.onclick = function(ev) {
+            ev.preventDefault();
+            pspActivateSubtab(parentTab, btn.getAttribute('data-subtab'));
+          };
+        });
+        barHost.insertBefore(bar2, barHost.firstChild);
+      }
+    } else {
+      existing.querySelectorAll('.psp-subbtn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
+      });
+    }
+  }
+  // also update bar on parent panel
+  var parentBar = pspEnsureSubtabsBar(parentTab);
+  if (parentBar) {
+    parentBar.querySelectorAll('.psp-subbtn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
+    });
+  }
+  // trigger original side-effects by synthesizing logic via a temp click on hidden btn if child
+  if (subTab !== parentTab) {
+    var childBtn = document.querySelector('.tab-btn[data-tab="' + subTab + '"]');
+    if (childBtn) {
+      // run the same handlers as main tab switch without showing the button
+      try {
+        // manually invoke known renders
+        if (subTab === 'inactive' && typeof renderInactive === 'function') renderInactive();
+        if (subTab === 'customitems') {
+          if (typeof seedCustomTemplatesFromEmployees === 'function') seedCustomTemplatesFromEmployees();
+          if (typeof renderCustomTemplates === 'function') renderCustomTemplates();
+          if (typeof fillCtApplyFilters === 'function') fillCtApplyFilters();
+          if (typeof refreshCtApplyEmpList === 'function') refreshCtApplyEmpList();
+        }
+        if (subTab === 'monthlyvars' && typeof renderMonthlyVars === 'function') renderMonthlyVars();
+        if (subTab === 'settings' && typeof loadSettingsToForm === 'function') loadSettingsToForm();
+        if (subTab === 'dataentry') {
+          /* data entry panel open - no extra required */
+        }
+        if (subTab === 'changelog' && typeof renderChangeLog === 'function') {
+          if (typeof isAdmin === 'function' && !isAdmin()) {
+            alert('فقط ادمین به لاگ دسترسی دارد.');
+            pspActivateSubtab(parentTab, parentTab);
+            return;
+          }
+          renderChangeLog();
+        }
+      } catch (e) { console.error(e); }
+    }
+  } else {
+    // parent own content side effects
+    try {
+      if (parentTab === 'employees') {
+        if (typeof renderEmployees === 'function') renderEmployees();
+      }
+      if (parentTab === 'allowances') {
+        if (typeof syncEmployeeCustomsToAllowances === 'function') syncEmployeeCustomsToAllowances();
+        if (typeof renderAllowances === 'function') renderAllowances();
+      }
+      if (parentTab === 'annualtax') {
+        /* keep existing annualtax click logic via parent btn already */
+      }
+      if (parentTab === 'payroll') { /* existing */ }
+      if (parentTab === 'pending' && typeof renderPending === 'function') renderPending();
+    } catch (e) {}
+  }
+}
+
+function pspHideChildTabs() {
+  Object.keys(PSP_CHILD_TO_PARENT).forEach(function(child) {
+    var btn = document.querySelector('.tab-btn[data-tab="' + child + '"]');
+    if (btn) {
+      btn.style.display = 'none';
+      btn.setAttribute('data-psp-child', '1');
+    }
+  });
+  // ensure parent panels have subtab bars
+  Object.keys(PSP_SUBTAB_GROUPS).forEach(function(p) { pspEnsureSubtabsBar(p); });
+}
+
+// Patch: when parent tab clicked, show its sub-bar; intercept child if somehow shown
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(pspHideChildTabs, 100);
+});
+setTimeout(pspHideChildTabs, 500);
+setTimeout(pspHideChildTabs, 1500);
+
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
+    var tabId = btn.dataset.tab;
+    // if this is a hidden child tab clicked programmatically, still allow
+    if (btn.getAttribute('data-psp-child') === '1' && PSP_CHILD_TO_PARENT[tabId]) {
+      pspActivateSubtab(PSP_CHILD_TO_PARENT[tabId], tabId);
+      return;
+    }
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
+    var panelEl = document.getElementById('panel-'+tabId);
+    if (panelEl) panelEl.classList.add('active');
+    if (PSP_SUBTAB_GROUPS[tabId]) {
+      pspEnsureSubtabsBar(tabId);
+      pspActivateSubtab(tabId, tabId);
+      // fall through for original side effects of parent
+    }
     if (btn.dataset.tab==='employees') {
       const y = Number(document.getElementById('dataYear') && document.getElementById('dataYear').value) || data.settings.currentYear || 1405;
       const m = Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
