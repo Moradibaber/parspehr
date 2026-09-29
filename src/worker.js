@@ -2092,6 +2092,24 @@ function ensureEmpMonthRow(data, year, month, code) {
   return data.monthlyData[key][code];
 }
 
+
+function reverseApprovedRequestFromTimesheet(data, req) {
+  if (!req) return;
+  const code = String(req.empCode);
+  if (req.kind === 'leave' && req.mode === 'daily') {
+    splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+      const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+      row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - chunk.days) * 100) / 100;
+    });
+  } else if (req.kind === 'leave' && req.mode === 'hourly') {
+    const p = parseJalaliYMD(req.startDate);
+    if (!p) return;
+    const hrs = hoursBetween(req.fromTime, req.toTime);
+    const row = ensureEmpMonthRow(data, p.y, p.m, code);
+    row.hourlyLeave = Math.round(Math.max(0, (Number(row.hourlyLeave) || 0) - hrs) * 100) / 100;
+  }
+}
+
 function applyApprovedRequestToTimesheet(data, req) {
   if (!req || req.status !== 'approved') return;
   const code = String(req.empCode);
@@ -2370,6 +2388,80 @@ async function handleEmpListRequests(request, env) {
   return jsonResponse({ ok: true, mine, pendingForMe, managedForMe, isManager: isManager });
 }
 
+
+// ---------- Leave balance & safe extensions (non-breaking) ----------
+function getLeavePolicy(obj) {
+  const s = (obj && obj.settings) || {};
+  const p = s.leavePolicy || {};
+  return {
+    annualDays: Number(p.annualDays) > 0 ? Number(p.annualDays) : 26,
+    carryMax: Number(p.carryMax) >= 0 ? Number(p.carryMax) : 9
+  };
+}
+
+function ensureEmpLeaveFields(emp, obj) {
+  if (!emp) return;
+  const pol = getLeavePolicy(obj);
+  if (emp.leaveBalance == null || emp.leaveBalance === '') {
+    emp.leaveBalance = pol.annualDays;
+  }
+  if (emp.leaveUsedYear == null) emp.leaveUsedYear = 0;
+  if (!emp.leaveBalanceYear) {
+    const cy = Number((obj.settings || {}).currentYear) || 1405;
+    emp.leaveBalanceYear = cy;
+  }
+}
+
+function countLeaveDays(req) {
+  if (!req) return 0;
+  if (req.mode === 'hourly') {
+    // approximate: each hourly leave counts as fraction; store hours/8
+    const ft = String(req.fromTime || '00:00').split(':');
+    const tt = String(req.toTime || '00:00').split(':');
+    const h1 = Number(ft[0]) + Number(ft[1] || 0) / 60;
+    const h2 = Number(tt[0]) + Number(tt[1] || 0) / 60;
+    let hrs = h2 - h1;
+    if (hrs < 0) hrs = 0;
+    return Math.round((hrs / 8) * 100) / 100;
+  }
+  // daily: inclusive days between start and end (simple calendar count via list if available)
+  if (typeof listDayKeys === 'function' && req.startDate) {
+    try {
+      const keys = listDayKeys(req.startDate, req.endDate || req.startDate);
+      return keys.length || 1;
+    } catch (e) {}
+  }
+  if (req.fixedDays) return Number(req.fixedDays) || 1;
+  return 1;
+}
+
+function applyLeaveDeduction(obj, req) {
+  if (!req || req.status !== 'approved') return;
+  if (!req.deductFromEntitlement) return;
+  if (req.kind !== 'leave') return;
+  if (req._leaveDeducted) return; // idempotent
+  const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
+  if (!emp) return;
+  ensureEmpLeaveFields(emp, obj);
+  const days = countLeaveDays(req);
+  emp.leaveBalance = Math.round((Number(emp.leaveBalance) - days) * 100) / 100;
+  emp.leaveUsedYear = Math.round((Number(emp.leaveUsedYear || 0) + days) * 100) / 100;
+  req._leaveDeducted = true;
+  req.leaveDaysDeducted = days;
+}
+
+function restoreLeaveDeduction(obj, req) {
+  if (!req || !req._leaveDeducted) return;
+  const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
+  if (!emp) return;
+  const days = Number(req.leaveDaysDeducted) || countLeaveDays(req);
+  emp.leaveBalance = Math.round((Number(emp.leaveBalance || 0) + days) * 100) / 100;
+  emp.leaveUsedYear = Math.round((Number(emp.leaveUsedYear || 0) - days) * 100) / 100;
+  if (emp.leaveUsedYear < 0) emp.leaveUsedYear = 0;
+  req._leaveDeducted = false;
+}
+
+
 async function handleEmpDecideRequest(request, env) {
   const sess = await readEmpSession(request, env);
   if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
@@ -2452,6 +2544,20 @@ async function handleEmpDecideRequest(request, env) {
         linkedGrant.consumed = false;
         linkedGrant.consumedAt = '';
         linkedGrant.reservedRequestId = null;
+      }
+    }
+    // leave balance + monthly timesheet integration (idempotent flags on request)
+    if (req.status === 'approved') {
+      applyLeaveDeduction(gd.obj, req);
+      if (!req._timesheetApplied) {
+        applyApprovedRequestToTimesheet(gd.obj, req);
+        req._timesheetApplied = true;
+      }
+    } else if (req.status === 'rejected') {
+      restoreLeaveDeduction(gd.obj, req);
+      if (req._timesheetApplied) {
+        reverseApprovedRequestFromTimesheet(gd.obj, req);
+        req._timesheetApplied = false;
       }
     }
 
@@ -3294,6 +3400,7 @@ async function route(request, env, users, found) {
   if (path === '/api/payroll') return handlePayroll(request, user);
   if (path === '/api/calc') return handleCalc(request, user);
   if (path === '/api/admin/contracts') return handleAdminContracts(request, who, env);
+  if (path === '/api/admin/accounting-export') return handleAdminAccountingExport(request, who, env);
   if (path === '/api/admin/payroll-contract-check') return handleAdminPayrollContractCheck(request, who, env);
   if (path === '/api/admin/portal-view') {
     if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
@@ -3908,6 +4015,118 @@ async function handleAdminPayrollContractCheck(request, who, env) {
 }
 
 
+
+async function handleEmpBalances(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(sess.code); });
+  if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
+  ensureEmpLeaveFields(emp, gd.obj);
+  const pol = getLeavePolicy(gd.obj);
+  return jsonResponse({
+    ok: true,
+    leave: {
+      balance: Number(emp.leaveBalance),
+      usedYear: Number(emp.leaveUsedYear || 0),
+      annualDays: pol.annualDays,
+      year: emp.leaveBalanceYear
+    },
+    loan: {
+      remaining: Number(emp.loanRemaining || 0),
+      monthly: Number(emp.monthlyLoan || 0),
+      locked: !!emp.loanLocked
+    }
+  });
+}
+
+async function handleAdminAccountingExport(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  if (!year || !month) return jsonResponse({ ok: false, message: 'سال و ماه الزامی است.' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const key = year + '-' + month;
+  const payrolls = ((gd.obj && gd.obj.payrolls) || {})[key] || {};
+  // build simple journal lines (does not post to accounting — export only)
+  const lines = [];
+  Object.keys(payrolls).forEach(function (code) {
+    const p = payrolls[code];
+    if (!p) return;
+    const name = p.fullName || code;
+    const gross = Number(p.gross) || 0;
+    const ins = Number(p.insurance) || 0;
+    const tax = Number(p.tax) || 0;
+    const loan = Number(p.loanDeduction) || 0;
+    const net = Number(p.net) || 0;
+    const employerIns = Number(p.employerInsurance) || Math.round(ins * 2); // fallback estimate if missing
+    if (gross) lines.push({ code: code, name: name, account: 'هزینه حقوق و دستمزد', side: 'bed', amount: gross });
+    if (employerIns) lines.push({ code: code, name: name, account: 'هزینه بیمه سهم کارفرما', side: 'bed', amount: employerIns });
+    if (ins) lines.push({ code: code, name: name, account: 'بیمه پرداختنی (سهم کارگر)', side: 'bes', amount: ins });
+    if (employerIns) lines.push({ code: code, name: name, account: 'بیمه پرداختنی (سهم کارفرما)', side: 'bes', amount: employerIns });
+    if (tax) lines.push({ code: code, name: name, account: 'مالیات حقوق پرداختنی', side: 'bes', amount: tax });
+    if (loan) lines.push({ code: code, name: name, account: 'وام کارکنان', side: 'bes', amount: loan });
+    if (net) lines.push({ code: code, name: name, account: 'حقوق پرداختنی / بانک', side: 'bes', amount: net });
+  });
+  return jsonResponse({ ok: true, year: year, month: month, lines: lines, count: lines.length });
+}
+
+
+
+async function handleEmpPayslipArchive(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const code = String(sess.code);
+  const payrolls = (gd.obj && gd.obj.payrolls) || {};
+  const months = [];
+  Object.keys(payrolls).forEach(function (key) {
+    const bucket = payrolls[key];
+    if (!bucket) return;
+    // payrolls[key] may be array or object map
+    let found = null;
+    if (Array.isArray(bucket)) {
+      found = bucket.find(function (r) { return String(r.code) === code; });
+    } else if (bucket[code]) {
+      found = bucket[code];
+    } else {
+      Object.keys(bucket).forEach(function (k) {
+        if (k === '_meta') return;
+        const r = bucket[k];
+        if (r && String(r.code) === code) found = r;
+      });
+    }
+    if (found) {
+      const parts = key.split('-');
+      months.push({
+        key: key,
+        year: Number(parts[0]),
+        month: Number(parts[1]),
+        net: found.net != null ? found.net : found.netPay,
+        gross: found.gross
+      });
+    }
+  });
+  months.sort(function (a, b) {
+    if (a.year !== b.year) return b.year - a.year;
+    return b.month - a.month;
+  });
+  return jsonResponse({ ok: true, months: months });
+}
+
 export default {
   async fetch(request, env) {
     let users;
@@ -3922,6 +4141,8 @@ export default {
     const url = new URL(request.url);
 
     // ---- Employee portal routes (no admin session required) ----
+    if (url.pathname === '/api/emp/balances') return handleEmpBalances(request, env);
+    if (url.pathname === '/api/emp/payslip-archive') return handleEmpPayslipArchive(request, env);
     if (url.pathname === '/api/emp/contracts') return handleEmpContracts(request, env);
     if (url.pathname === '/api/emp/decree') return handleEmpDecree(request, env);
     if (url.pathname === '/api/emp/profile') return handleEmpProfile(request, env);
@@ -4046,6 +4267,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <button class="tab" data-tab="decree" id="tabDecree" onclick="showTab('decree')">حکم</button>
       <button class="tab" data-tab="profile" id="tabProfile" onclick="showTab('profile')">مشخصات پرسنلی</button>
       <button class="tab" data-tab="contracts" id="tabContracts" onclick="showTab('contracts')">قراردادها</button>
+      <button class="tab" data-tab="balances" id="tabBalances" onclick="showTab('balances')">مانده مرخصی و وام</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
   </div>
@@ -4098,6 +4320,11 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی</p>
     <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
+  <div class="card panel hidden" id="panel-balances">
+    <h2>مانده مرخصی و وام</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">مانده مرخصی استحقاقی پس از تأیید مدیر به‌روز می‌شود.</p>
+    <div id="balancesBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
   <div class="card panel hidden" id="panel-contracts">
     <h2>قراردادهای من</h2>
     <p class="sub" style="text-align:right;margin-bottom:10px;">در صورت مجاز بودن، مدت قرارداد نمایش داده می‌شود.</p>
@@ -4125,7 +4352,56 @@ function showTab(name){
   if(name==='decree') loadDecree();
   if(name==='profile') loadProfile();
   if(name==='contracts') loadContractsEmp();
+  if(name==='balances') loadBalancesEmp();
+  if(name==='payslip') loadPayslipArchive();
 }
+async function loadBalancesEmp(){
+  var box=document.getElementById('balancesBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/balances',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var L=j.leave||{}, Ln=j.loan||{};
+    var html='<div class="box"><table>';
+    html+='<tr><td><b>مانده مرخصی استحقاقی</b></td><td>'+(L.balance!=null?L.balance:'—')+' روز</td></tr>';
+    html+='<tr><td><b>مصرف‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
+    html+='<tr><td><b>سقف سالانه (تنظیم سیستم)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
+    html+='<tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
+    html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
+    html+='</table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت اطلاعات.</div>'; }
+}
+
+
+async function loadPayslipArchive(){
+  var box=document.getElementById('payslipArchiveBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری آرشیو…</div>';
+  try{
+    var r=await fetch('/api/emp/payslip-archive',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">آرشیو در دسترس نیست.</div>'; return; }
+    var list=j.months||[];
+    if(!list.length){ box.innerHTML='<div class="sub">هنوز فیش محاسبه‌شده‌ای برای شما ثبت نشده.</div>'; return; }
+    var monthNames=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+    var html='<div class="box"><table><thead><tr><th>دوره</th><th>ناخالص</th><th>خالص</th><th></th></tr></thead><tbody>';
+    list.forEach(function(m){
+      var label=(monthNames[m.month]||m.month)+' '+m.year;
+      html+='<tr><td>'+label+'</td><td>'+(m.gross!=null?Number(m.gross).toLocaleString('fa-IR'):'—')+'</td><td>'+(m.net!=null?Number(m.net).toLocaleString('fa-IR'):'—')+'</td>';
+      html+='<td><button type="button" class="primary" style="padding:4px 8px;font-size:0.75rem;" onclick="openArchivedPayslip('+m.year+','+m.month+')">نمایش</button></td></tr>';
+    });
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت آرشیو.</div>'; }
+}
+function openArchivedPayslip(y,m){
+  var ye=document.getElementById('year')||document.getElementById('psYear');
+  var me=document.getElementById('month')||document.getElementById('psMonth');
+  if(ye) ye.value=y; if(me) me.value=m;
+  if(typeof loadPayslip==='function') loadPayslip();
+}
+
 async function loadContractsEmp(){
   var box=document.getElementById('contractsBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
