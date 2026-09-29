@@ -4153,16 +4153,27 @@ async function loadContractsEmp(){
     });
     var orderMap={};
     sorted.forEach(function(c,i){ orderMap[c.id]=i; });
+    function fmtDate(d){
+      if(!d) return '';
+      var m=String(d).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if(!m) return String(d);
+      return String(m[3]).padStart(2,'0')+'/'+String(m[2]).padStart(2,'0')+'/'+m[1];
+    }
     var html='<div class="box" style="overflow:auto;"><table style="width:100%;font-size:0.82rem;">';
     html+='<thead><tr>';
     html+='<th style="text-align:right;">نوع</th>';
+    html+='<th style="text-align:center;">دوره قرارداد</th>';
     html+='<th style="text-align:center;">مدت قرارداد</th>';
     html+='<th style="text-align:center;">نوبت قرارداد</th>';
     html+='</tr></thead><tbody>';
     list.forEach(function(c){
       var typ=typeFa[c.type]||c.type||'—';
+      var period='—';
       var dur='—';
       if(c.showDuration){
+        var a=fmtDate(c.startDate), b=fmtDate(c.endDate);
+        if(a&&b) period=a+'-'+b;
+        else if(a||b) period=a||b;
         var m=c.durationMonths!=null?c.durationMonths:monthsBetween(c.startDate,c.endDate);
         if(m!=null) dur=m+'ماه';
       }
@@ -4170,6 +4181,7 @@ async function loadContractsEmp(){
       var nob=oi!=null?(oi<ordinals.length?'قرارداد '+ordinals[oi]:'قرارداد '+(oi+1)):'—';
       html+='<tr>';
       html+='<td style="text-align:right;"><b>'+typ+'</b></td>';
+      html+='<td style="text-align:center;direction:ltr;">'+period+'</td>';
       html+='<td style="text-align:center;">'+dur+'</td>';
       html+='<td style="text-align:center;">'+nob+'</td>';
       html+='</tr>';
