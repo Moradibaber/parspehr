@@ -534,7 +534,13 @@
   <div class="panel" id="panel-settings">
     <div class="card">
       <div class="section-title">نرخ بیمه و مالیات ۱۴۰۵</div>
-      <div class="form-grid">
+      
+      <div class="section-title">سیاست مرخصی استحقاقی</div>
+      <div class="form-grid" style="margin-bottom:14px;">
+        <div class="form-group"><label>روز استحقاقی سالانه</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1"></div>
+        <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
+      </div>
+<div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
@@ -1005,7 +1011,7 @@
         <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
         <button class="btn btn-outline" onclick="downloadDataTemplate()">دانلود نمونه اکسل ورود داده</button>
         <button class="btn btn-outline" onclick="document.getElementById('dataImportFile').click()">بارگذاری اکسل ورود داده</button>
-        <input type="file" id="dataImportFile" accept=".csv" style="display:none" onchange="importDataFromExcel(event)">
+        <input type="file" id="dataImportFile" accept=".csv,.txt,.tsv,text/csv" style="display:none" onchange="importDataFromExcel(event)">
         <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
         <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
           عرض ستون
@@ -1058,6 +1064,7 @@
         <button class="btn btn-success" onclick="runCalculation()">اجرای محاسبه</button>
         <button class="btn btn-outline" onclick="lockPayrollBaseline()">قفل مبنای پرداخت‌شده</button>
         <button class="btn btn-warning" onclick="openAdjustmentWizard()">محاسبه مغایرت (اصلاح)</button>
+        <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
         <b>قفل مبنا:</b> بعد از پرداخت قطعی حقوق ماه، با رمز ادمین یک نسخه ثابت از محاسبه ذخیره می‌شود.
@@ -1670,6 +1677,10 @@
         <div class="form-group">
           <label>باقی‌مانده وام <span id="loanLockIcon" style="display:none;cursor:pointer;user-select:none;" title="دابل‌کلیک برای باز کردن قفل" ondblclick="promptUnlockLoan()">🔒</span></label>
           <input type="number" id="e_loanRemaining" value="0" min="0">
+        </div>
+        <div class="form-group">
+          <label>مانده مرخصی استحقاقی (روز)</label>
+          <input type="number" id="e_leaveBalance" value="26" step="0.5" min="0" title="با تأیید مرخصی استحقاقی از این مقدار کسر می‌شود">
         </div>
       </div>
 
@@ -4224,6 +4235,14 @@ function loadSettingsToForm() {
   document.getElementById('insEmployee').value = s.insEmployee;
   document.getElementById('insEmployer').value = s.insEmployer;
   document.getElementById('overtimeFactor').value = s.overtimeFactor;
+  try {
+    var lp = (data.settings && data.settings.leavePolicy) || {};
+    var la = document.getElementById('leaveAnnualDays');
+    var lc = document.getElementById('leaveCarryMax');
+    if (la) la.value = lp.annualDays != null ? lp.annualDays : 26;
+    if (lc) lc.value = lp.carryMax != null ? lp.carryMax : 9;
+  } catch (e) {}
+
   document.getElementById('nightFactor').value = s.nightFactor || 1.35;
   if (document.getElementById('shiftMorningEvening')) document.getElementById('shiftMorningEvening').value = s.shiftMorningEvening != null ? s.shiftMorningEvening : 10;
   if (document.getElementById('shiftWithNight')) document.getElementById('shiftWithNight').value = s.shiftWithNight != null ? s.shiftWithNight : 22.5;
@@ -4283,6 +4302,14 @@ function saveSettings() {
   data.settings.insEmployee = Number(document.getElementById('insEmployee').value)||7;
   data.settings.insEmployer = Number(document.getElementById('insEmployer').value)||23;
   data.settings.overtimeFactor = Number(document.getElementById('overtimeFactor').value)||1.4;
+  try {
+    var la = document.getElementById('leaveAnnualDays');
+    var lc = document.getElementById('leaveCarryMax');
+    data.settings.leavePolicy = {
+      annualDays: la ? Number(la.value) || 26 : 26,
+      carryMax: lc ? Number(lc.value) || 0 : 0
+    };
+  } catch (e) {}
   data.settings.nightFactor = Number(document.getElementById('nightFactor').value)||1.35;
   data.settings.shiftMorningEvening = Number(document.getElementById('shiftMorningEvening') && document.getElementById('shiftMorningEvening').value) || 10;
   data.settings.shiftWithNight = Number(document.getElementById('shiftWithNight') && document.getElementById('shiftWithNight').value) || 22.5;
@@ -4565,7 +4592,7 @@ function openEmployeeModal(editId = null) {
       basicSalary:'e_basicSalary', seniorityBase:'e_seniorityBase',
       bankName:'e_bankName', accountNumber:'e_accountNumber', insuranceNo:'e_insuranceNo',
       children:'e_children', gender:'e_gender', marital:'e_marital', exemption:'e_exemption', status:'e_status', statusStart:'e_statusStart', statusEnd:'e_statusEnd',
-      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining',
+      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining', leaveBalance:'e_leaveBalance',
       taxPercent:'e_taxPercent'
     };
     Object.keys(map).forEach(k => {
@@ -4754,6 +4781,7 @@ function saveEmployee(e) {
     statusEnd: document.getElementById('e_statusEnd') ? document.getElementById('e_statusEnd').value.trim() : '',
     notes: document.getElementById('e_notes').value.trim(),
     loanAmount, loanInstallments: installments, loanRemaining: remaining,
+    leaveBalance: (function(){ var el=document.getElementById('e_leaveBalance'); return el ? Number(el.value) : 26; })(),
     monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
     loanLocked: currentLoanLocked || false,
     customItems: tempCustomItems.filter(c => c.name && c.name.trim()).map(c => {
@@ -5839,7 +5867,9 @@ function importDataFromExcel(event) {
         leaveDays: bh.findIndex(h => h.includes('روز مرخصی') || (h.includes('مرخصی') && !h.includes('ساعتی'))),
         hourlyLeave: bh.findIndex(h => h.includes('مرخصی ساعتی') || h.includes('ساعتی')),
         otHours: bh.findIndex(h => h.includes('اضافه‌کار') || h.includes('اضافه کار')),
-        nightHours: bh.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار'))
+        nightHours: bh.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار')),
+        shiftType: bh.findIndex(h => h.includes('نوع نوبت') || h === 'نوبت'),
+        shiftDays: bh.findIndex(h => h.includes('روز نوبت'))
       };
       const varIdx = {};
       getMonthlyVars(true).forEach(v => { const i = headers.findIndex(h => h === v.name); if (i >= 0) varIdx[v.id] = i; });
@@ -5875,6 +5905,15 @@ function importDataFromExcel(event) {
         if (idx.hourlyLeave >= 0) row.hourlyLeave = Number((cols[idx.hourlyLeave]||'').replace(/"/g,'')) || 0;
         if (idx.otHours >= 0) row.otHours = Number((cols[idx.otHours]||'').replace(/"/g,'')) || 0;
         if (idx.nightHours >= 0) row.nightHours = Number((cols[idx.nightHours]||'').replace(/"/g,'')) || 0;
+        if (idx.shiftType >= 0 && cols[idx.shiftType] !== undefined) {
+          var st = String(cols[idx.shiftType]||'').replace(/"/g,'').trim();
+          if (st === 'صبح و عصر' || st === 'صبح‌و‌عصر') row.shiftType = 'morning_evening';
+          else if (st === 'با شب' || st === 'شب') row.shiftType = 'with_night';
+          else if (st === 'هر سه' || st === 'سه‌نوبت') row.shiftType = 'all_three';
+          else if (st) row.shiftType = st;
+          else row.shiftType = 'none';
+        }
+        if (idx.shiftDays >= 0 && cols[idx.shiftDays] !== undefined) row.shiftDays = Number((cols[idx.shiftDays]||'').replace(/"/g,'')) || 0;
         if (!row.vars) row.vars = {};
         Object.keys(varIdx).forEach(id => { row.vars[id] = Number(String(cols[varIdx[id]]||'').replace(/"/g,'')) || 0; });
         if (!row.qty) row.qty = {};
@@ -10322,6 +10361,41 @@ try {
   console.error(e4);
   clearBootLoading();
   try { showLogin(); } catch (e5) {}
+}
+
+
+async function exportPayrollAccounting() {
+  try {
+    var year = Number(document.getElementById('payYear') && document.getElementById('payYear').value) || (data.settings && data.settings.currentYear) || 1405;
+    var month = Number(document.getElementById('payMonth') && document.getElementById('payMonth').value) || 1;
+    var r = await fetch('/api/admin/accounting-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ year: year, month: month })
+    });
+    var j = await r.json();
+    if (!j.ok) { alert(j.message || j.error || 'خطا در خروجی'); return; }
+    var lines = j.lines || [];
+    if (!lines.length) { alert('برای این ماه نتیجه محاسبه یافت نشد. ابتدا محاسبه را اجرا کنید.'); return; }
+    var csv = 'کد,نام,حساب,بدهکار,بستانکار\n';
+    lines.forEach(function(L) {
+      var bed = L.side === 'bed' ? L.amount : '';
+      var bes = L.side === 'bes' ? L.amount : '';
+      csv += [L.code, L.name, L.account, bed, bes].map(function(x) {
+        return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"';
+      }).join(',') + '\n';
+    });
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'accounting-payroll-' + year + '-' + month + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    console.error(e);
+    alert('خطا در ارتباط با سرور برای خروجی حسابداری');
+  }
 }
 
 </script>
