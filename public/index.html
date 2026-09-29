@@ -536,9 +536,29 @@
       <div class="section-title">نرخ بیمه و مالیات ۱۴۰۵</div>
       
       <div class="section-title">سیاست مرخصی استحقاقی</div>
-      <div class="form-grid" style="margin-bottom:14px;">
-        <div class="form-group"><label>روز استحقاقی سالانه</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1"></div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
+        سقف مرخصی استحقاقی سالانه بر اساس <b>نوع قرارداد</b> و در صورت تعریف، <b>گروه کاری</b> (اولویت با گروه).
+        اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
+      </p>
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1"></div>
         <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
+      </div>
+      <div style="margin-bottom:12px;overflow-x:auto;">
+        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس نوع قرارداد</div>
+        <table style="max-width:520px;">
+          <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
+          <tbody>
+            <tr><td>عادی</td><td><input type="number" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>روزمزد</td><td><input type="number" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>ساعتی</td><td><input type="number" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس گروه کاری (اختیاری — اولویت بالاتر)</div>
+        <div id="leaveGroupPolicyList"></div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
       </div>
 <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
@@ -4241,6 +4261,14 @@ function loadSettingsToForm() {
     var lc = document.getElementById('leaveCarryMax');
     if (la) la.value = lp.annualDays != null ? lp.annualDays : 26;
     if (lc) lc.value = lp.carryMax != null ? lp.carryMax : 9;
+    var bct = lp.byContractType || {};
+    var elN = document.getElementById('leaveCt_normal');
+    var elD = document.getElementById('leaveCt_daily');
+    var elH = document.getElementById('leaveCt_hourly');
+    if (elN) elN.value = bct.normal != null ? bct.normal : (lp.annualDays != null ? lp.annualDays : 26);
+    if (elD) elD.value = bct.daily != null ? bct.daily : (lp.annualDays != null ? lp.annualDays : 26);
+    if (elH) elH.value = bct.hourly != null ? bct.hourly : 0;
+    renderLeaveGroupPolicyRows(lp.byGroup || {});
   } catch (e) {}
 
   document.getElementById('nightFactor').value = s.nightFactor || 1.35;
@@ -4305,9 +4333,28 @@ function saveSettings() {
   try {
     var la = document.getElementById('leaveAnnualDays');
     var lc = document.getElementById('leaveCarryMax');
+    var elN = document.getElementById('leaveCt_normal');
+    var elD = document.getElementById('leaveCt_daily');
+    var elH = document.getElementById('leaveCt_hourly');
+    var byGroup = {};
+    document.querySelectorAll('#leaveGroupPolicyList .leave-grp-row').forEach(function(row) {
+      var g = (row.querySelector('.leave-grp-name') || {}).value;
+      var d = (row.querySelector('.leave-grp-days') || {}).value;
+      g = String(g || '').trim();
+      if (!g) return;
+      var n = Number(d);
+      if (isNaN(n) || n < 0) n = 0;
+      byGroup[g] = n;
+    });
     data.settings.leavePolicy = {
-      annualDays: la ? Number(la.value) || 26 : 26,
-      carryMax: lc ? Number(lc.value) || 0 : 0
+      annualDays: la ? Number(la.value) || 0 : 26,
+      carryMax: lc ? Number(lc.value) || 0 : 0,
+      byContractType: {
+        normal: elN ? Number(elN.value) || 0 : 26,
+        daily: elD ? Number(elD.value) || 0 : 26,
+        hourly: elH ? Number(elH.value) || 0 : 0
+      },
+      byGroup: byGroup
     };
   } catch (e) {}
   data.settings.nightFactor = Number(document.getElementById('nightFactor').value)||1.35;
@@ -10396,6 +10443,51 @@ async function exportPayrollAccounting() {
     console.error(e);
     alert('خطا در ارتباط با سرور برای خروجی حسابداری');
   }
+}
+
+
+function renderLeaveGroupPolicyRows(byGroup) {
+  var box = document.getElementById('leaveGroupPolicyList');
+  if (!box) return;
+  byGroup = byGroup || {};
+  var keys = Object.keys(byGroup);
+  // also suggest existing employee groups not yet in policy
+  try {
+    (data.employees || []).forEach(function(e) {
+      var g = String(e.group || '').trim();
+      if (g && keys.indexOf(g) < 0) keys.push(g);
+    });
+  } catch (e) {}
+  if (!keys.length) {
+    box.innerHTML = '<p style="font-size:0.78rem;color:#64748b;">گروهی تعریف نشده. با «+ افزودن گروه» یا پر کردن فیلد گروه در کارت کارمند اضافه کنید.</p>';
+    return;
+  }
+  var html = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody>';
+  keys.forEach(function(g) {
+    var days = byGroup[g] != null ? byGroup[g] : '';
+    html += '<tr class="leave-grp-row">';
+    html += '<td><input type="text" class="leave-grp-name" value="' + String(g).replace(/"/g, '&quot;') + '" style="width:100%;"></td>';
+    html += '<td><input type="number" class="leave-grp-days" value="' + days + '" min="0" step="1" style="width:100px;"></td>';
+    html += '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+function addLeaveGroupPolicyRow() {
+  var box = document.getElementById('leaveGroupPolicyList');
+  if (!box) return;
+  var tbl = box.querySelector('tbody');
+  if (!tbl) {
+    box.innerHTML = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody></tbody></table>';
+    tbl = box.querySelector('tbody');
+  }
+  var tr = document.createElement('tr');
+  tr.className = 'leave-grp-row';
+  tr.innerHTML = '<td><input type="text" class="leave-grp-name" placeholder="نام گروه" style="width:100%;"></td>' +
+    '<td><input type="number" class="leave-grp-days" value="26" min="0" step="1" style="width:100px;"></td>' +
+    '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
+  tbl.appendChild(tr);
 }
 
 </script>
