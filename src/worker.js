@@ -2394,16 +2394,35 @@ function getLeavePolicy(obj) {
   const s = (obj && obj.settings) || {};
   const p = s.leavePolicy || {};
   return {
-    annualDays: Number(p.annualDays) > 0 ? Number(p.annualDays) : 26,
-    carryMax: Number(p.carryMax) >= 0 ? Number(p.carryMax) : 9
+    annualDays: Number(p.annualDays) >= 0 ? Number(p.annualDays) : 26,
+    carryMax: Number(p.carryMax) >= 0 ? Number(p.carryMax) : 9,
+    byContractType: (p.byContractType && typeof p.byContractType === 'object') ? p.byContractType : {},
+    byGroup: (p.byGroup && typeof p.byGroup === 'object') ? p.byGroup : {}
   };
+}
+
+/** سقف استحقاقی سالانه برای یک کارمند: اول گروه کاری، بعد نوع قرارداد، بعد پیش‌فرض */
+function getAnnualLeaveDaysForEmp(obj, emp) {
+  const pol = getLeavePolicy(obj);
+  if (!emp) return pol.annualDays;
+  const grp = String(emp.group || '').trim();
+  if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
+    const n = Number(pol.byGroup[grp]);
+    if (!isNaN(n) && n >= 0) return n;
+  }
+  const ct = String(emp.contractType || 'normal').trim() || 'normal';
+  if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
+    const n = Number(pol.byContractType[ct]);
+    if (!isNaN(n) && n >= 0) return n;
+  }
+  return pol.annualDays;
 }
 
 function ensureEmpLeaveFields(emp, obj) {
   if (!emp) return;
-  const pol = getLeavePolicy(obj);
+  const annual = getAnnualLeaveDaysForEmp(obj, emp);
   if (emp.leaveBalance == null || emp.leaveBalance === '') {
-    emp.leaveBalance = pol.annualDays;
+    emp.leaveBalance = annual;
   }
   if (emp.leaveUsedYear == null) emp.leaveUsedYear = 0;
   if (!emp.leaveBalanceYear) {
@@ -4027,12 +4046,16 @@ async function handleEmpBalances(request, env) {
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
   ensureEmpLeaveFields(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
+  const annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
   return jsonResponse({
     ok: true,
     leave: {
       balance: Number(emp.leaveBalance),
       usedYear: Number(emp.leaveUsedYear || 0),
-      annualDays: pol.annualDays,
+      annualDays: annualForEmp,
+      defaultAnnualDays: pol.annualDays,
+      contractType: emp.contractType || 'normal',
+      group: emp.group || '',
       year: emp.leaveBalanceYear
     },
     loan: {
@@ -4366,7 +4389,7 @@ async function loadBalancesEmp(){
     var html='<div class="box"><table>';
     html+='<tr><td><b>مانده مرخصی استحقاقی</b></td><td>'+(L.balance!=null?L.balance:'—')+' روز</td></tr>';
     html+='<tr><td><b>مصرف‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
-    html+='<tr><td><b>سقف سالانه (تنظیم سیستم)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
+    html+='<tr><td><b>سقف سالانه (بر اساس نوع/گروه شما)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
     html+='<tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
     html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
     html+='</table></div>';
