@@ -3690,11 +3690,11 @@ Object.keys(PSP_SUBTAB_GROUPS).forEach(function(parent) {
 function pspEnsureSubtabsBar(parentTab) {
   var group = PSP_SUBTAB_GROUPS[parentTab];
   if (!group) return null;
-  var panel = document.getElementById('panel-' + parentTab);
-  if (!panel) return null;
-  var bar = panel.querySelector('.psp-subtabs[data-parent="' + parentTab + '"]');
+  var barId = 'psp-subtabs-bar-' + parentTab;
+  var bar = document.getElementById(barId);
   if (bar) return bar;
   bar = document.createElement('div');
+  bar.id = barId;
   bar.className = 'psp-subtabs no-print';
   bar.setAttribute('data-parent', parentTab);
   group.forEach(function(item) {
@@ -3704,104 +3704,82 @@ function pspEnsureSubtabsBar(parentTab) {
     b.setAttribute('data-subtab', item.tab);
     b.textContent = item.label;
     b.onclick = function(ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
       pspActivateSubtab(parentTab, item.tab);
     };
     bar.appendChild(b);
   });
-  panel.insertBefore(bar, panel.firstChild);
   return bar;
+}
+
+function pspPlaceSubtabsBar(parentTab, hostPanel) {
+  if (!hostPanel) return;
+  var bar = pspEnsureSubtabsBar(parentTab);
+  if (!bar) return;
+  // remove any OTHER duplicate subtab bars inside this panel
+  hostPanel.querySelectorAll('.psp-subtabs').forEach(function(el) {
+    if (el !== bar) el.parentNode.removeChild(el);
+  });
+  // move bar to top of host (not clone)
+  if (bar.parentNode !== hostPanel || hostPanel.firstChild !== bar) {
+    hostPanel.insertBefore(bar, hostPanel.firstChild);
+  }
 }
 
 function pspActivateSubtab(parentTab, subTab) {
   var group = PSP_SUBTAB_GROUPS[parentTab];
   if (!group) return;
-  // keep parent main-tab button active
   document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
   var parentBtn = document.querySelector('.tab-btn[data-tab="' + parentTab + '"]');
   if (parentBtn) parentBtn.classList.add('active');
-  // show only the target panel
   document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
   var target = document.getElementById('panel-' + subTab);
   if (target) target.classList.add('active');
-  // ensure subtab bar exists on parent panel; if showing child panel, also put bar on child
-  var barHost = document.getElementById('panel-' + (subTab === parentTab ? parentTab : subTab));
-  if (barHost) {
-    var existing = barHost.querySelector('.psp-subtabs');
-    if (!existing) {
-      // clone bar onto child panel top
-      var bar = pspEnsureSubtabsBar(parentTab);
-      if (bar && subTab !== parentTab) {
-        var bar2 = bar.cloneNode(true);
-        bar2.querySelectorAll('.psp-subbtn').forEach(function(btn) {
-          btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
-          btn.onclick = function(ev) {
-            ev.preventDefault();
-            pspActivateSubtab(parentTab, btn.getAttribute('data-subtab'));
-          };
-        });
-        barHost.insertBefore(bar2, barHost.firstChild);
-      }
-    } else {
-      existing.querySelectorAll('.psp-subbtn').forEach(function(btn) {
-        btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
-      });
-    }
-  }
-  // also update bar on parent panel
-  var parentBar = pspEnsureSubtabsBar(parentTab);
-  if (parentBar) {
-    parentBar.querySelectorAll('.psp-subbtn').forEach(function(btn) {
+  // one bar only, moved onto the visible panel
+  if (target) pspPlaceSubtabsBar(parentTab, target);
+  var bar = document.getElementById('psp-subtabs-bar-' + parentTab);
+  if (bar) {
+    bar.querySelectorAll('.psp-subbtn').forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
     });
   }
-  // trigger original side-effects by synthesizing logic via a temp click on hidden btn if child
-  if (subTab !== parentTab) {
-    var childBtn = document.querySelector('.tab-btn[data-tab="' + subTab + '"]');
-    if (childBtn) {
-      // run the same handlers as main tab switch without showing the button
-      try {
-        // manually invoke known renders
-        if (subTab === 'inactive' && typeof renderInactive === 'function') renderInactive();
-        if (subTab === 'customitems') {
-          if (typeof seedCustomTemplatesFromEmployees === 'function') seedCustomTemplatesFromEmployees();
-          if (typeof renderCustomTemplates === 'function') renderCustomTemplates();
-          if (typeof fillCtApplyFilters === 'function') fillCtApplyFilters();
-          if (typeof refreshCtApplyEmpList === 'function') refreshCtApplyEmpList();
-        }
-        if (subTab === 'monthlyvars' && typeof renderMonthlyVars === 'function') renderMonthlyVars();
-        if (subTab === 'settings' && typeof loadSettingsToForm === 'function') loadSettingsToForm();
-        if (subTab === 'dataentry') {
-          /* data entry panel open - no extra required */
-        }
-        if (subTab === 'changelog' && typeof renderChangeLog === 'function') {
-          if (typeof isAdmin === 'function' && !isAdmin()) {
-            alert('فقط ادمین به لاگ دسترسی دارد.');
-            pspActivateSubtab(parentTab, parentTab);
-            return;
-          }
-          renderChangeLog();
-        }
-      } catch (e) { console.error(e); }
+  try {
+    if (subTab === 'inactive' && typeof renderInactive === 'function') renderInactive();
+    if (subTab === 'customitems') {
+      if (typeof seedCustomTemplatesFromEmployees === 'function') seedCustomTemplatesFromEmployees();
+      if (typeof renderCustomTemplates === 'function') renderCustomTemplates();
+      if (typeof fillCtApplyFilters === 'function') fillCtApplyFilters();
+      if (typeof refreshCtApplyEmpList === 'function') refreshCtApplyEmpList();
     }
-  } else {
-    // parent own content side effects
-    try {
-      if (parentTab === 'employees') {
-        if (typeof renderEmployees === 'function') renderEmployees();
+    if (subTab === 'monthlyvars' && typeof renderMonthlyVars === 'function') renderMonthlyVars();
+    if (subTab === 'settings' && typeof loadSettingsToForm === 'function') loadSettingsToForm();
+    if (subTab === 'changelog') {
+      if (typeof isAdmin === 'function' && !isAdmin()) {
+        alert('فقط ادمین به لاگ دسترسی دارد.');
+        pspActivateSubtab(parentTab, parentTab);
+        return;
       }
-      if (parentTab === 'allowances') {
-        if (typeof syncEmployeeCustomsToAllowances === 'function') syncEmployeeCustomsToAllowances();
-        if (typeof renderAllowances === 'function') renderAllowances();
-      }
-      if (parentTab === 'annualtax') {
-        /* keep existing annualtax click logic via parent btn already */
-      }
-      if (parentTab === 'payroll') { /* existing */ }
-      if (parentTab === 'pending' && typeof renderPending === 'function') renderPending();
-    } catch (e) {}
-  }
+      if (typeof renderChangeLog === 'function') renderChangeLog();
+    }
+    if (subTab === 'employees' && typeof renderEmployees === 'function') renderEmployees();
+    if (subTab === 'allowances') {
+      if (typeof syncEmployeeCustomsToAllowances === 'function') syncEmployeeCustomsToAllowances();
+      if (typeof renderAllowances === 'function') renderAllowances();
+    }
+    if (subTab === 'pending' && typeof renderPending === 'function') renderPending();
+    if (subTab === 'payroll' && typeof renderSheetOrgFilters === 'function') {
+      try { renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()'); } catch (e) {}
+    }
+    if (subTab === 'dataentry') { /* open panel only */ }
+    if (subTab === 'annualtax') {
+      try {
+        var yEl = document.getElementById('annualTaxYear');
+        if (yEl && data && data.settings) yEl.value = data.settings.currentYear || 1405;
+        if (typeof renderSheetOrgFilters === 'function') renderSheetOrgFilters('annualTaxSheetFilters', 'annualTax', 'applyAnnualTaxFilters()');
+        if (typeof fillAnnualTaxEmpList === 'function') fillAnnualTaxEmpList();
+      } catch (e) {}
+    }
+  } catch (e) { console.error(e); }
 }
 
 function pspHideChildTabs() {
@@ -3812,8 +3790,23 @@ function pspHideChildTabs() {
       btn.setAttribute('data-psp-child', '1');
     }
   });
-  // ensure parent panels have subtab bars
-  Object.keys(PSP_SUBTAB_GROUPS).forEach(function(p) { pspEnsureSubtabsBar(p); });
+  // remove any duplicate bars left from older versions
+  document.querySelectorAll('.psp-subtabs').forEach(function(el) {
+    var parent = el.getAttribute('data-parent');
+    var id = el.id || '';
+    if (parent && id !== 'psp-subtabs-bar-' + parent) {
+      try { el.parentNode.removeChild(el); } catch (e) {}
+    }
+  });
+  // dedupe: if multiple bars with same id-less class under same panel, keep first
+  document.querySelectorAll('.panel').forEach(function(panel) {
+    var bars = panel.querySelectorAll('.psp-subtabs');
+    if (bars.length > 1) {
+      for (var i = 1; i < bars.length; i++) {
+        try { bars[i].parentNode.removeChild(bars[i]); } catch (e) {}
+      }
+    }
+  });
 }
 
 // Patch: when parent tab clicked, show its sub-bar; intercept child if somehow shown
@@ -3838,7 +3831,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     var panelEl = document.getElementById('panel-'+tabId);
     if (panelEl) panelEl.classList.add('active');
     if (PSP_SUBTAB_GROUPS[tabId]) {
-      pspEnsureSubtabsBar(tabId);
       pspActivateSubtab(tabId, tabId);
       // fall through for original side effects of parent
     }
