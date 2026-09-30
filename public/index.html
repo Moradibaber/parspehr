@@ -560,6 +560,12 @@
         <div id="leaveGroupPolicyList"></div>
         <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
       </div>
+
+      <div style="margin-bottom:14px;padding:10px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
+        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">انتقال مانده به سال جدید</div>
+        <p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">مانده هر کارمند تا سقف انتقال نگه داشته می‌شود و با استحقاقی تناسبی سال جدید جمع می‌شود. یک‌بار در ابتدای سال بزنید.</p>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده سال</button>
+      </div>
 <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
@@ -1276,7 +1282,7 @@
         <b>عیدی/سنوات:</b> مبنای مزد روزانه = جمع مشمول عیدی/سنوات از حکم ÷ ۳۰.
         حداقل عیدی = ۶۰ روز × مزد روزانه | حداکثر = ۹۰ روز × حداقل مزد قانون کار (تناسب کارکرد ÷ ۳۶۵). مالیات عیدی: معاف تا ۴۰۰ میلیون؛ مازاد ۱۰٪.
         <br>
-        <b>مرخصی:</b> استحقاقی = (کارکرد ÷ ۳۶۵) × ۳۰.
+        <b>مرخصی (در تسویه عیدی):</b> استحقاقی = (کارکرد ÷ ۳۶۵) × سقف‌سالانه (از سیاست مرخصی؛ پیش‌فرض ۳۰).
         مانده = استحقاقی − استفاده‌شده (مثبت یا منفی).
         قابل پرداخت (روز) = حداقل(مانده ، سقف).
         <b>مبلغ مرخصی</b> = (جمع حکم ÷ ۳۰) × روز قابل پرداخت — می‌تواند منفی (کسر) باشد و با عیدی و سنوات جمع می‌شود.
@@ -1594,7 +1600,7 @@
         <div class="form-group"><label>محل کار</label><input type="text" id="e_workplace"></div>
         <div class="form-group"><label>استان محل سکونت</label><input type="text" id="e_province"></div>
         <div class="form-group"><label>شهر محل سکونت</label><input type="text" id="e_city"></div>
-        <div class="form-group"><label>تاریخ استخدام (شمسی)</label><input type="text" id="e_hireDate" placeholder="1402/05/15"></div>
+        <div class="form-group"><label>تاریخ استخدام (شمسی)</label><input type="text" id="e_hireDate" placeholder="1402/05/15" onchange="onHireDateChangeLeave()"></div>
         <div class="form-group"><label>تاریخ پایان همکاری</label><input type="text" id="e_endDate" placeholder="1405/06/20"></div>
         <div class="form-group">
           <label>دلیل پایان همکاری</label>
@@ -1700,7 +1706,8 @@
         </div>
         <div class="form-group">
           <label>مانده مرخصی استحقاقی (روز)</label>
-          <input type="number" id="e_leaveBalance" value="26" step="0.5" min="0" title="با تأیید مرخصی استحقاقی از این مقدار کسر می‌شود">
+          <input type="number" id="e_leaveBalance" value="26" step="0.01" min="0" inputmode="decimal" title="هر مقدار کسری مجاز است (مثلاً 18.75)">
+          <button type="button" class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="calcProratedLeaveBalance()" title="بر اساس تاریخ استخدام و سقف سالانه نوع/گروه">محاسبه تناسبی از تاریخ استخدام</button>
         </div>
       </div>
 
@@ -4251,10 +4258,22 @@ function renderInsuranceCeilingsForm() {
 }
 
 function loadSettingsToForm() {
-  const s = data.settings;
-  document.getElementById('insEmployee').value = s.insEmployee;
-  document.getElementById('insEmployer').value = s.insEmployer;
-  document.getElementById('overtimeFactor').value = s.overtimeFactor;
+  const s = data.settings || {};
+  // همیشه مقدار پیش‌فرض داشته باش تا فیلد خالی نماند
+  if (s.insEmployee == null || s.insEmployee === '') s.insEmployee = 7;
+  if (s.insEmployer == null || s.insEmployer === '') s.insEmployer = 23;
+  if (s.overtimeFactor == null || s.overtimeFactor === '') s.overtimeFactor = 1.4;
+  if (s.nightFactor == null || s.nightFactor === '') s.nightFactor = 1.35;
+  data.settings.insEmployee = s.insEmployee;
+  data.settings.insEmployer = s.insEmployer;
+  var ie = document.getElementById('insEmployee');
+  var ir = document.getElementById('insEmployer');
+  var ot = document.getElementById('overtimeFactor');
+  if (ie) ie.value = (s.insEmployee != null && s.insEmployee !== '') ? s.insEmployee : 7;
+  if (ir) ir.value = (s.insEmployer != null && s.insEmployer !== '') ? s.insEmployer : 23;
+  if (ot) ot.value = (s.overtimeFactor != null && s.overtimeFactor !== '') ? s.overtimeFactor : 1.4;
+  if (ie && (ie.value === '' || ie.value === 'undefined' || ie.value === 'null')) ie.value = 7;
+  if (ir && (ir.value === '' || ir.value === 'undefined' || ir.value === 'null')) ir.value = 23;
   try {
     var lp = (data.settings && data.settings.leavePolicy) || {};
     var la = document.getElementById('leaveAnnualDays');
@@ -5984,7 +6003,7 @@ function importDataFromExcel(event) {
 }
 
 /* ---- Payroll calculation runs on the server (POST /api/payroll). The rules are no longer in this file. ---- */
-const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
+const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
 
 function buildPayrollRequest(year, month, skipLoanSE) {
   const key = year + '-' + month;
@@ -10488,6 +10507,133 @@ function addLeaveGroupPolicyRow() {
     '<td><input type="number" class="leave-grp-days" value="26" min="0" step="1" style="width:100px;"></td>' +
     '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
   tbl.appendChild(tr);
+}
+
+
+/** تعداد روزهای سال شمسی (اسفنـد 29 یا 30) — تقریبی ساده */
+function jalaliDaysInYear(y) {
+  y = Number(y);
+  // قاعده تقریبی کبیسه شمسی
+  var cy = y - 979;
+  var breaks = [1,5,9,13,17,22,26,30];
+  var k = cy % 33;
+  return breaks.indexOf(k) >= 0 ? 366 : 365;
+}
+function jalaliDayOfYear(y, m, d) {
+  var md = [0,31,31,31,31,31,31,30,30,30,30,30,29];
+  if (jalaliDaysInYear(y) === 366) md[12] = 30;
+  var n = 0;
+  for (var i = 1; i < m; i++) n += md[i];
+  return n + d;
+}
+function parseHireJalali(str) {
+  var m = String(str || '').trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
+}
+/** سقف سالانه برای کارمند از سیاست تنظیمات */
+function getAnnualLeaveDaysForEmpLocal(emp) {
+  var pol = (data.settings && data.settings.leavePolicy) || {};
+  var annual = Number(pol.annualDays);
+  if (isNaN(annual) || annual < 0) annual = 26;
+  var grp = String((emp && emp.group) || '').trim();
+  if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
+    var ng = Number(pol.byGroup[grp]);
+    if (!isNaN(ng) && ng >= 0) annual = ng;
+  } else {
+    var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
+    if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
+      var nc = Number(pol.byContractType[ct]);
+      if (!isNaN(nc) && nc >= 0) annual = nc;
+    }
+  }
+  return annual;
+}
+/**
+ * تناسب: اگر استخدام در سال جاری باشد،
+ * استحقاقی = سقف‌سالانه × (روزهای باقی‌مانده از استخدام تا پایان سال) / روزهای سال
+ * اگر استخدام قبل از سال جاری باشد → سقف کامل سال جاری
+ * نتیجه با دو رقم اعشار
+ */
+function computeProratedLeaveDays(emp, year) {
+  year = Number(year) || Number((data.settings && data.settings.currentYear) || 1405);
+  var annual = getAnnualLeaveDaysForEmpLocal(emp);
+  var hire = parseHireJalali(emp && emp.hireDate);
+  if (!hire) return annual;
+  if (hire.y < year) return annual;
+  if (hire.y > year) return 0;
+  var diy = jalaliDaysInYear(year);
+  var doy = jalaliDayOfYear(hire.y, hire.m, hire.d);
+  var remaining = diy - doy + 1; // inclusive from hire day
+  if (remaining < 0) remaining = 0;
+  if (remaining > diy) remaining = diy;
+  var val = annual * (remaining / diy);
+  return Math.round(val * 100) / 100;
+}
+function calcProratedLeaveBalance() {
+  var hireEl = document.getElementById('e_hireDate');
+  var ctEl = document.getElementById('e_contractType');
+  var grpEl = document.getElementById('e_group');
+  var balEl = document.getElementById('e_leaveBalance');
+  if (!balEl) return;
+  var emp = {
+    hireDate: hireEl ? hireEl.value.trim() : '',
+    contractType: ctEl ? ctEl.value : 'normal',
+    group: grpEl ? grpEl.value.trim() : ''
+  };
+  var year = Number((data.settings && data.settings.currentYear) || 1405);
+  var val = computeProratedLeaveDays(emp, year);
+  balEl.value = val;
+  var annual = getAnnualLeaveDaysForEmpLocal(emp);
+  alert('استحقاقی تناسبی برای سال ' + year + ':\n' +
+    'سقف کامل: ' + annual + ' روز\n' +
+    'با توجه به تاریخ استخدام (' + (emp.hireDate || '—') + '): ' + val + ' روز\n\n' +
+    'مقدار در فیلد مانده نوشته شد. در صورت نیاز ذخیره کارمند را بزنید.');
+}
+
+
+function onHireDateChangeLeave() {
+  try {
+    var balEl = document.getElementById('e_leaveBalance');
+    if (!balEl) return;
+    // فقط اگر هنوز مقدار پیش‌فرض/خالی است خودکار تناسب بزن
+    var v = balEl.value;
+    if (v !== '' && v !== '26' && Number(v) !== 26) return;
+    var hireEl = document.getElementById('e_hireDate');
+    var ctEl = document.getElementById('e_contractType');
+    var grpEl = document.getElementById('e_group');
+    var emp = {
+      hireDate: hireEl ? hireEl.value.trim() : '',
+      contractType: ctEl ? ctEl.value : 'normal',
+      group: grpEl ? grpEl.value.trim() : ''
+    };
+    if (!emp.hireDate) return;
+    balEl.value = computeProratedLeaveDays(emp, Number((data.settings && data.settings.currentYear) || 1405));
+  } catch (e) {}
+}
+
+
+function applyLeaveYearRollover() {
+  if (!confirm('مانده مرخصی همه کارکنان فعال بر اساس سقف انتقال و استحقاقی تناسبی سال جاری به‌روز شود؟')) return;
+  var year = Number((data.settings && data.settings.currentYear) || 1405);
+  var pol = (data.settings && data.settings.leavePolicy) || {};
+  var carryMax = Number(pol.carryMax);
+  if (isNaN(carryMax) || carryMax < 0) carryMax = 9;
+  var n = 0;
+  (data.employees || []).forEach(function(emp) {
+    if (!emp || emp.status === 'inactive') return;
+    var prev = Number(emp.leaveBalance);
+    if (isNaN(prev)) prev = 0;
+    var carry = Math.min(prev, carryMax);
+    var entitled = computeProratedLeaveDays(emp, year);
+    emp.leaveBalance = Math.round((carry + entitled) * 100) / 100;
+    emp.leaveUsedYear = 0;
+    emp.leaveBalanceYear = year;
+    n++;
+  });
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+  alert('انتقال برای ' + n + ' نفر انجام شد.\nسقف انتقال: ' + carryMax + ' روز');
 }
 
 </script>
