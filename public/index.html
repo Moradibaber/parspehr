@@ -106,6 +106,24 @@
     gap: 4px; align-items: center; margin-bottom: 6px;
   }
   .custom-item-row input, .custom-item-row select { padding: 5px 7px; font-size: 0.8rem; }
+
+  #empModal > div { max-width: 960px !important; padding: 12px 14px !important; }
+  #empModal .form-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important; gap: 6px 8px !important; }
+  #empModal .form-group { gap: 2px !important; }
+  #empModal .form-group label { font-size: 0.7rem !important; }
+  #empModal .form-group input, #empModal .form-group select, #empModal .form-group textarea {
+    padding: 4px 6px !important; font-size: 0.78rem !important;
+  }
+  #empModal .section-title { font-size: 0.85rem !important; margin-bottom: 8px !important; margin-top: 10px !important; }
+  #empModal .custom-item-row {
+    grid-template-columns: 1fr 0.55fr 0.9fr 0.55fr 0.35fr 0.35fr 0.65fr 0.55fr 26px !important;
+    gap: 3px !important; margin-bottom: 4px !important;
+  }
+  #empModal .custom-item-row input, #empModal .custom-item-row select {
+    padding: 3px 4px !important; font-size: 0.72rem !important;
+  }
+  #empModal .custom-item-row > div { min-width: 0 !important; }
+
   #empFilterRow th { padding: 4px; background: #f0fdfa; }
   #empFilterRow input, #empFilterRow select {
     width: 100%; padding: 4px 6px; font-size: 0.75rem; border: 1px solid #99f6e4;
@@ -443,19 +461,6 @@
       </div>
       <p id="bulkPreview" style="font-size:0.78rem;color:#0f766e;margin-top:8px;"></p>
 
-      <div class="section-title" style="margin-top:22px;font-size:1rem;">ویرایش گروهی سقف اضافه‌کار</div>
-      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">همان فیلترهای بالا را تنظیم کنید، سپس سقف ساعت اضافه‌کار را برای نفرات فیلترشده اعمال کنید. خالی گذاشتن فیلد سقف = استفاده از پیش‌فرض تنظیمات برای آن نفرات.</p>
-      <div class="form-grid" style="align-items:end;">
-        <div class="form-group"><label>سقف اضافه‌کار (ساعت)</label>
-          <input type="number" id="bulkMaxOtHours" min="0" step="1" placeholder="مثلاً 40 یا 0=بدون سقف">
-        </div>
-        <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
-          <button type="button" class="btn btn-warning" onclick="applyBulkMaxOtHours()">اعمال گروهی سقف اضافه‌کار</button>
-          <button type="button" class="btn btn-outline" onclick="applyBulkMaxOtHoursClear()">پاک کردن سقف فردی (برگرد به پیش‌فرض)</button>
-        </div>
-      </div>
-      <p id="bulkOtPreview" style="font-size:0.78rem;color:#0f766e;margin-top:8px;"></p>
-
     </div>
   </div>
 
@@ -585,7 +590,7 @@
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
-        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت، نمونه)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="برای نفراتی که سقف فردی ندارند؛ ۰=بدون سقف. سقف هر نفر در کارت کارمند یا ویرایش گروهی"></div>
+        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت، نمونه)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="برای نفراتی که سقف فردی ندارند؛ ۰=بدون سقف. سقف هر نفر در کارت کارمند یا ستون اکسل"></div>
         <div class="form-group"><label>ضریب شب‌کاری</label><input type="number" id="nightFactor" value="1.35" step="0.05"></div>
         <div class="form-group"><label>ضریب نوبت صبح و عصر (%)</label><input type="number" id="shiftMorningEvening" value="10" step="0.5" title="طبق ماده ۵۶ قانون کار"></div>
         <div class="form-group"><label>ضریب نوبت صبح/عصر و شب (%)</label><input type="number" id="shiftWithNight" value="22.5" step="0.5" title="صبح و شب یا عصر و شب"></div>
@@ -5105,7 +5110,7 @@ function empBaseHeaders() {
     'تاریخ استخدام','تاریخ پایان همکاری','دلیل پایان همکاری',
     'نوع قرارداد','حقوق پایه ماهانه','پایه سنوات ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
     'تعداد اولاد','وضعیت تأهل','معافیت','مالیات','وضعیت','کسر بیمه تکمیلی',
-    'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','توضیحات'
+    'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','مانده مرخصی استحقاقی','سقف اضافه‌کار ماهانه','توضیحات'
   ];
 }
 
@@ -5119,6 +5124,7 @@ function downloadEmployeeTemplate() {
     extra.push('نحوه:' + n);
     extra.push('ثابت:' + n);
     extra.push('مدت:' + n);
+    extra.push('فرمول:' + n);
   });
   const headers = baseHeaders.concat(extra);
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
@@ -5132,7 +5138,7 @@ function downloadEmployeeTemplate() {
     '1405/01/01','','',
     'عادی','0','0','0','0','نام بانک','شماره حساب','شماره بیمه',
     '0','مجرد','هیچ‌کدام','100','فعال','خیر',
-    '0','0','0','توضیح نمونه'
+    '0','0','0','26','40','توضیح نمونه'
   ];
   const sampleExtra = [];
   customNames.forEach(function() {
@@ -5140,6 +5146,7 @@ function downloadEmployeeTemplate() {
     sampleExtra.push('کارکرد');    // نحوه
     sampleExtra.push('خیر');       // ثابت
     sampleExtra.push('همیشه');     // مدت
+    sampleExtra.push('');          // فرمول (مثلاً workDays*50000)
   });
   pushRow(sampleBase.concat(sampleExtra));
 
@@ -5183,6 +5190,8 @@ function importEmployeesFromExcel(event) {
         suppIns: find(['کسر بیمه تکمیلی']),
         loanAmount: find(['مبلغ کل وام','مبلغ وام']),
         loanInstallments: find(['تعداد اقساط','اقساط']), loanRemaining: find(['باقی‌مانده','باقی مانده']),
+        leaveBalance: find(['مانده مرخصی','مرخصی استحقاقی']),
+        maxOtHours: find(['سقف اضافه‌کار','سقف اضافه']),
         notes: find(['توضیحات'])
       };
       // ستون‌های آیتم: نام آیتم = مبلغ | نحوه:نام | کسر:نام | ثابت:نام | مدت:نام | مبلغ:نام
@@ -5195,12 +5204,14 @@ function importEmployeesFromExcel(event) {
         const mDed = /^کسر[:：]\s*(.+)$/.exec(h);
         const mFix = /^ثابت[:：]\s*(.+)$/.exec(h);
         const mDur = /^مدت[:：]\s*(.+)$/.exec(h);
+        const mFormula = /^فرمول[:：]\s*(.+)$/.exec(h);
         if (mAmt) { if (!customCols[mAmt[1]]) customCols[mAmt[1]] = {}; customCols[mAmt[1]].amount = i; }
         else if (mType) { if (!customCols[mType[1]]) customCols[mType[1]] = {}; customCols[mType[1]].entryType = i; }
         else if (mDed) { if (!customCols[mDed[1]]) customCols[mDed[1]] = {}; customCols[mDed[1]].isDeduction = i; }
         else if (mFix) { if (!customCols[mFix[1]]) customCols[mFix[1]] = {}; customCols[mFix[1]].isFixed = i; }
         else if (mDur) { if (!customCols[mDur[1]]) customCols[mDur[1]] = {}; customCols[mDur[1]].duration = i; }
-        else if (h && !baseSet[h] && !/^(نحوه|کسر|ثابت|مدت|مبلغ)[:：]/.test(h)) {
+        else if (mFormula) { if (!customCols[mFormula[1]]) customCols[mFormula[1]] = {}; customCols[mFormula[1]].formula = i; }
+        else if (h && !baseSet[h] && !/^(نحوه|کسر|ثابت|مدت|مبلغ|فرمول)[:：]/.test(h)) {
           // خود نام آیتم به‌عنوان ستون مبلغ
           if (!customCols[h]) customCols[h] = {};
           if (customCols[h].amount == null) customCols[h].amount = i;
@@ -5274,10 +5285,12 @@ function importEmployeesFromExcel(event) {
             else if (/^5$|پنج\s*ماه/i.test(dv)) duration = '5';
             else duration = 'always';
           }
-          if (amount > 0 || isDeduction || name === 'کسر بیمه تکمیلی' || c.entryType != null) {
+          const formula = c.formula != null ? String(get(c.formula) || '').trim() : '';
+          if (amount > 0 || isDeduction || name === 'کسر بیمه تکمیلی' || c.entryType != null || formula) {
             customItems.push({
               name: name, amount: amount, entryType: entryType,
-              isDeduction: isDeduction, isFixed: isFixed, duration: duration
+              isDeduction: isDeduction, isFixed: isFixed, duration: duration,
+              formula: formula
             });
           }
         });
@@ -5301,6 +5314,8 @@ function importEmployeesFromExcel(event) {
           marital, exemption, taxPercent, status,
           notes: get(idx.notes) || '',
           loanAmount, loanInstallments: installments, loanRemaining: remaining,
+          leaveBalance: (function(){ var v = get(idx.leaveBalance); if(v===''||v==null) return 26; var n=Number(v); return isNaN(n)?26:n; })(),
+          maxOtHours: (function(){ var v = get(idx.maxOtHours); if(v===''||v==null) return null; var n=Number(v); return isNaN(n)?null:n; })(),
           monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
           loanLocked: false, customItems: customItems
         };
