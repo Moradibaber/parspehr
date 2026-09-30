@@ -704,15 +704,18 @@ export function makeEngine(data) {
             basicSalary: Number(emp.basicSalary) || 0,
             workDays: workDays,
             leaveDays: Number(d.leaveDays) || 0,
+            hourlyLeave: Number(d.hourlyLeave) || 0,
             missionDays: Number(d.missionDays) || 0,
             missionHours: Number(d.missionHours) || 0,
             otHours: Number(d.otHours) || 0,
             nightHours: Number(d.nightHours) || 0,
+            shiftDays: Number(d.shiftDays) || 0,
             amount: amt,
             children: Number(emp.children) || 0,
             dailyRate: Number(emp.dailyRate) || 0,
             hourlyRate: Number(emp.hourlyRate) || 0,
-            functionalDays: functionalDays
+            functionalDays: functionalDays,
+            seniorityBase: Number(emp.seniorityBase) || 0
           });
           if (fVal != null) {
             val = Math.round(Math.abs(fVal));
