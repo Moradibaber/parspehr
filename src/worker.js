@@ -385,6 +385,7 @@ async function stamp(html, user, env) {
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
       '<div class="psp-subpanel" id="pspSub-grants" style="display:none;">' +
       '<div class="section-title">مجوز مرخصی خاص برای کارمند</div>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">برای مرخصی استحقاقی (روزانه/ساعتی) وقتی مانده کافی نیست، مثل مرخصی ازدواج <b>مجوز</b> صادر کنید و تیک پیش‌خور را بزنید تا بتواند ثبت کند و مانده منفی (بدهکار) شود.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
@@ -393,6 +394,17 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label style="font-size:0.75rem;"><input type="checkbox" id="pspGrantAdvance"> اجازه پیش‌خور (مانده منفی)</label></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
+      '<div class="section-title" style="margin-top:18px;">تعدیل مانده مرخصی استحقاقی (+ / −)</div>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">نوع <b>+</b> = بستانکار / اجازه پیش‌خور (مثلاً ۱۰ روز). نوع <b>−</b> = بدهکار (مثلاً ۱۰ روز پس از استفاده). برای مرخصی استحقاقی روزانه و ساعتی.</p>' +
+      '<div class="form-grid" style="margin-bottom:10px;">' +
+      '<div class="form-group"><label>کد پرسنلی</label><input id="pspAdjCode" placeholder="کد"></div>' +
+      '<div class="form-group"><label>سال</label><input id="pspAdjYear" placeholder="1405" dir="ltr"></div>' +
+      '<div class="form-group"><label>نوع</label><select id="pspAdjSign"><option value="+">+ بستانکار / پیش‌خور</option><option value="-">− بدهکار</option></select></div>' +
+      '<div class="form-group"><label>روز</label><input id="pspAdjDays" type="number" min="0" step="0.01" value="10"></div>' +
+      '<div class="form-group"><label>ساعت (اختیاری)</label><input id="pspAdjHours" type="number" min="0" step="0.5" value="0" title="اگر روز خالی باشد از ساعت÷۸ استفاده می‌شود"></div>' +
+      '<div class="form-group"><label>توضیح</label><input id="pspAdjReason" placeholder="مثلاً پیش‌خور فروردین"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-warning btn-sm" id="pspAdjBtn">ثبت تعدیل</button></div>' +
+      '</div><span id="pspAdjStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '<div class="psp-subpanel" id="pspSub-reqs" style="display:none;">' +
       '<div class="section-title">همه درخواست‌های مرخصی / مأموریت</div>' +
       '<div class="form-grid">' +
@@ -1052,6 +1064,26 @@ async function stamp(html, user, env) {
         if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'مجوز صادر شد برای کد ' + j.grant.empCode; }
         else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
       }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
+    };
+    var adjBtn = document.getElementById('pspAdjBtn');
+    if (adjBtn) adjBtn.onclick = function(){
+      var st = document.getElementById('pspAdjStatus');
+      if (st) { st.textContent = '…'; st.style.color = '#0f766e'; }
+      fetch('/api/admin/leave-adjust', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          empCode: (document.getElementById('pspAdjCode') || {}).value.trim(),
+          year: Number((document.getElementById('pspAdjYear') || {}).value) || undefined,
+          sign: (document.getElementById('pspAdjSign') || {}).value || '+',
+          days: Number((document.getElementById('pspAdjDays') || {}).value) || 0,
+          hours: Number((document.getElementById('pspAdjHours') || {}).value) || 0,
+          reason: ((document.getElementById('pspAdjReason') || {}).value || '').trim()
+        })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (!st) return;
+        if (j.ok) { st.style.color = '#16a34a'; st.textContent = j.message || 'ثبت شد'; }
+        else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
+      }).catch(function(){ if (st) { st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; } });
     };
     window.__pspReqRows = [];
     function statusFa(s){
@@ -2692,6 +2724,53 @@ function restoreLeaveDeduction(obj, req) {
 }
 
 /** خلاصه موجودی برای ثبت درخواست */
+
+function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
+  const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(empCode); });
+  if (!emp) return;
+  ensureEmpLeaveYears(emp, obj);
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
+  // reset used for all unsettled years then re-apply from approved leave requests
+  Object.keys(emp.leaveYears || {}).forEach(function (yk) {
+    const row = emp.leaveYears[yk];
+    if (!row || row.settled) return;
+    // keep entitled; recompute used from requests in that year
+    let used = 0;
+    (obj.attendanceRequests || []).forEach(function (req) {
+      if (String(req.empCode) !== String(empCode)) return;
+      if (req.status !== 'approved') return;
+      if (!req.deductFromEntitlement) return;
+      if (req.kind !== 'leave') return;
+      const detail = req.leaveDeductDetail;
+      if (Array.isArray(detail) && detail.length) {
+        detail.forEach(function (d) {
+          if (String(d.year) === String(yk)) used += Number(d.days) || 0;
+        });
+      } else {
+        const p = parseJalaliYMD(req.startDate);
+        const y = p ? p.y : cy;
+        if (String(y) === String(yk)) used += countLeaveDays(req);
+      }
+    });
+    // adjustments negative contribute to used
+    (emp.leaveAdjustments || []).forEach(function (a) {
+      if (String(a.year) !== String(yk)) return;
+      if (Number(a.delta) < 0) used += Math.abs(Number(a.delta));
+    });
+    row.used = Math.round(used * 100) / 100;
+    const baseRem = Math.round((Number(row.entitled) - row.used) * 100) / 100;
+    // apply positive adjustments to remaining
+    let adjPos = 0;
+    (emp.leaveAdjustments || []).forEach(function (a) {
+      if (String(a.year) !== String(yk)) return;
+      if (Number(a.delta) > 0) adjPos += Number(a.delta);
+    });
+    row.remaining = Math.round((baseRem + adjPos) * 100) / 100;
+  });
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
+}
+
 function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
@@ -3117,7 +3196,6 @@ function defaultAttendanceTypes() {
   return [
     { id: 'leave_annual', name: 'مرخصی استحقاقی', kind: 'leave', mode: 'daily', deductFromEntitlement: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
     { id: 'leave_hourly', name: 'مرخصی ساعتی', kind: 'leave', mode: 'hourly', deductFromEntitlement: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
-    { id: 'leave_advance', name: 'مرخصی پیش‌خور (با مجوز)', kind: 'leave', mode: 'daily', deductFromEntitlement: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: true, allowAdvance: true },
     { id: 'leave_marriage', name: 'مرخصی ازدواج', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'once_employment', requiresAdminGrant: false },
     { id: 'leave_birth', name: 'مرخصی تولد فرزند', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'once_year', requiresAdminGrant: false },
     { id: 'leave_death', name: 'مرخصی فوت بستگان', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'throughout_year', requiresAdminGrant: false },
@@ -3303,6 +3381,76 @@ async function handleEmpAttendanceTypes(request, env) {
   return jsonResponse({ ok: true, types: visible, grants: grants });
 }
 
+
+/** تعدیل مانده مرخصی توسط ادمین: علامت + (بستانکار/پیش‌خور مجاز) یا − (بدهکار) */
+async function handleAdminLeaveAdjust(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const empCode = String(r.body.empCode || '').trim();
+  const sign = String(r.body.sign || r.body.type || '+').trim(); // + or -
+  const days = Math.abs(Number(r.body.days) || 0);
+  const year = Number(r.body.year) || 0;
+  const reason = String(r.body.reason || '').trim();
+  const mode = String(r.body.mode || 'daily'); // daily | hourly (hourly as fraction of day if hours given)
+  let hours = Number(r.body.hours) || 0;
+  if (!empCode || days <= 0 && hours <= 0) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و مقدار روز/ساعت الزامی است.' }, 400);
+  }
+  let delta = days;
+  if (hours > 0 && !(days > 0)) delta = Math.round((hours / 8) * 100) / 100;
+  if (sign === '-' || sign === 'minus' || sign === 'بدهکار') delta = -Math.abs(delta);
+  else delta = Math.abs(delta);
+
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.employees)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const emp = gd.obj.employees.find(function (e) { return String(e.code) === empCode; });
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found', message: 'کارمند یافت نشد.' }, 404);
+    ensureEmpLeaveYears(emp, gd.obj);
+    const cy = year || Number((gd.obj.settings || {}).currentYear) || 1405;
+    const row = getLeaveYearRow(emp, cy);
+    if (row.settled) {
+      return jsonResponse({ ok: false, error: 'settled', message: 'سال ' + cy + ' تسویه شده و قابل تعدیل نیست.' }, 400);
+    }
+    row.remaining = Math.round((Number(row.remaining || 0) + delta) * 100) / 100;
+    // اگر منفی (بدهکار) used را هم بالا ببر؛ اگر مثبت، used را کم نکن مگر منطقی باشد
+    if (delta < 0) {
+      row.used = Math.round((Number(row.used || 0) + Math.abs(delta)) * 100) / 100;
+    }
+    emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+    emp.leaveUsedYear = Number((emp.leaveYears[String(Number((gd.obj.settings || {}).currentYear) || 1405)] || {}).used) || 0;
+    if (!Array.isArray(emp.leaveAdjustments)) emp.leaveAdjustments = [];
+    emp.leaveAdjustments.unshift({
+      at: new Date().toISOString(),
+      by: who.name,
+      year: cy,
+      delta: delta,
+      sign: delta >= 0 ? '+' : '-',
+      days: Math.abs(delta),
+      reason: reason || (delta >= 0 ? 'پیش‌خور / بستانکار' : 'بدهکار مرخصی'),
+      mode: mode
+    });
+    if (emp.leaveAdjustments.length > 200) emp.leaveAdjustments.length = 200;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({
+      ok: true,
+      message: 'تعدیل ثبت شد: ' + (delta >= 0 ? '+' : '') + delta + ' روز برای سال ' + cy,
+      remaining: row.remaining,
+      leaveBalance: emp.leaveBalance,
+      yearRow: row
+    });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 async function handleAdminGrantAttendance(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -3339,7 +3487,7 @@ async function handleAdminGrantAttendance(request, who, env) {
       grantedBy: who.name,
       grantedAt: new Date().toISOString(),
       usedRequestId: null,
-      allowAdvance: !!(tdef.allowAdvance || r.body.allowAdvance)
+      allowAdvance: !!(r.body.allowAdvance || tdef.allowAdvance || (tdef.deductFromEntitlement && String(tdef.id || '').indexOf('leave') === 0))
     };
     gd.obj.attendanceGrants.unshift(grant);
     if (gd.obj.attendanceGrants.length > 2000) gd.obj.attendanceGrants.length = 2000;
@@ -3591,7 +3739,11 @@ async function handleAdminDeleteAttendanceRequest(request, who, env) {
         }
       } catch (e) {}
     }
+    const empCodeDel = doomed ? doomed.empCode : '';
     gd.obj.attendanceRequests.splice(idx, 1);
+    if (empCodeDel) {
+      try { rebuildEmpLeaveUsedFromRequests(gd.obj, empCodeDel); } catch (e) {}
+    }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
@@ -3732,6 +3884,7 @@ async function route(request, env, users, found) {
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
+  if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/attendance-requests') return handleAdminListAttendanceRequests(request, who, env);
   if (path === '/api/admin/attendance-request') {
