@@ -316,15 +316,17 @@ export function makeEngine(data) {
     const ceiling = (leaveCeiling != null && !isNaN(Number(leaveCeiling)) && Number(leaveCeiling) >= 0)
       ? Number(leaveCeiling)
       : annualDays;
-    // استحقاقی = تناسب کارکرد با سقف سیاست (مثلاً ۳۰ روز به ازای ۳۶۵)
+    // استحقاقی = تناسب کارکرد همین سال با سقف سیاست (مثلاً ۳۰ روز به ازای ۳۶۵ روز سال)
+    // بازه: از ابتدای سال محاسبه (یا استخدام اگر در همین سال باشد از نظر تناسب کارکرد) تا ماه‌هایی که کارکرد ثبت شده
     const entitledLeave = (workDays / 365) * annualDays;
-    // مانده: اولویت با leaveBalance ثبت‌شده روی کارت (سیستم جدید)
-    let remaining;
+    // مانده محاسبه = استحقاقی − استفاده‌شده (از شیت ماهانه همان سال)
+    // leaveBalance کارت فقط سقف پایین‌تر می‌گذارد تا بیش از مانده واقعی پرداخت نشود
+    let remaining = entitledLeave - leaveUsed;
     if (emp && emp.leaveBalance != null && emp.leaveBalance !== '') {
-      remaining = Number(emp.leaveBalance);
-      if (isNaN(remaining)) remaining = entitledLeave - leaveUsed;
-    } else {
-      remaining = entitledLeave - leaveUsed;
+      const bal = Number(emp.leaveBalance);
+      if (!isNaN(bal) && bal < remaining) {
+        remaining = bal;
+      }
     }
     // قابل پرداخت = حداقل(مانده، سقف) — مانده منفی یعنی بدهی/کسر
     const payableLeave = Math.min(remaining, ceiling);
