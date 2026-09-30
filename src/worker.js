@@ -2072,9 +2072,12 @@ function ensureEmpMonthRow(data, year, month, code) {
   if (!data.monthlyData[key][code]) {
     data.monthlyData[key][code] = {
       workDays: 0, leaveDays: 0, hourlyLeave: 0, otHours: 0, nightHours: 0,
-      shiftType: 'none', shiftDays: 0, vars: {}, qty: {}
+      shiftType: 'none', shiftDays: 0, missionDays: 0, missionHours: 0, vars: {}, qty: {}
     };
   }
+  const row0 = data.monthlyData[key][code];
+  if (row0.missionDays == null) row0.missionDays = 0;
+  if (row0.missionHours == null) row0.missionHours = 0;
   return data.monthlyData[key][code];
 }
 
@@ -2093,6 +2096,17 @@ function reverseApprovedRequestFromTimesheet(data, req) {
     const hrs = hoursBetween(req.fromTime, req.toTime);
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(Math.max(0, (Number(row.hourlyLeave) || 0) - hrs) * 100) / 100;
+  } else if (req.kind === 'mission' && req.mode === 'daily') {
+    splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+      const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+      row.missionDays = Math.round(Math.max(0, (Number(row.missionDays) || 0) - chunk.days) * 100) / 100;
+    });
+  } else if (req.kind === 'mission' && req.mode === 'hourly') {
+    const p = parseJalaliYMD(req.startDate);
+    if (!p) return;
+    const hrs = hoursBetween(req.fromTime, req.toTime);
+    const row = ensureEmpMonthRow(data, p.y, p.m, code);
+    row.missionHours = Math.round(Math.max(0, (Number(row.missionHours) || 0) - hrs) * 100) / 100;
   }
 }
 
@@ -2110,8 +2124,18 @@ function applyApprovedRequestToTimesheet(data, req) {
     const hrs = hoursBetween(req.fromTime, req.toTime);
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(((Number(row.hourlyLeave) || 0) + hrs) * 100) / 100;
+  } else if (req.kind === 'mission' && req.mode === 'daily') {
+    splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+      const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+      row.missionDays = Math.round(((Number(row.missionDays) || 0) + chunk.days) * 100) / 100;
+    });
+  } else if (req.kind === 'mission' && req.mode === 'hourly') {
+    const p = parseJalaliYMD(req.startDate);
+    if (!p) return;
+    const hrs = hoursBetween(req.fromTime, req.toTime);
+    const row = ensureEmpMonthRow(data, p.y, p.m, code);
+    row.missionHours = Math.round(((Number(row.missionHours) || 0) + hrs) * 100) / 100;
   }
-  // missions are kept on the request record for timesheet display (not forced into leaveDays)
 }
 
 async function handleEmpCreateRequest(request, env) {
