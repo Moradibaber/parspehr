@@ -392,18 +392,20 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr"></div>' +
       '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
-      '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
+      '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '<div class="section-title" style="margin-top:18px;">تعدیل مانده مرخصی استحقاقی (+ / −)</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">نوع <b>+</b> = بستانکار / اجازه پیش‌خور (مثلاً ۱۰ روز). نوع <b>−</b> = بدهکار (مثلاً ۱۰ روز پس از استفاده). برای مرخصی استحقاقی روزانه و ساعتی.</p>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">فقط در این بخش. <b>+</b> افزایش مانده / <b>−</b> کاهش. منبع: سال جاری یا ذخیره سال‌های قبل.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspAdjCode" placeholder="کد"></div>' +
-      '<div class="form-group"><label>سال</label><input id="pspAdjYear" placeholder="1405" dir="ltr"></div>' +
-      '<div class="form-group"><label>نوع</label><select id="pspAdjSign"><option value="+">+ بستانکار / پیش‌خور</option><option value="-">− بدهکار</option></select></div>' +
+      '<div class="form-group"><label>سال هدف</label><input id="pspAdjYear" placeholder="1405" dir="ltr"></div>' +
+      '<div class="form-group"><label>منبع مانده</label><select id="pspAdjSource"><option value="current">مرخصی سال جاری</option><option value="prior">ذخیره سال‌های قبل</option></select></div>' +
+      '<div class="form-group"><label>نوع</label><select id="pspAdjSign"><option value="+">+ بستانکار</option><option value="-">− بدهکار</option></select></div>' +
       '<div class="form-group"><label>روز</label><input id="pspAdjDays" type="number" min="0" step="0.01" value="10"></div>' +
-      '<div class="form-group"><label>ساعت (اختیاری)</label><input id="pspAdjHours" type="number" min="0" step="0.5" value="0" title="اگر روز خالی باشد از ساعت÷۸ استفاده می‌شود"></div>' +
-      '<div class="form-group"><label>توضیح</label><input id="pspAdjReason" placeholder="مثلاً پیش‌خور فروردین"></div>' +
+      '<div class="form-group"><label>ساعت (اختیاری)</label><input id="pspAdjHours" type="number" min="0" step="0.5" value="0"></div>' +
+      '<div class="form-group"><label>توضیح</label><input id="pspAdjReason" placeholder="مثلاً استفاده از ذخیره ۱۴۰۴"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-warning btn-sm" id="pspAdjBtn">ثبت تعدیل</button></div>' +
-      '</div><span id="pspAdjStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
+      '</div><span id="pspAdjStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div>' +
       '<div class="psp-subpanel" id="pspSub-reqs" style="display:none;">' +
       '<div class="section-title">همه درخواست‌های مرخصی / مأموریت</div>' +
       '<div class="form-grid">' +
@@ -1072,6 +1074,7 @@ async function stamp(html, user, env) {
         body: JSON.stringify({
           empCode: (document.getElementById('pspAdjCode') || {}).value.trim(),
           year: Number((document.getElementById('pspAdjYear') || {}).value) || undefined,
+          source: (document.getElementById('pspAdjSource') || {}).value || 'current',
           sign: (document.getElementById('pspAdjSign') || {}).value || '+',
           days: Number((document.getElementById('pspAdjDays') || {}).value) || 0,
           hours: Number((document.getElementById('pspAdjHours') || {}).value) || 0,
@@ -3445,27 +3448,66 @@ async function handleAdminLeaveAdjust(request, who, env) {
     const emp = gd.obj.employees.find(function (e) { return String(e.code) === empCode; });
     if (!emp) return jsonResponse({ ok: false, error: 'not_found', message: 'کارمند یافت نشد.' }, 404);
     ensureEmpLeaveYears(emp, gd.obj);
-    const cy = year || Number((gd.obj.settings || {}).currentYear) || 1405;
-    const row = getLeaveYearRow(emp, cy);
-    if (row.settled) {
-      return jsonResponse({ ok: false, error: 'settled', message: 'سال ' + cy + ' تسویه شده و قابل تعدیل نیست.' }, 400);
-    }
-    row.remaining = Math.round((Number(row.remaining || 0) + delta) * 100) / 100;
-    // اگر منفی (بدهکار) used را هم بالا ببر؛ اگر مثبت، used را کم نکن مگر منطقی باشد
-    if (delta < 0) {
-      row.used = Math.round((Number(row.used || 0) + Math.abs(delta)) * 100) / 100;
-    }
-    emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
-    emp.leaveUsedYear = Number((emp.leaveYears[String(Number((gd.obj.settings || {}).currentYear) || 1405)] || {}).used) || 0;
+    const settingsYear = Number((gd.obj.settings || {}).currentYear) || 1405;
+    const cy = year || settingsYear;
+    const source = String(r.body.source || 'current'); // current | prior
     if (!Array.isArray(emp.leaveAdjustments)) emp.leaveAdjustments = [];
+    const detailYears = [];
+    if (source === 'prior' && delta < 0) {
+      // کسر از ذخیره سال‌های قبل (قدیمی‌تر اول)
+      let left = Math.abs(delta);
+      const years = listLeaveYearsSorted(emp).map(function (r) { return r.year; }).filter(function (y) { return y < cy; });
+      for (let i = 0; i < years.length && left > 0; i++) {
+        const row = getLeaveYearRow(emp, years[i]);
+        if (row.settled) continue;
+        const take = Math.min(Math.max(0, Number(row.remaining) || 0), left);
+        if (take <= 0) continue;
+        row.remaining = Math.round((Number(row.remaining) - take) * 100) / 100;
+        row.used = Math.round((Number(row.used || 0) + take) * 100) / 100;
+        left = Math.round((left - take) * 100) / 100;
+        detailYears.push({ year: years[i], days: take });
+      }
+      if (left > 0) {
+        return jsonResponse({ ok: false, error: 'no_prior', message: 'ذخیره سال‌های قبل کافی نیست. کمبود: ' + left + ' روز.' }, 400);
+      }
+      // ثبت در سال جاری که از ذخیره استفاده شده
+      if (!emp.leaveUsedFromPrior) emp.leaveUsedFromPrior = {};
+      if (!emp.leaveUsedFromPrior[String(settingsYear)]) emp.leaveUsedFromPrior[String(settingsYear)] = [];
+      emp.leaveUsedFromPrior[String(settingsYear)].push({
+        at: new Date().toISOString(), days: Math.abs(delta), fromYears: detailYears, by: who.name, reason: reason
+      });
+    } else {
+      const row = getLeaveYearRow(emp, cy);
+      if (row.settled) {
+        return jsonResponse({ ok: false, error: 'settled', message: 'سال ' + cy + ' تسویه شده و قابل تعدیل نیست.' }, 400);
+      }
+      if (delta < 0) {
+        row.used = Math.round((Number(row.used || 0) + Math.abs(delta)) * 100) / 100;
+      } else {
+        // بستانکار: به عنوان تعدیل مثبت روی سال جاری
+      }
+      // remaining از نو با accrued محاسبه می‌شود در ensure
+      ensureEmpLeaveYears(emp, gd.obj);
+      // اعمال مستقیم delta روی remaining پس از ensure
+      const row2 = getLeaveYearRow(emp, cy);
+      if (!row2.settled) {
+        row2.remaining = Math.round((Number(row2.remaining || 0) + delta) * 100) / 100;
+      }
+      detailYears.push({ year: cy, days: Math.abs(delta) });
+    }
+    ensureEmpLeaveYears(emp, gd.obj);
+    emp.leaveBalance = Number((emp.leaveYears[String(settingsYear)] || {}).remaining) || 0;
+    emp.leaveUsedYear = Number((emp.leaveYears[String(settingsYear)] || {}).used) || 0;
     emp.leaveAdjustments.unshift({
       at: new Date().toISOString(),
       by: who.name,
       year: cy,
+      source: source,
       delta: delta,
       sign: delta >= 0 ? '+' : '-',
       days: Math.abs(delta),
-      reason: reason || (delta >= 0 ? 'پیش‌خور / بستانکار' : 'بدهکار مرخصی'),
+      detailYears: detailYears,
+      reason: reason || (source === 'prior' ? 'استفاده از ذخیره سال‌های قبل' : (delta >= 0 ? 'بستانکار سال جاری' : 'بدهکار سال جاری')),
       mode: mode
     });
     if (emp.leaveAdjustments.length > 200) emp.leaveAdjustments.length = 200;
@@ -4558,7 +4600,8 @@ async function handleEmpBalances(request, env) {
       contractType: emp.contractType || 'normal',
       group: emp.group || '',
       year: cy,
-      years: years
+      years: years,
+      usedFromPrior: (emp.leaveUsedFromPrior && emp.leaveUsedFromPrior[String(cy)]) || []
     },
     loan: {
       remaining: Number(emp.loanRemaining || 0),
@@ -4902,6 +4945,15 @@ async function loadBalancesEmp(){
       });
     }
     html+='</tbody></table>';
+    var prior=L.usedFromPrior||[];
+    if(prior.length){
+      html+='<p style="margin-top:10px;padding:8px;background:#fffbeb;border-radius:8px;color:#92400e;font-size:0.8rem;"><b>استفاده از ذخیره سال‌های قبل در '+(L.year||'')+':</b><br>';
+      prior.forEach(function(p){
+        var fy=(p.fromYears||[]).map(function(x){return x.year+'('+x.days+' روز)';}).join('، ');
+        html+= (p.days||'')+' روز'+(fy?(' از '+fy):'')+(p.reason?(' — '+p.reason):'')+'<br>';
+      });
+      html+='</p>';
+    }
     html+='<table style="margin-top:12px;"><tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
     html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr></table></div>';
     box.innerHTML=html;
