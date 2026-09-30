@@ -296,36 +296,19 @@ async function stamp(html, user, env) {
   }
   setInterval(addResetButtons, 1500);
   setTimeout(addResetButtons, 2000);
+  // پاکسازی دکمه شناور قدیمی پایین-چپ
+  setTimeout(function(){
+    try {
+      var f = document.getElementById('pspPortalFab');
+      if (f && f.parentNode) f.parentNode.removeChild(f);
+    } catch (e) {}
+  }, 500);
 
-  function ensurePortalFab(btn, panel) {
-    if (document.getElementById('pspPortalFab')) return;
-    var fab = document.createElement('button');
-    fab.id = 'pspPortalFab';
-    fab.type = 'button';
-    fab.textContent = 'مأموریت / مرخصی';
-    fab.title = 'باز کردن بخش مأموریت و مرخصی';
-    fab.style.cssText = 'position:fixed;bottom:18px;left:18px;z-index:99999;padding:10px 14px;border:0;border-radius:999px;background:#0f766e;color:#fff;font-weight:700;font-size:0.85rem;box-shadow:0 6px 20px rgba(15,118,110,0.35);cursor:pointer;font-family:inherit;';
-    fab.onclick = function() {
-      if (btn) {
-        btn.click();
-        try { btn.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'}); } catch(e) {}
-      }
-      if (panel) {
-        document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
-        panel.classList.add('active');
-        panel.style.display = '';
-        try { panel.scrollIntoView({behavior:'smooth', block:'start'}); } catch(e) {}
-      }
-    };
-    document.body.appendChild(fab);
-  }
 
   function ensurePortalTab() {
     var existingBtn = document.getElementById('pspPortalTabBtn');
     var existingPanel = document.getElementById('panel-portalatt');
     if (existingBtn && existingPanel) {
-      // still ensure floating fallback exists
-      ensurePortalFab(existingBtn, existingPanel);
       return;
     }
     // Find tab strip: parent of any existing tab button
@@ -485,7 +468,10 @@ async function stamp(html, user, env) {
     var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
     if (host) host.appendChild(panel);
     else document.body.appendChild(panel);
-    ensurePortalFab(btn, panel);
+    try {
+      var oldFab = document.getElementById('pspPortalFab');
+      if (oldFab && oldFab.parentNode) oldFab.parentNode.removeChild(oldFab);
+    } catch (e) {}
 
     (function(){
       function showSub(name){
