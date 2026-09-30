@@ -385,13 +385,12 @@ async function stamp(html, user, env) {
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
       '<div class="psp-subpanel" id="pspSub-grants" style="display:none;">' +
       '<div class="section-title">مجوز مرخصی خاص برای کارمند</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">برای مرخصی استحقاقی (روزانه/ساعتی) وقتی مانده کافی نیست، مثل مرخصی ازدواج <b>مجوز</b> صادر کنید و تیک پیش‌خور را بزنید تا بتواند ثبت کند و مانده منفی (بدهکار) شود.</p>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">مجوز برای انواعی که «فقط مجوز ادمین» دارند (مثل ازدواج). برای استحقاقی از بخش <b>تعدیل +/−</b> پایین استفاده کنید.</p>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
       '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr"></div>' +
       '<div class="form-group"><label>تا تاریخ</label><input id="pspGrantTo" placeholder="1405/02/29" dir="ltr"></div>' +
-      '<div class="form-group"><label style="font-size:0.75rem;"><input type="checkbox" id="pspGrantAdvance"> اجازه پیش‌خور (مانده منفی)</label></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '<div class="section-title" style="margin-top:18px;">تعدیل مانده مرخصی استحقاقی (+ / −)</div>' +
@@ -404,7 +403,7 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>ساعت (اختیاری)</label><input id="pspAdjHours" type="number" min="0" step="0.5" value="0" title="اگر روز خالی باشد از ساعت÷۸ استفاده می‌شود"></div>' +
       '<div class="form-group"><label>توضیح</label><input id="pspAdjReason" placeholder="مثلاً پیش‌خور فروردین"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-warning btn-sm" id="pspAdjBtn">ثبت تعدیل</button></div>' +
-      '</div><span id="pspAdjStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+      '</div><span id="pspAdjStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '<div class="psp-subpanel" id="pspSub-reqs" style="display:none;">' +
       '<div class="section-title">همه درخواست‌های مرخصی / مأموریت</div>' +
       '<div class="form-grid">' +
@@ -1057,8 +1056,7 @@ async function stamp(html, user, env) {
           empCode: document.getElementById('pspGrantCode').value.trim(),
           typeId: document.getElementById('pspGrantType').value,
           dateFrom: document.getElementById('pspGrantFrom').value.trim(),
-          dateTo: document.getElementById('pspGrantTo').value.trim(),
-          allowAdvance: !!(document.getElementById('pspGrantAdvance') && document.getElementById('pspGrantAdvance').checked)
+          dateTo: document.getElementById('pspGrantTo').value.trim()
         })
       }).then(function(r){ return r.json(); }).then(function(j){
         if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'مجوز صادر شد برای کد ' + j.grant.empCode; }
@@ -2368,7 +2366,7 @@ async function handleEmpCreateRequest(request, env) {
         return jsonResponse({
           ok: false,
           error: 'no_leave_balance',
-          message: 'مانده مرخصی کافی نیست. مانده امسال: ' + avail.currentRemaining + ' روز، ذخیره سال‌های قبل: ' + avail.priorRemaining + ' روز، درخواست: ' + daysNeeded + ' روز. برای پیش‌خور، مجوز ادمین (مرخصی پیش‌خور) لازم است.',
+          message: 'مانده مرخصی کافی نیست. مانده امسال: ' + avail.currentRemaining + ' روز، ذخیره سال‌های قبل: ' + avail.priorRemaining + ' روز، درخواست: ' + daysNeeded + ' روز. برای افزایش مانده، از تعدیل (+) در پنل ادمین استفاده کنید.',
           availability: avail
         }, 400);
       }
@@ -2521,6 +2519,34 @@ function jalaliDayOfYearW(y, m, d) {
   for (let i = 1; i < m; i++) n += md[i];
   return n + d;
 }
+
+/** استحقاق تناسبی تا پایان ماه جاری: (تعداد ماه کارکرد در سال شامل ماه جاری) / 12 × سقف سالانه */
+function computeAccruedLeaveDaysW(obj, emp, year, month) {
+  const annual = getAnnualLeaveDaysForEmp(obj, emp);
+  const cy = Number(year) || Number((obj.settings || {}).currentYear) || 1405;
+  let cm = Number(month);
+  if (!cm) cm = Number((obj.settings || {}).currentMonth) || Number((obj.settings || {}).activeMonth) || 1;
+  if (cm < 1) cm = 1;
+  if (cm > 12) cm = 12;
+  const p = parseJalaliYMD(emp && emp.hireDate);
+  if (!p) {
+    // بدون تاریخ استخدام: تناسب ماه جاری
+    return Math.round(annual * (cm / 12) * 100) / 100;
+  }
+  if (p.y > cy) return 0;
+  let months = 0;
+  if (p.y < cy) {
+    months = cm; // از اول سال تا ماه جاری
+  } else {
+    // استخدام در همین سال
+    if (p.m > cm) return 0;
+    months = cm - p.m + 1;
+  }
+  if (months < 0) months = 0;
+  if (months > 12) months = 12;
+  return Math.round(annual * (months / 12) * 100) / 100;
+}
+
 function computeProratedLeaveDaysW(obj, emp, year) {
   year = Number(year) || Number((obj.settings || {}).currentYear) || 1405;
   const annual = getAnnualLeaveDaysForEmp(obj, emp);
@@ -2551,34 +2577,40 @@ function ensureEmpLeaveYears(emp, obj) {
   if (!emp.leaveYears[String(cy)]) {
     let entitled = getAnnualLeaveDaysForEmp(obj, emp);
     let used = Number(emp.leaveUsedYear) || 0;
-    let remaining = emp.leaveBalance != null && emp.leaveBalance !== '' ? Number(emp.leaveBalance) : (entitled - used);
-    if (isNaN(remaining)) remaining = entitled - used;
-    // اگر leaveBalance مجموع چند سال بوده، برای سال جاری حداقل 0
+    let accrued = computeAccruedLeaveDaysW(obj, emp, cy);
+    let remaining = Math.round((accrued - used) * 100) / 100;
     emp.leaveYears[String(cy)] = {
       year: cy,
       entitled: Math.round(entitled * 100) / 100,
+      accrued: accrued,
       used: Math.round(used * 100) / 100,
-      remaining: Math.round(remaining * 100) / 100,
+      remaining: remaining,
       settled: false,
       settledAt: null,
       settledMode: null
     };
   }
-  // اطمینان از سال جاری
+  // اطمینان از سال جاری — مانده واقعی = استحقاق تناسبی ماه‌های کارکرد − استفاده‌شده (+ تعدیل‌های +)
   const row = emp.leaveYears[String(cy)];
-  if (row.entitled == null || row.entitled === '') {
-    row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
-  }
+  row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
+  const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
+  row.accrued = accrued;
   if (row.settled) {
     row.remaining = 0;
   } else {
-    // remaining را با entitled-used هم‌تراز نگه دار اگر used به‌روز شده
-    const calcRem = Math.round((Number(row.entitled) - Number(row.used || 0)) * 100) / 100;
-    // اگر remaining دستی خیلی پرت نیست، از calc استفاده کن مگر settled
-    if (row.remaining == null || row.remaining === '') row.remaining = calcRem;
+    let adjPos = 0, adjNeg = 0;
+    (emp.leaveAdjustments || []).forEach(function (a) {
+      if (String(a.year) !== String(cy)) return;
+      const d = Number(a.delta) || 0;
+      if (d > 0) adjPos += d;
+      else adjNeg += Math.abs(d);
+    });
+    // used در دفتر ممکن است شامل بدهکار باشد؛ مانده نمایشی = accrued - used + adjPos
+    // (adjNeg معمولاً در used هم نشسته)
+    row.remaining = Math.round((accrued - Number(row.used || 0) + adjPos) * 100) / 100;
   }
-  // فیلدهای سازگاری با نسخه قبل
-  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  // فیلد سازگاری: فقط مانده سال جاری (نه تجمیع سال‌های قبل)
+  emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
   emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
   emp.leaveBalanceYear = cy;
 }
@@ -4502,10 +4534,12 @@ async function handleEmpBalances(request, env) {
     annualForEmp = Number(pol.annualDays);
   }
   const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
-  const years = listLeaveYearsSorted(emp).map(function (r) {
+  // فقط سال جاری در پرتال
+  const years = listLeaveYearsSorted(emp).filter(function (r) { return Number(r.year) === cy; }).map(function (r) {
     return {
       year: r.year,
       entitled: Number(r.entitled) || 0,
+      accrued: Number(r.accrued) || computeAccruedLeaveDaysW(gd.obj, emp, cy),
       used: Number(r.used) || 0,
       remaining: r.settled ? 0 : (Number(r.remaining) || 0),
       settled: !!r.settled,
@@ -4855,8 +4889,8 @@ async function loadBalancesEmp(){
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
     var L=j.leave||{}, Ln=j.loan||{};
     var html='<div class="box">';
-    html+='<p class="sub" style="margin-bottom:8px;">سقف سالانه: '+(L.annualDays!=null?L.annualDays:'—')+' روز — جمع مانده تسویه‌نشده: <b>'+(L.balance!=null?L.balance:'—')+'</b> روز</p>';
-    html+='<table><thead><tr><th>سال</th><th>استحقاقی</th><th>استفاده‌شده</th><th>مانده</th><th>وضعیت</th></tr></thead><tbody>';
+    html+='<p class="sub" style="margin-bottom:8px;">سقف سالانه: '+(L.annualDays!=null?L.annualDays:'—')+' روز — مانده سال جاری: <b>'+(L.balance!=null?L.balance:'—')+'</b> روز (بر اساس ماه‌های کارکرد)</p>';
+    html+='<table><thead><tr><th>سال</th><th>سقف سال</th><th>استحقاق تا این ماه</th><th>استفاده‌شده</th><th>مانده</th><th>وضعیت</th></tr></thead><tbody>';
     var years=L.years||[];
     if(!years.length){
       html+='<tr><td>'+(L.year||'—')+'</td><td>'+(L.annualDays!=null?L.annualDays:'—')+'</td><td>'+(L.usedYear!=null?L.usedYear:'—')+'</td><td>'+(L.balance!=null?L.balance:'—')+'</td><td>—</td></tr>';
@@ -4864,7 +4898,7 @@ async function loadBalancesEmp(){
       years.forEach(function(y){
         var st=y.settled?('<span style="color:#0f766e;font-weight:700;">تسویه شد'+(y.settledMode==='final'?' (نهایی)':' (سالیانه)')+'</span>'):'باز';
         var rem=y.settled?0:(y.remaining!=null?y.remaining:'—');
-        html+='<tr><td>'+y.year+'</td><td>'+(y.entitled!=null?y.entitled:'—')+'</td><td>'+(y.used!=null?y.used:'—')+'</td><td>'+rem+'</td><td>'+st+'</td></tr>';
+        html+='<tr><td>'+y.year+'</td><td>'+(y.entitled!=null?y.entitled:'—')+'</td><td>'+(y.accrued!=null?y.accrued:'—')+'</td><td>'+(y.used!=null?y.used:'—')+'</td><td>'+rem+'</td><td>'+st+'</td></tr>';
       });
     }
     html+='</tbody></table>';
