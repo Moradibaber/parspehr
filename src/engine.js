@@ -258,6 +258,44 @@ export function makeEngine(data) {
     return { decreeSum: decreeSum, eidSum: eidSum };
   }
 
+
+  /** فرمول ساده و امن: فقط اعداد و + - * / ( ) و متغیرهای مجاز */
+  function evalSimpleFormula(expr, vars) {
+    if (!expr || !String(expr).trim()) return null;
+    let e = String(expr).trim();
+    // جایگزینی متغیرها
+    e = e.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
+      if (Object.prototype.hasOwnProperty.call(vars, name)) return String(Number(vars[name]) || 0);
+      return '0';
+    });
+    if (!/^[0-9.\s+\-*/()]+$/.test(e)) return null;
+    try {
+      const v = Function('"use strict"; return (' + e + ');')();
+      if (typeof v !== 'number' || !isFinite(v)) return null;
+      return v;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function getAnnualLeaveDaysFromPolicy(emp) {
+    const pol = (data.settings && data.settings.leavePolicy) || {};
+    let annual = Number(pol.annualDays);
+    if (isNaN(annual) || annual < 0) annual = 30;
+    const grp = String((emp && emp.group) || '').trim();
+    if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
+      const n = Number(pol.byGroup[grp]);
+      if (!isNaN(n) && n >= 0) annual = n;
+    } else {
+      const ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
+      if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
+        const n = Number(pol.byContractType[ct]);
+        if (!isNaN(n) && n >= 0) annual = n;
+      }
+    }
+    return annual;
+  }
+
   function getYearWorkAndLeave(emp, year, leaveCeiling) {
     let workDays = 0, leaveUsed = 0, hourlyLeave = 0;
     for (let m = 1; m <= 12; m++) {
@@ -270,14 +308,25 @@ export function makeEngine(data) {
     }
     // مرخصی ساعتی ≈ روز (۷.۳۳ ساعت = ۱ روز)
     leaveUsed += hourlyLeave / 7.33;
+    // اگر leaveUsedYear روی کارت کارمند بیشتر باشد، همان را ملاک بگیر
+    if (emp && emp.leaveUsedYear != null && Number(emp.leaveUsedYear) > leaveUsed) {
+      leaveUsed = Number(emp.leaveUsedYear);
+    }
+    const annualDays = getAnnualLeaveDaysFromPolicy(emp);
     const ceiling = (leaveCeiling != null && !isNaN(Number(leaveCeiling)) && Number(leaveCeiling) >= 0)
       ? Number(leaveCeiling)
-      : 30;
-    // استحقاقی = تناسب خالص کارکرد (۳۰ روز به ازای ۳۶۵) — سقف دخالت ندارد
-    const entitledLeave = (workDays / 365) * 30;
-    // مانده = استحقاقی − استفاده‌شده (می‌تواند منفی باشد؛ سقف دخالت ندارد)
-    const remaining = entitledLeave - leaveUsed;
-    // قابل پرداخت = حداقل(مانده، سقف) — اگر مانده منفی باشد، قابل پرداخت هم منفی می‌شود
+      : annualDays;
+    // استحقاقی = تناسب کارکرد با سقف سیاست (مثلاً ۳۰ روز به ازای ۳۶۵)
+    const entitledLeave = (workDays / 365) * annualDays;
+    // مانده: اولویت با leaveBalance ثبت‌شده روی کارت (سیستم جدید)
+    let remaining;
+    if (emp && emp.leaveBalance != null && emp.leaveBalance !== '') {
+      remaining = Number(emp.leaveBalance);
+      if (isNaN(remaining)) remaining = entitledLeave - leaveUsed;
+    } else {
+      remaining = entitledLeave - leaveUsed;
+    }
+    // قابل پرداخت = حداقل(مانده، سقف) — مانده منفی یعنی بدهی/کسر
     const payableLeave = Math.min(remaining, ceiling);
     return {
       workDays: workDays,
@@ -286,6 +335,7 @@ export function makeEngine(data) {
       remainingLeave: remaining,
       payableLeave: payableLeave,
       leaveCeiling: ceiling,
+      annualDaysPolicy: annualDays,
       effectiveDays: workDays
     };
   }
@@ -648,6 +698,37 @@ export function makeEngine(data) {
         let val = 0;
         let qtyUsed = null;
         const amt = Number(ci.amount) || 0;
+        // فرمول اختیاری روی آیتم (مثلاً: basicSalary*0.1 یا workDays*50000)
+        if (ci.formula && String(ci.formula).trim()) {
+          const fVal = evalSimpleFormula(ci.formula, {
+            basicSalary: Number(emp.basicSalary) || 0,
+            workDays: workDays,
+            leaveDays: Number(d.leaveDays) || 0,
+            otHours: Number(d.otHours) || 0,
+            nightHours: Number(d.nightHours) || 0,
+            amount: amt,
+            children: Number(emp.children) || 0,
+            dailyRate: Number(emp.dailyRate) || 0,
+            hourlyRate: Number(emp.hourlyRate) || 0,
+            functionalDays: functionalDays
+          });
+          if (fVal != null) {
+            val = Math.round(Math.abs(fVal));
+            // continue to push below via a flag
+            if (val > 0) {
+              if (asDeduction) {
+                totalDeductions += val;
+                itemDetails.push({ name: ci.name, amount: val, isDeduction: true, formula: true });
+              } else {
+                totalAllow += val;
+                itemDetails.push({ name: ci.name, amount: val, formula: true });
+                if (flags.ins) insBase += val;
+                if (flags.tax) taxBase += val;
+              }
+              return;
+            }
+          }
+        }
         if (ci.entryType === 'quantity') {
           const qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
           qtyUsed = qty;
@@ -792,7 +873,8 @@ export function makeEngine(data) {
         const newWork = Math.max(0, (wl.workDays || 0) - deduct);
         const leaveUsed = wl.leaveUsed || 0;
         // استحقاقی متناسب با کارکرد جدید، ولی مرخصی استفاده‌شده حفظ می‌شود
-        const entitledNew = Math.round((newWork / 365) * 30 * 10) / 10;
+        const annualDaysSp = getAnnualLeaveDaysFromPolicy(emp);
+        const entitledNew = Math.round((newWork / 365) * annualDaysSp * 10) / 10;
         const remainingNew = Math.round((entitledNew - leaveUsed) * 10) / 10;
         // قابل پرداخت: می‌تواند منفی باشد (بدهی مرخصی)
         let payableNew = remainingNew;
