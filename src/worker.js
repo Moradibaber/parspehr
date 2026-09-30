@@ -2404,7 +2404,7 @@ function getLeavePolicy(obj) {
   const s = (obj && obj.settings) || {};
   const p = s.leavePolicy || {};
   return {
-    annualDays: Number(p.annualDays) >= 0 ? Number(p.annualDays) : 26,
+    annualDays: Number(p.annualDays) >= 0 ? Number(p.annualDays) : 30,
     carryMax: Number(p.carryMax) >= 0 ? Number(p.carryMax) : 9,
     byContractType: (p.byContractType && typeof p.byContractType === 'object') ? p.byContractType : {},
     byGroup: (p.byGroup && typeof p.byGroup === 'object') ? p.byGroup : {}
@@ -2420,18 +2420,20 @@ function getAnnualLeaveDaysForEmp(obj, emp) {
     const n = Number(pol.byGroup[grp]);
     if (!isNaN(n) && n >= 0) return n;
   }
+  const annual = Number(pol.annualDays);
+  const annualOk = !isNaN(annual) && annual >= 0;
   const ct = String(emp.contractType || 'normal').trim() || 'normal';
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
     const n = Number(pol.byContractType[ct]);
     if (!isNaN(n) && n >= 0) {
-      // اگر پیش‌فرض سیاست عوض شده ولی نوع قرارداد هنوز روی 26 قدیمی مانده، از پیش‌فرض استفاده کن
-      if ((ct === 'normal' || ct === 'daily') && n === 26 && Number(pol.annualDays) >= 0 && Number(pol.annualDays) !== 26) {
-        return Number(pol.annualDays);
+      // اگر پیش‌فرض بزرگ‌تر است و نوع روی ۲۶ (یا ۰) قدیمی مانده → پیش‌فرض
+      if (annualOk && annual > n && (n === 26 || n === 0) && (ct === 'normal' || ct === 'daily' || ct === 'hourly')) {
+        return annual;
       }
       return n;
     }
   }
-  return pol.annualDays;
+  return annualOk ? annual : 30;
 }
 
 function jalaliDaysInYearW(y) {
@@ -2699,9 +2701,9 @@ async function handleEmpTimesheet(request, env) {
       if (!cell) return;
       const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
       if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
-      if (x.kind === 'leave' && x.mode === 'hourly') cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
       if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
-      if (x.kind === 'mission' && x.mode === 'hourly') cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
       if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
     });
   });
@@ -2876,9 +2878,9 @@ async function handleAdminTimesheet(request, who, env) {
         if (!cell) return;
         const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
         if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
-        if (x.kind === 'leave' && x.mode === 'hourly') cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
         if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
-        if (x.kind === 'mission' && x.mode === 'hourly') cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + label + ' ' + (x.fromTime || '') + '-' + (x.toTime || '');
+        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
         if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
       });
     });
@@ -4091,7 +4093,11 @@ async function handleEmpBalances(request, env) {
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
   ensureEmpLeaveFields(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
-  const annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
+  let annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
+  // اگر هنوز ۲۶ است ولی پیش‌فرض سیاست عدد دیگری است
+  if (annualForEmp === 26 && Number(pol.annualDays) > 0 && Number(pol.annualDays) !== 26) {
+    annualForEmp = Number(pol.annualDays);
+  }
   return jsonResponse({
     ok: true,
     leave: {
