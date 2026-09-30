@@ -2418,15 +2418,44 @@ function getAnnualLeaveDaysForEmp(obj, emp) {
   return pol.annualDays;
 }
 
+function jalaliDaysInYearW(y) {
+  y = Number(y);
+  const cy = y - 979;
+  const breaks = [1, 5, 9, 13, 17, 22, 26, 30];
+  const k = cy % 33;
+  return breaks.indexOf(k) >= 0 ? 366 : 365;
+}
+function jalaliDayOfYearW(y, m, d) {
+  const md = [0, 31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29];
+  if (jalaliDaysInYearW(y) === 366) md[12] = 30;
+  let n = 0;
+  for (let i = 1; i < m; i++) n += md[i];
+  return n + d;
+}
+function computeProratedLeaveDaysW(obj, emp, year) {
+  year = Number(year) || Number((obj.settings || {}).currentYear) || 1405;
+  const annual = getAnnualLeaveDaysForEmp(obj, emp);
+  const hireStr = emp && emp.hireDate;
+  const m = String(hireStr || '').trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (!m) return annual;
+  const hy = Number(m[1]), hm = Number(m[2]), hd = Number(m[3]);
+  if (hy < year) return annual;
+  if (hy > year) return 0;
+  const diy = jalaliDaysInYearW(year);
+  const doy = jalaliDayOfYearW(hy, hm, hd);
+  let remaining = diy - doy + 1;
+  if (remaining < 0) remaining = 0;
+  if (remaining > diy) remaining = diy;
+  return Math.round(annual * (remaining / diy) * 100) / 100;
+}
 function ensureEmpLeaveFields(emp, obj) {
   if (!emp) return;
-  const annual = getAnnualLeaveDaysForEmp(obj, emp);
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
   if (emp.leaveBalance == null || emp.leaveBalance === '') {
-    emp.leaveBalance = annual;
+    emp.leaveBalance = computeProratedLeaveDaysW(obj, emp, cy);
   }
   if (emp.leaveUsedYear == null) emp.leaveUsedYear = 0;
   if (!emp.leaveBalanceYear) {
-    const cy = Number((obj.settings || {}).currentYear) || 1405;
     emp.leaveBalanceYear = cy;
   }
 }
