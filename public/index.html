@@ -6973,6 +6973,7 @@ function renderEidResults(results) {
     return;
   }
   let html = '<table><thead><tr>' +
+    '<th><input type="checkbox" id="eidSelectAll" checked title="انتخاب همه" onchange="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=document.getElementById(\'eidSelectAll\').checked})"></th>' +
     '<th>کد</th><th>نام</th><th>تاریخ استخدام</th>' +
     '<th>روز کارکرد</th><th>مرخصی استفاده‌شده</th><th>استحقاقی</th><th>مانده</th><th>قابل پرداخت (روز)</th>' +
     '<th>جمع حکم</th><th>مزد روزانه مرخصی</th><th>مبلغ مرخصی</th>' +
@@ -6996,6 +6997,7 @@ function renderEidResults(results) {
          ')</span>')
       : '';
     html += '<tr' + trStyle + '>' +
+      '<td><input type="checkbox" class="eid-settle-cb" data-code="' + r.code + '" checked></td>' +
       '<td>' + r.code + '</td><td>' + r.fullName + nameExtra + '</td><td>' + (r.hireDate || '—') + '</td>' +
       '<td>' + formatDecimal(r.workDays, 1) + '</td>' +
       '<td>' + formatDecimal(r.leaveUsed, 1) + '</td>' +
@@ -7013,7 +7015,7 @@ function renderEidResults(results) {
       '<td style="font-weight:800;color:#16a34a;">' + formatNumber(r.totalPay) + '</td></tr>';
   });
   html += '</tbody><tfoot><tr style="background:#f0fdfa;font-weight:700;">' +
-    '<td colspan="10">جمع کل</td>' +
+    '<td colspan="11">جمع کل</td>' +
     '<td>' + formatNumber(sumLeave) + '</td>' +
     '<td colspan="2"></td>' +
     '<td>' + formatNumber(sumEid) + '</td><td>' + formatNumber(sumTax) + '</td>' +
@@ -7021,7 +7023,9 @@ function renderEidResults(results) {
     '<td>' + formatNumber(sumTotal) + '</td></tr></tfoot></table>';
   html += '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">' +
     '<button class="btn btn-outline btn-sm" onclick="exportEidExcel()">خروجی اکسل عیدی، سنوات و مرخصی</button>' +
-    '<button class="btn btn-warning btn-sm" onclick="applyEidLeaveToBalances()">ثبت بازخرید/کسر مرخصی روی مانده کارت‌ها</button>' +
+    '<button class="btn btn-warning btn-sm" onclick="applyEidLeaveToBalances()">ثبت تسویه مرخصی برای افراد تیک‌خورده</button>' +
+    '<button class="btn btn-outline btn-sm" type="button" onclick="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=true})">انتخاب همه</button>' +
+    '<button class="btn btn-outline btn-sm" type="button" onclick="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=false})">حذف انتخاب</button>' +
     '</div>' +
     '<p style="font-size:0.75rem;color:#64748b;margin-top:6px;">ثبت روی مانده: برای روز قابل‌پرداخت مثبت از مانده کم می‌شود. فقط یک‌بار پس از محاسبه نهایی بزنید.</p>';
   box.innerHTML = html;
@@ -10737,10 +10741,20 @@ function applyEidLeaveToBalances() {
   var rows = (data.eidResults && data.eidResults[year]) || [];
   if (!rows.length) { alert('ابتدا محاسبه عیدی/سنوات/مرخصی را اجرا کنید.'); return; }
   var modeLabel = mode === 'final' ? 'نهایی (همه سال‌های باز)' : 'سالیانه (' + year + ')';
-  if (!confirm('تسویه مرخصی به صورت «' + modeLabel + '» روی دفتر سالانه کارت کارکنان ثبت شود؟\nپس از تسویه سالیانه، مانده آن سال در پرتال صفر و وضعیت «تسویه شد» می‌شود.')) return;
+  if (!confirm('تسویه مرخصی «' + modeLabel + '» فقط برای نفرات تیک‌خورده ثبت شود؟\nپس از تسویه سالیانه، مانده آن سال صفر و وضعیت «تسویه شد» می‌شود.')) return;
+  var selected = {};
+  document.querySelectorAll('.eid-settle-cb:checked').forEach(function(c) {
+    selected[String(c.getAttribute('data-code'))] = true;
+  });
+  var selectedCount = Object.keys(selected).length;
+  if (!selectedCount) {
+    alert('حداقل یک نفر را برای تسویه انتخاب کنید.');
+    return;
+  }
   var n = 0, skipped = 0;
   rows.forEach(function(r) {
     if (!r || !r.code) return;
+    if (!selected[String(r.code)]) return;
     var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); });
     if (!emp) { skipped++; return; }
     if (!emp.leaveYears) emp.leaveYears = {};
