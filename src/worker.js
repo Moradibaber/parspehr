@@ -373,7 +373,20 @@ async function stamp(html, user, env) {
       '<div class="form-grid" style="margin-bottom:10px;">' +
       '<div class="form-group"><label>ماه جاری درخواست‌ها</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری</button></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری و روزهای کاری</button></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای کاری هفته</label>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:0.78rem;">' +
+      '<label><input type="checkbox" class="psp-wd" value="6" checked> شنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="0" checked> یکشنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="1" checked> دوشنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="2" checked> سه‌شنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="3" checked> چهارشنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="4"> پنجشنبه</label>' +
+      '<label><input type="checkbox" class="psp-wd" value="5"> جمعه</label>' +
+      '</div></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای غیرکاری (پنجشنبه/جمعه/تعطیل) بین بازه مرخصی استحقاقی جزو مرخصی حساب شوند؟</label>' +
+      '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری شمرده شوند</option><option value="yes">بلی — تعطیلات و روزهای غیرکاری هم جزو مرخصی</option></select></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><span id="pspCurStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div></div>' +
       '<div class="psp-subpanel" id="pspSub-types" style="display:none;">' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
@@ -957,13 +970,45 @@ async function stamp(html, user, env) {
     };
 
     document.getElementById('pspCurSave').onclick = function(){
+      var wds = [];
+      document.querySelectorAll('.psp-wd:checked').forEach(function(c){ wds.push(Number(c.value)); });
+      var st = document.getElementById('pspCurStatus');
+      if (st) st.textContent = 'در حال ذخیره…';
       fetch('/api/admin/set-current-month', {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-        body: JSON.stringify({ year: Number(document.getElementById('pspCurYear').value), month: Number(document.getElementById('pspCurMonth').value) })
+        body: JSON.stringify({
+          year: Number(document.getElementById('pspCurYear').value),
+          month: Number(document.getElementById('pspCurMonth').value),
+          workWeekDays: wds,
+          countNonWorkDaysAsLeave: (document.getElementById('pspCountNonWorkAsLeave')||{}).value === 'yes'
+        })
       }).then(function(r){return r.json()}).then(function(j){
-        alert(j.ok ? ('ماه جاری درخواست‌ها: '+j.year+'/'+j.month) : (j.message||j.error||'خطا'));
-      });
+        if (j.ok) {
+          var msg = 'ثبت شد: ماه جاری '+j.year+'/'+j.month+' (دیگر نیازی به ثبت مجدد تا تغییر ماه نیست)';
+          if (st) { st.style.color='#16a34a'; st.textContent = msg; }
+          else alert(msg);
+        } else {
+          var err = j.message||j.error||'خطا';
+          if (st) { st.style.color='#b91c1c'; st.textContent = err; }
+          else alert(err);
+        }
+      }).catch(function(){ if(st){ st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; }});
     };
+    // بارگذاری تنظیمات ذخیره‌شده ماه جاری
+    fetch('/api/admin/get-current-month', { credentials:'same-origin' }).then(function(r){return r.json()}).then(function(j){
+      if (!j || !j.ok) return;
+      if (j.year) { var y=document.getElementById('pspCurYear'); if(y) y.value=j.year; }
+      if (j.month) { var m=document.getElementById('pspCurMonth'); if(m) m.value=String(j.month); }
+      if (Array.isArray(j.workWeekDays)) {
+        document.querySelectorAll('.psp-wd').forEach(function(c){
+          c.checked = j.workWeekDays.indexOf(Number(c.value)) >= 0;
+        });
+      }
+      var nw=document.getElementById('pspCountNonWorkAsLeave');
+      if (nw) nw.value = j.countNonWorkDaysAsLeave ? 'yes' : 'no';
+      var st=document.getElementById('pspCurStatus');
+      if (st && j.month) { st.style.color='#0f766e'; st.textContent='ماه جاری فعال: '+j.year+'/'+j.month; }
+    }).catch(function(){});
     window.__pspTypes = [];
     function renderTypes() {
       var box = document.getElementById('pspTypesList');
@@ -2356,7 +2401,7 @@ async function handleEmpCreateRequest(request, env) {
     let usePriorYears = !!b.usePriorYears;
     if (kind === 'leave' && deductFromEntitlement) {
       const fakeReq = { mode: mode, startDate: startDate, endDate: endDate, fromTime: fromTime, toTime: toTime, fixedDays: fixedDays };
-      const daysNeeded = countLeaveDays(fakeReq);
+      const daysNeeded = countLeaveDays(fakeReq, gd.obj);
       const avail = leaveAvailabilityForEmp(gd.obj, emp, daysNeeded);
       const tAllowAdv = !!(tdef && tdef.allowAdvance);
       let grantAllowAdv = false;
@@ -2369,7 +2414,7 @@ async function handleEmpCreateRequest(request, env) {
         return jsonResponse({
           ok: false,
           error: 'no_leave_balance',
-          message: 'مانده مرخصی کافی نیست. مانده امسال: ' + avail.currentRemaining + ' روز، ذخیره سال‌های قبل: ' + avail.priorRemaining + ' روز، درخواست: ' + daysNeeded + ' روز. برای افزایش مانده، از تعدیل (+) در پنل ادمین استفاده کنید.',
+          message: 'بیش از سقف سالانه. سقف: ' + (avail.annualDays||'') + '، استفاده‌شده: ' + (avail.usedYear||0) + '، باقی تا سقف: ' + avail.currentRemaining + '، ذخیره قبل: ' + avail.priorRemaining + '، درخواست: ' + daysNeeded + ' روز. برای بیش از سقف از تعدیل (+) استفاده کنید.',
           availability: avail
         }, 400);
       }
@@ -2652,7 +2697,43 @@ function listLeaveYearsSorted(emp) {
     .map(function (y) { return emp.leaveYears[String(y)]; });
 }
 
-function countLeaveDays(req) {
+
+/** روز هفته جلالی → 0=یکشنبه … 6=شنبه (مطابق Date.getUTCDay) */
+function jalaliWeekday(jy, jm, jd) {
+  // تبدیل تقریبی جلالی به میلادی (الگوریتم رایج)
+  jy = Number(jy); jm = Number(jm); jd = Number(jd);
+  var gy, gm, gd;
+  var jy2 = jy - 979;
+  var days = 365 * jy2 + Math.floor(jy2 / 33) * 8 + Math.floor(((jy2 % 33) + 3) / 4) + 78 + jd + (jm < 7 ? (jm - 1) * 31 : ((jm - 7) * 30 + 186));
+  var gy2 = 1600 + 400 * Math.floor(days / 146097);
+  days = days % 146097;
+  var leap = true;
+  if (days >= 36525) { days--; gy2 += 100 * Math.floor(days / 36524); days = days % 36524; if (days >= 365) days++; else leap = false; }
+  gy2 += 4 * Math.floor(days / 1461); days %= 1461;
+  if (days >= 366) { leap = false; gy2 += Math.floor((days - 1) / 365); days = (days - 1) % 365; }
+  gy = gy2;
+  var sal_a = [0, 31, (leap ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  gm = 0;
+  for (gm = 0; gm < 13; gm++) {
+    var v = sal_a[gm];
+    if (days < v) break;
+    days -= v;
+  }
+  gd = days + 1;
+  var dt = new Date(Date.UTC(gy, gm - 1, gd));
+  return dt.getUTCDay();
+}
+
+function getWorkWeekSettings(obj) {
+  const s = (obj && obj.settings) || {};
+  const days = Array.isArray(s.workWeekDays) ? s.workWeekDays.map(Number) : [6, 0, 1, 2, 3];
+  return {
+    workWeekDays: days,
+    countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave
+  };
+}
+
+function countLeaveDays(req, obj) {
   if (!req) return 0;
   if (req.mode === 'hourly') {
     const ft = String(req.fromTime || '00:00').split(':');
@@ -2663,15 +2744,25 @@ function countLeaveDays(req) {
     if (hrs < 0) hrs = 0;
     return Math.round((hrs / 8) * 100) / 100;
   }
+  if (req.fixedDays) return Number(req.fixedDays) || 1;
   if (typeof listDayKeys === 'function' && req.startDate) {
     try {
       const keys = listDayKeys(req.startDate, req.endDate || req.startDate);
-      return keys.length || 1;
+      const ws = getWorkWeekSettings(obj || {});
+      if (ws.countNonWorkDaysAsLeave) return keys.length || 1;
+      let n = 0;
+      keys.forEach(function (k) {
+        const parts = String(k).split('-');
+        if (parts.length < 3) { n++; return; }
+        const wd = jalaliWeekday(parts[0], parts[1], parts[2]);
+        if (ws.workWeekDays.indexOf(wd) >= 0) n++;
+      });
+      return n || 0;
     } catch (e) {}
   }
-  if (req.fixedDays) return Number(req.fixedDays) || 1;
   return 1;
 }
+
 
 /** کسر از سال جاری؛ در صورت نیاز و موافقت، از سال‌های قبلِ تسویه‌نشده */
 function applyLeaveDeduction(obj, req) {
@@ -2683,18 +2774,25 @@ function applyLeaveDeduction(obj, req) {
   if (!emp) return;
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
-  const days = countLeaveDays(req);
+  const days = countLeaveDays(req, obj);
   let left = days;
   const detail = [];
-  // اول سال جاری
+  const annual = getAnnualLeaveDaysForEmp(obj, emp);
   const cur = getLeaveYearRow(emp, cy);
   if (!cur.settled) {
-    const take = Math.min(Math.max(0, Number(cur.remaining) || 0), left);
-    if (take > 0) {
-      cur.remaining = Math.round((Number(cur.remaining) - take) * 100) / 100;
-      cur.used = Math.round((Number(cur.used || 0) + take) * 100) / 100;
-      left = Math.round((left - take) * 100) / 100;
-      detail.push({ year: cy, days: take });
+    const used = Number(cur.used) || 0;
+    const room = Math.max(0, annual - used);
+    const take = Math.min(room > 0 ? room : left, left); // تا سقف سالانه از سال جاری
+    // اگر room=0 ولی left>0، به prior می‌رود؛ اگر prior هم نبود در ادامه overdraft
+    const takeCur = Math.min(left, Math.max(room, 0));
+    // اجازه استفاده تا سقف: اگر room >= left همه از جاری
+    if (left > 0) {
+      const t = (room >= left) ? left : Math.max(room, 0);
+      if (t > 0) {
+        cur.used = Math.round((used + t) * 100) / 100;
+        left = Math.round((left - t) * 100) / 100;
+        detail.push({ year: cy, days: t });
+      }
     }
   }
   // سپس سال‌های قبل (قدیمی‌تر اول) اگر usePriorYears
@@ -2719,7 +2817,11 @@ function applyLeaveDeduction(obj, req) {
     detail.push({ year: cy, days: left, overdraft: true });
     left = 0;
   }
-  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  // به‌روزمانده نمایشی = استحقاق تناسبی − used
+  const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
+  cur.accrued = accrued;
+  cur.remaining = Math.round((accrued - Number(cur.used || 0)) * 100) / 100;
+  emp.leaveBalance = Number(cur.remaining) || 0;
   emp.leaveUsedYear = Number(cur.used) || 0;
   emp.leaveBalanceYear = cy;
   req._leaveDeducted = true;
@@ -2745,7 +2847,7 @@ function restoreLeaveDeduction(obj, req) {
       row.used = Math.round(Math.max(0, (Number(row.used || 0) - days)) * 100) / 100;
     });
   } else {
-    const days = Number(req.leaveDaysDeducted) || countLeaveDays(req);
+    const days = Number(req.leaveDaysDeducted) || countLeaveDays(req, obj);
     const cy = Number((obj.settings || {}).currentYear) || 1405;
     const cur = getLeaveYearRow(emp, cy);
     cur.remaining = Math.round((Number(cur.remaining || 0) + days) * 100) / 100;
@@ -2784,7 +2886,7 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
       } else {
         const p = parseJalaliYMD(req.startDate);
         const y = p ? p.y : cy;
-        if (String(y) === String(yk)) used += countLeaveDays(req);
+        if (String(y) === String(yk)) used += countLeaveDays(req, obj);
       }
     });
     // adjustments negative contribute to used
@@ -2810,7 +2912,17 @@ function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
   const cur = getLeaveYearRow(emp, cy);
-  const curRem = cur.settled ? 0 : (Number(cur.remaining) || 0);
+  const annual = getAnnualLeaveDaysForEmp(obj, emp);
+  const used = Number(cur.used) || 0;
+  // تا سقف سالانه (۳۰/۲۶/…) می‌تواند استفاده کند؛ تناسب ماه مانع ثبت نیست
+  let ceilingLeft = cur.settled ? 0 : Math.round((annual - used) * 100) / 100;
+  let adjPos = 0;
+  (emp.leaveAdjustments || []).forEach(function (a) {
+    if (String(a.year) !== String(cy)) return;
+    const d = Number(a.delta) || 0;
+    if (d > 0) adjPos += d;
+  });
+  ceilingLeft = Math.round((ceilingLeft + adjPos) * 100) / 100;
   let priorRem = 0;
   const priorRows = [];
   listLeaveYearsSorted(emp).forEach(function (r) {
@@ -2825,12 +2937,15 @@ function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
   const need = Number(daysNeeded) || 0;
   return {
     currentYear: cy,
-    currentRemaining: curRem,
+    annualDays: annual,
+    usedYear: used,
+    currentRemaining: ceilingLeft,
+    accruedRemaining: cur.settled ? 0 : (Number(cur.remaining) || 0),
     priorRemaining: priorRem,
     priorRows: priorRows,
-    totalUnsettled: Math.round((curRem + priorRem) * 100) / 100,
-    needPriorYears: need > curRem && priorRem > 0,
-    insufficient: need > curRem + priorRem
+    totalUnsettled: Math.round((ceilingLeft + priorRem) * 100) / 100,
+    needPriorYears: need > ceilingLeft && priorRem > 0,
+    insufficient: need > ceilingLeft + priorRem
   };
 }
 
@@ -3594,12 +3709,44 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     gd.obj.settings.currentYear = year;
     gd.obj.settings.currentMonth = month;
+    if (Array.isArray(r.body.workWeekDays)) {
+      gd.obj.settings.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
+    } else if (!Array.isArray(gd.obj.settings.workWeekDays)) {
+      gd.obj.settings.workWeekDays = [6, 0, 1, 2, 3]; // پیش‌فرض شنبه تا چهارشنبه
+    }
+    if (r.body.countNonWorkDaysAsLeave != null) {
+      gd.obj.settings.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
+    }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
-    return jsonResponse({ ok: true, year: year, month: month });
+    return jsonResponse({
+      ok: true,
+      year: year,
+      month: month,
+      workWeekDays: gd.obj.settings.workWeekDays,
+      countNonWorkDaysAsLeave: !!gd.obj.settings.countNonWorkDaysAsLeave
+    });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminGetCurrentMonth(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const s = (gd.obj && gd.obj.settings) || {};
+  return jsonResponse({
+    ok: true,
+    year: Number(s.currentYear) || 1405,
+    month: Number(s.currentMonth) || Number(s.activeMonth) || 0,
+    workWeekDays: Array.isArray(s.workWeekDays) ? s.workWeekDays : [6, 0, 1, 2, 3],
+    countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave
+  });
 }
 
 async function handleAdminListAttendanceRequests(request, who, env) {
@@ -3960,6 +4107,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
+  if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
   if (path === '/api/admin/attendance-requests') return handleAdminListAttendanceRequests(request, who, env);
   if (path === '/api/admin/attendance-request') {
     if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
