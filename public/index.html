@@ -560,7 +560,7 @@
         اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
       </p>
       <div class="form-grid" style="margin-bottom:12px;">
-        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
+        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
         <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
       </div>
       <div style="margin-bottom:12px;overflow-x:auto;">
@@ -568,8 +568,8 @@
         <table style="max-width:520px;">
           <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
           <tbody>
-            <tr><td>عادی</td><td><input type="number" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>روزمزد</td><td><input type="number" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>عادی</td><td><input type="number" id="leaveCt_normal" value="30" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>روزمزد</td><td><input type="number" id="leaveCt_daily" value="30" min="0" step="1" style="width:100px;"></td></tr>
             <tr><td>ساعتی</td><td><input type="number" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
           </tbody>
         </table>
@@ -1303,7 +1303,7 @@
         <b>عیدی/سنوات:</b> مبنای مزد روزانه = جمع مشمول عیدی/سنوات از حکم ÷ ۳۰.
         حداقل عیدی = ۶۰ روز × مزد روزانه | حداکثر = ۹۰ روز × حداقل مزد قانون کار (تناسب کارکرد ÷ ۳۶۵). مالیات عیدی: معاف تا ۴۰۰ میلیون؛ مازاد ۱۰٪.
         <br>
-        <b>مرخصی (بازخرید در تسویه):</b> استحقاقی = (کارکرد ÷ ۳۶۵) × سقف سیاست مرخصی. <b>مانده</b> از فیلد مانده مرخصی کارت کارمند (در صورت وجود) خوانده می‌شود تا با سیستم مرخصی جدید هم‌راستا باشد.
+        <b>مرخصی (بازخرید در تسویه):</b> استحقاقی = (جمع روز کارکرد ماه‌های همین سال ÷ ۳۶۵) × سقف سیاست. <b>مانده</b> = استحقاقی − مرخصی استفاده‌شده همان سال. مانده کارت فقط اگر کمتر باشد محدود می‌کند. قابل پرداخت = حداقل(مانده، سقف).
         مانده = استحقاقی − استفاده‌شده (مثبت یا منفی).
         قابل پرداخت (روز) = حداقل(مانده ، سقف).
         <b>مبلغ مرخصی</b> = (جمع حکم ÷ ۳۰) × روز قابل پرداخت — می‌تواند منفی (کسر) باشد و با عیدی و سنوات جمع می‌شود.
@@ -10620,7 +10620,7 @@ function parseHireJalali(str) {
 function getAnnualLeaveDaysForEmpLocal(emp) {
   var pol = (data.settings && data.settings.leavePolicy) || {};
   var annual = Number(pol.annualDays);
-  if (isNaN(annual) || annual < 0) annual = 26;
+  if (isNaN(annual) || annual < 0) annual = 30;
   var grp = String((emp && emp.group) || '').trim();
   if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
     var ng = Number(pol.byGroup[grp]);
@@ -10630,7 +10630,7 @@ function getAnnualLeaveDaysForEmpLocal(emp) {
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
     var nc = Number(pol.byContractType[ct]);
     if (!isNaN(nc) && nc >= 0) {
-      if ((ct === 'normal' || ct === 'daily') && nc === 26 && annual !== 26) return annual;
+      if (annual > nc && (nc === 26 || nc === 0)) return annual;
       return nc;
     }
   }
