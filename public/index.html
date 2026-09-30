@@ -442,6 +442,20 @@
         </div>
       </div>
       <p id="bulkPreview" style="font-size:0.78rem;color:#0f766e;margin-top:8px;"></p>
+
+      <div class="section-title" style="margin-top:22px;font-size:1rem;">ویرایش گروهی سقف اضافه‌کار</div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">همان فیلترهای بالا را تنظیم کنید، سپس سقف ساعت اضافه‌کار را برای نفرات فیلترشده اعمال کنید. خالی گذاشتن فیلد سقف = استفاده از پیش‌فرض تنظیمات برای آن نفرات.</p>
+      <div class="form-grid" style="align-items:end;">
+        <div class="form-group"><label>سقف اضافه‌کار (ساعت)</label>
+          <input type="number" id="bulkMaxOtHours" min="0" step="1" placeholder="مثلاً 40 یا 0=بدون سقف">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
+          <button type="button" class="btn btn-warning" onclick="applyBulkMaxOtHours()">اعمال گروهی سقف اضافه‌کار</button>
+          <button type="button" class="btn btn-outline" onclick="applyBulkMaxOtHoursClear()">پاک کردن سقف فردی (برگرد به پیش‌فرض)</button>
+        </div>
+      </div>
+      <p id="bulkOtPreview" style="font-size:0.78rem;color:#0f766e;margin-top:8px;"></p>
+
     </div>
   </div>
 
@@ -565,12 +579,13 @@
         <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">انتقال مانده به سال جدید</div>
         <p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">مانده هر کارمند تا سقف انتقال نگه داشته می‌شود و با استحقاقی تناسبی سال جدید جمع می‌شود. یک‌بار در ابتدای سال بزنید.</p>
         <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده سال</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی مانده برای همه فعال‌ها</button>
       </div>
 <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
-        <div class="form-group"><label>سقف اضافه‌کار ماهانه (ساعت، ۰=بدون سقف)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="صفر یعنی بدون محدودیت"></div>
+        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت، نمونه)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="برای نفراتی که سقف فردی ندارند؛ ۰=بدون سقف. سقف هر نفر در کارت کارمند یا ویرایش گروهی"></div>
         <div class="form-group"><label>ضریب شب‌کاری</label><input type="number" id="nightFactor" value="1.35" step="0.05"></div>
         <div class="form-group"><label>ضریب نوبت صبح و عصر (%)</label><input type="number" id="shiftMorningEvening" value="10" step="0.5" title="طبق ماده ۵۶ قانون کار"></div>
         <div class="form-group"><label>ضریب نوبت صبح/عصر و شب (%)</label><input type="number" id="shiftWithNight" value="22.5" step="0.5" title="صبح و شب یا عصر و شب"></div>
@@ -1709,6 +1724,10 @@
           <label>مانده مرخصی استحقاقی (روز)</label>
           <input type="number" id="e_leaveBalance" value="26" step="0.01" min="0" inputmode="decimal" title="هر مقدار کسری مجاز است (مثلاً 18.75)">
           <button type="button" class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="calcProratedLeaveBalance()" title="بر اساس تاریخ استخدام و سقف سالانه نوع/گروه">محاسبه تناسبی از تاریخ استخدام</button>
+        </div>
+        <div class="form-group">
+          <label>سقف اضافه‌کار ماهانه (ساعت)</label>
+          <input type="number" id="e_maxOtHours" value="" min="0" step="1" placeholder="خالی = از پیش‌فرض تنظیمات" title="۰ یعنی بدون سقف برای این نفر؛ خالی یعنی از پیش‌فرض سیستم">
         </div>
       </div>
 
@@ -4427,7 +4446,27 @@ function renderEmployeeCustomItems() {
     <div class="custom-item-row">
       <input type="text" placeholder="نام آیتم (مثلاً معوقه اقماری بهمن)" value="${ci.name||''}" onchange="tempCustomItems[${idx}].name=this.value">
       <input type="number" placeholder="مبلغ" value="${ci.amount||0}" min="0" onchange="tempCustomItems[${idx}].amount=Number(this.value)||0">
-      <input type="text" placeholder="فرمول (اختیاری)" value="${ci.formula||''}" title="مثال: basicSalary*0.1 یا workDays*50000 — متغیرها: basicSalary, workDays, leaveDays, otHours, amount, children, dailyRate, hourlyRate, functionalDays" onchange="tempCustomItems[${idx}].formula=this.value" style="min-width:120px;">
+      <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;">
+        <input type="text" id="ciFormula_${idx}" placeholder="فرمول (اختیاری)" value="${ci.formula||''}" onchange="tempCustomItems[${idx}].formula=this.value" style="min-width:140px;">
+        <select onchange="insertFormulaVar(${idx}, this.value); this.value='';" style="font-size:0.72rem;padding:2px 4px;" title="یک متغیر انتخاب کنید تا به فرمول اضافه شود">
+          <option value="">+ افزودن متغیر…</option>
+          <option value="basicSalary">basicSalary — حقوق پایه</option>
+          <option value="workDays">workDays — روز کارکرد</option>
+          <option value="leaveDays">leaveDays — روز مرخصی</option>
+          <option value="hourlyLeave">hourlyLeave — مرخصی ساعتی</option>
+          <option value="missionDays">missionDays — روز مأموریت</option>
+          <option value="missionHours">missionHours — ساعت مأموریت</option>
+          <option value="otHours">otHours — اضافه‌کار</option>
+          <option value="nightHours">nightHours — شب‌کاری</option>
+          <option value="shiftDays">shiftDays — روز نوبت</option>
+          <option value="amount">amount — مبلغ آیتم</option>
+          <option value="children">children — تعداد اولاد</option>
+          <option value="dailyRate">dailyRate — مزد روزانه</option>
+          <option value="hourlyRate">hourlyRate — مزد ساعتی</option>
+          <option value="functionalDays">functionalDays — کارکرد خالص</option>
+          <option value="seniorityBase">seniorityBase — پایه سنوات</option>
+        </select>
+      </div>
       <select onchange="tempCustomItems[${idx}].entryType=this.value">
         <option value="workdays" ${ci.entryType==='workdays'?'selected':''}>بر اساس کارکرد</option>
         <option value="quantity" ${ci.entryType==='quantity'?'selected':''}>بر اساس تعداد</option>
@@ -4663,13 +4702,14 @@ function openEmployeeModal(editId = null) {
       basicSalary:'e_basicSalary', seniorityBase:'e_seniorityBase',
       bankName:'e_bankName', accountNumber:'e_accountNumber', insuranceNo:'e_insuranceNo',
       children:'e_children', gender:'e_gender', marital:'e_marital', exemption:'e_exemption', status:'e_status', statusStart:'e_statusStart', statusEnd:'e_statusEnd',
-      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining', leaveBalance:'e_leaveBalance',
+      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining', leaveBalance:'e_leaveBalance', maxOtHours:'e_maxOtHours',
       taxPercent:'e_taxPercent'
     };
     Object.keys(map).forEach(k => {
       const el = document.getElementById(map[k]);
       if (!el) return;
       if (k === 'taxPercent') el.value = (emp.taxPercent === 50 ? '50' : '100');
+      else if (k === 'maxOtHours') el.value = (emp.maxOtHours != null && emp.maxOtHours !== '') ? emp.maxOtHours : '';
       else el.value = emp[k] ?? (['basicSalary','seniorityBase','children','loanAmount','loanInstallments','loanRemaining'].includes(k) ? 0 : (k==='status'?'active':''));
     });
     document.getElementById('e_contractType').value = emp.contractType || 'normal';
@@ -4853,6 +4893,7 @@ function saveEmployee(e) {
     notes: document.getElementById('e_notes').value.trim(),
     loanAmount, loanInstallments: installments, loanRemaining: remaining,
     leaveBalance: (function(){ var el=document.getElementById('e_leaveBalance'); return el ? Number(el.value) : 26; })(),
+    maxOtHours: (function(){ var el=document.getElementById('e_maxOtHours'); if(!el||el.value===''||el.value==null) return null; return Number(el.value); })(),
     monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
     loanLocked: currentLoanLocked || false,
     customItems: tempCustomItems.filter(c => c.name && c.name.trim()).map(c => {
@@ -5853,11 +5894,12 @@ function updateDataField(code, field, value, el) {
     }
   }
   if (field === 'otHours') {
-    var maxOt = Number((data.settings && data.settings.maxOtHours) || 0);
+    var empOt = (data.employees || []).find(function(e) { return String(e.code) === String(code); });
+    var maxOt = (typeof getEmpMaxOtHours === 'function') ? getEmpMaxOtHours(empOt) : Number((data.settings && data.settings.maxOtHours) || 0);
     if (maxOt > 0 && num > maxOt) {
       num = maxOt;
       if (el) el.value = maxOt;
-      alert('سقف اضافه‌کار ماهانه ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.');
+      alert('سقف اضافه‌کار این نفر ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.');
     }
   }
   data.monthlyData[key][code][field] = num;
@@ -10684,6 +10726,105 @@ function applyEidLeaveToBalances() {
   try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
   try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
   alert('مانده مرخصی برای ' + n + ' نفر به‌روز شد.' + (skipped ? ('\nبدون تغییر: ' + skipped) : ''));
+}
+
+
+function applyProratedLeaveAllActive() {
+  if (typeof computeProratedLeaveDays !== 'function') {
+    alert('توابع محاسبه تناسبی در دسترس نیست. صفحه را یک‌بار رفرش کنید.');
+    return;
+  }
+  var year = Number((data.settings && data.settings.currentYear) || 1405);
+  if (!confirm('مانده مرخصی همه کارکنان فعال بر اساس تاریخ استخدام و سقف سیاست سال ' + year + ' از نو محاسبه شود؟\nمانده قبلی جایگزین می‌شود.')) return;
+  var n = 0;
+  (data.employees || []).forEach(function(emp) {
+    if (!emp || emp.status === 'inactive') return;
+    var val = computeProratedLeaveDays(emp, year);
+    emp.leaveBalance = val;
+    emp.leaveUsedYear = Number(emp.leaveUsedYear) || 0;
+    emp.leaveBalanceYear = year;
+    n++;
+  });
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+  alert('مانده تناسبی برای ' + n + ' نفر فعال محاسبه شد.');
+}
+
+
+function getBulkFilteredEmployees() {
+  var wp = (document.getElementById('bulkWorkplace') || {}).value || '';
+  var mg = (document.getElementById('bulkManagement') || {}).value || '';
+  var un = (document.getElementById('bulkUnit') || {}).value || '';
+  var gr = (document.getElementById('bulkGroup') || {}).value || '';
+  var pos = (document.getElementById('bulkPosition') || {}).value || '';
+  var ct = (document.getElementById('bulkContract') || {}).value || '';
+  var mar = (document.getElementById('bulkMarital') || {}).value || '';
+  return (data.employees || []).filter(function(e) {
+    if (!e || e.status === 'inactive') return false;
+    if (wp && String(e.workplace || '') !== wp) return false;
+    if (mg && String(e.management || e.deputy || '') !== mg) return false;
+    if (un && String(e.unit || '') !== un) return false;
+    if (gr && String(e.group || '') !== gr) return false;
+    if (pos && String(e.position || '') !== pos) return false;
+    if (ct && String(e.contractType || 'normal') !== ct) return false;
+    if (mar && String(e.marital || '') !== mar) return false;
+    return true;
+  });
+}
+function applyBulkMaxOtHours() {
+  if (typeof requireRole === 'function' && !requireRole(['admin'], 'فقط ادمین می‌تواند ویرایش گروهی کند.')) return;
+  var el = document.getElementById('bulkMaxOtHours');
+  if (!el || el.value === '' || el.value == null) {
+    alert('مقدار سقف را وارد کنید (یا از دکمه پاک کردن سقف فردی استفاده کنید).');
+    return;
+  }
+  var val = Number(el.value);
+  if (isNaN(val) || val < 0) { alert('مقدار نامعتبر'); return; }
+  var emps = getBulkFilteredEmployees();
+  if (!emps.length) { alert('با این فیلتر کسی پیدا نشد.'); return; }
+  if (!confirm('سقف اضافه‌کار ' + val + ' ساعت برای ' + emps.length + ' نفر اعمال شود؟')) return;
+  emps.forEach(function(e) { e.maxOtHours = val; });
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
+  try { if (typeof addChangeLog === 'function') addChangeLog('ویرایش گروهی', 'سقف اضافه‌کار', val + ' ساعت برای ' + emps.length + ' نفر'); } catch (e) {}
+  var prev = document.getElementById('bulkOtPreview');
+  if (prev) prev.textContent = 'اعمال شد: ' + emps.length + ' نفر — سقف ' + val + ' ساعت';
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+}
+function applyBulkMaxOtHoursClear() {
+  if (typeof requireRole === 'function' && !requireRole(['admin'], 'فقط ادمین می‌تواند ویرایش گروهی کند.')) return;
+  var emps = getBulkFilteredEmployees();
+  if (!emps.length) { alert('با این فیلتر کسی پیدا نشد.'); return; }
+  if (!confirm('سقف فردی اضافه‌کار برای ' + emps.length + ' نفر پاک شود تا از پیش‌فرض تنظیمات استفاده کنند؟')) return;
+  emps.forEach(function(e) { e.maxOtHours = null; });
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
+  var prev = document.getElementById('bulkOtPreview');
+  if (prev) prev.textContent = 'سقف فردی برای ' + emps.length + ' نفر پاک شد (پیش‌فرض سیستم).';
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+}
+function getEmpMaxOtHours(emp) {
+  if (emp && emp.maxOtHours != null && emp.maxOtHours !== '') {
+    var n = Number(emp.maxOtHours);
+    if (!isNaN(n) && n >= 0) return n;
+  }
+  var def = Number((data.settings && data.settings.maxOtHours) || 0);
+  return isNaN(def) ? 0 : def;
+}
+
+
+function insertFormulaVar(idx, varName) {
+  if (!varName) return;
+  if (!tempCustomItems[idx]) return;
+  var el = document.getElementById('ciFormula_' + idx);
+  var cur = (el && el.value) != null ? el.value : (tempCustomItems[idx].formula || '');
+  // اگر خالی است فقط متغیر؛ اگر عدد/عملگر دارد متغیر را بچسبان
+  if (!String(cur).trim()) cur = varName;
+  else {
+    var last = String(cur).trim().slice(-1);
+    if (/[0-9A-Za-z_)]$/.test(String(cur).trim())) cur = cur + '*' + varName;
+    else cur = cur + varName;
+  }
+  tempCustomItems[idx].formula = cur;
+  if (el) el.value = cur;
 }
 
 </script>
