@@ -560,7 +560,7 @@
         اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
       </p>
       <div class="form-grid" style="margin-bottom:12px;">
-        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1"></div>
+        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="26" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
         <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
       </div>
       <div style="margin-bottom:12px;overflow-x:auto;">
@@ -4396,11 +4396,19 @@ function saveSettings() {
     data.settings.leavePolicy = {
       annualDays: la ? Number(la.value) || 0 : 26,
       carryMax: lc ? Number(lc.value) || 0 : 0,
-      byContractType: {
-        normal: elN ? Number(elN.value) || 0 : 26,
-        daily: elD ? Number(elD.value) || 0 : 26,
-        hourly: elH ? Number(elH.value) || 0 : 0
-      },
+      byContractType: (function(){
+        var annual = la ? Number(la.value) || 0 : 26;
+        var nN = elN ? Number(elN.value) : annual;
+        var nD = elD ? Number(elD.value) : annual;
+        var nH = elH ? Number(elH.value) : 0;
+        if (isNaN(nN)) nN = annual;
+        if (isNaN(nD)) nD = annual;
+        if (isNaN(nH)) nH = 0;
+        // اگر نوع عادی/روزمزد روی 26 مانده و پیش‌فرض چیز دیگری است، با پیش‌فرض یکی کن
+        if (nN === 26 && annual !== 26) nN = annual;
+        if (nD === 26 && annual !== 26) nD = annual;
+        return { normal: nN, daily: nD, hourly: nH };
+      })(),
       byGroup: byGroup
     };
   } catch (e) {}
@@ -10616,12 +10624,14 @@ function getAnnualLeaveDaysForEmpLocal(emp) {
   var grp = String((emp && emp.group) || '').trim();
   if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
     var ng = Number(pol.byGroup[grp]);
-    if (!isNaN(ng) && ng >= 0) annual = ng;
-  } else {
-    var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
-    if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
-      var nc = Number(pol.byContractType[ct]);
-      if (!isNaN(nc) && nc >= 0) annual = nc;
+    if (!isNaN(ng) && ng >= 0) return ng;
+  }
+  var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
+  if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
+    var nc = Number(pol.byContractType[ct]);
+    if (!isNaN(nc) && nc >= 0) {
+      if ((ct === 'normal' || ct === 'daily') && nc === 26 && annual !== 26) return annual;
+      return nc;
     }
   }
   return annual;
