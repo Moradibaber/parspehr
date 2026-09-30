@@ -704,6 +704,8 @@ export function makeEngine(data) {
             basicSalary: Number(emp.basicSalary) || 0,
             workDays: workDays,
             leaveDays: Number(d.leaveDays) || 0,
+            missionDays: Number(d.missionDays) || 0,
+            missionHours: Number(d.missionHours) || 0,
             otHours: Number(d.otHours) || 0,
             nightHours: Number(d.nightHours) || 0,
             amount: amt,
