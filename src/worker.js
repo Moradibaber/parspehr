@@ -2423,7 +2423,13 @@ function getAnnualLeaveDaysForEmp(obj, emp) {
   const ct = String(emp.contractType || 'normal').trim() || 'normal';
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
     const n = Number(pol.byContractType[ct]);
-    if (!isNaN(n) && n >= 0) return n;
+    if (!isNaN(n) && n >= 0) {
+      // اگر پیش‌فرض سیاست عوض شده ولی نوع قرارداد هنوز روی 26 قدیمی مانده، از پیش‌فرض استفاده کن
+      if ((ct === 'normal' || ct === 'daily') && n === 26 && Number(pol.annualDays) >= 0 && Number(pol.annualDays) !== 26) {
+        return Number(pol.annualDays);
+      }
+      return n;
+    }
   }
   return pol.annualDays;
 }
@@ -4427,7 +4433,7 @@ async function loadBalancesEmp(){
     var L=j.leave||{}, Ln=j.loan||{};
     var html='<div class="box"><table>';
     html+='<tr><td><b>مانده مرخصی استحقاقی</b></td><td>'+(L.balance!=null?L.balance:'—')+' روز</td></tr>';
-    html+='<tr><td><b>مصرف‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
+    html+='<tr><td><b>استفاده‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
     html+='<tr><td><b>سقف سالانه (بر اساس نوع/گروه شما)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
     html+='<tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
     html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
