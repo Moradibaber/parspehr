@@ -1303,7 +1303,7 @@
         <b>عیدی/سنوات:</b> مبنای مزد روزانه = جمع مشمول عیدی/سنوات از حکم ÷ ۳۰.
         حداقل عیدی = ۶۰ روز × مزد روزانه | حداکثر = ۹۰ روز × حداقل مزد قانون کار (تناسب کارکرد ÷ ۳۶۵). مالیات عیدی: معاف تا ۴۰۰ میلیون؛ مازاد ۱۰٪.
         <br>
-        <b>مرخصی (بازخرید در تسویه):</b> استحقاقی = (جمع روز کارکرد ماه‌های همین سال ÷ ۳۶۵) × سقف سیاست. <b>مانده</b> = استحقاقی − مرخصی استفاده‌شده همان سال. مانده کارت فقط اگر کمتر باشد محدود می‌کند. قابل پرداخت = حداقل(مانده، سقف).
+        <b>مرخصی:</b> استحقاقی = (کارکرد سال ÷ ۳۶۵) × سقف. <b>تسویه سالیانه</b> فقط همان سال را صفر می‌کند؛ <b>تسویه نهایی</b> همه سال‌های باز را تجمیع می‌کند. پس از ثبت تسویه، در پرتال «تسویه شد» و مانده صفر دیده می‌شود.
         مانده = استحقاقی − استفاده‌شده (مثبت یا منفی).
         قابل پرداخت (روز) = حداقل(مانده ، سقف).
         <b>مبلغ مرخصی</b> = (جمع حکم ÷ ۳۰) × روز قابل پرداخت — می‌تواند منفی (کسر) باشد و با عیدی و سنوات جمع می‌شود.
@@ -1312,6 +1312,12 @@
         <div class="form-group"><label>سال</label><input type="number" id="eidYear" value="1405"></div>
         <div class="form-group"><label>حداقل مزد روزانه قانون کار (ریال)</label><input type="number" id="eidMinDaily" value="5541850"></div>
         <div class="form-group"><label>سقف مرخصی قابل پرداخت (روز)</label><input type="number" id="eidPayableLeaveDays" value="30" min="0" title="روز قابل پرداخت حداکثر تا این سقف؛ اگر مانده منفی باشد مبلغ هم منفی می‌شود"></div>
+        <div class="form-group"><label>نوع تسویه مرخصی</label>
+          <select id="eidLeaveSettlementMode" title="سالیانه: فقط مانده سال انتخاب‌شده | نهایی: تجمیع همه سال‌های تسویه‌نشده">
+            <option value="annual" selected>تسویه سالیانه (پیش‌فرض)</option>
+            <option value="final">تسویه حساب نهایی (تجمیع سال‌های باز)</option>
+          </select>
+        </div>
         <div class="form-group" style="display:flex;align-items:flex-end;">
           <button class="btn btn-success" onclick="runEidCalculation()">محاسبه عیدی، سنوات و مرخصی</button>
         </div>
@@ -10726,33 +10732,65 @@ function applyLeaveYearRollover() {
 
 function applyEidLeaveToBalances() {
   var year = Number(document.getElementById('eidYear') && document.getElementById('eidYear').value) || (data.settings && data.settings.currentYear) || 1405;
+  var modeEl = document.getElementById('eidLeaveSettlementMode');
+  var mode = modeEl && modeEl.value === 'final' ? 'final' : 'annual';
   var rows = (data.eidResults && data.eidResults[year]) || [];
   if (!rows.length) { alert('ابتدا محاسبه عیدی/سنوات/مرخصی را اجرا کنید.'); return; }
-  if (!confirm('مانده مرخصی کارت کارکنان بر اساس «روز قابل پرداخت» سال ' + year + ' به‌روز شود؟\nبرگشت خودکار ندارد؛ در صورت نیاز از پشتیبان JSON استفاده کنید.')) return;
+  var modeLabel = mode === 'final' ? 'نهایی (همه سال‌های باز)' : 'سالیانه (' + year + ')';
+  if (!confirm('تسویه مرخصی به صورت «' + modeLabel + '» روی دفتر سالانه کارت کارکنان ثبت شود؟\nپس از تسویه سالیانه، مانده آن سال در پرتال صفر و وضعیت «تسویه شد» می‌شود.')) return;
   var n = 0, skipped = 0;
   rows.forEach(function(r) {
     if (!r || !r.code) return;
     var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); });
     if (!emp) { skipped++; return; }
+    if (!emp.leaveYears) emp.leaveYears = {};
     var pay = Number(r.payableLeave);
-    if (isNaN(pay) || pay === 0) { skipped++; return; }
-    var bal = Number(emp.leaveBalance);
-    if (isNaN(bal)) bal = 0;
-    bal = Math.round((bal - pay) * 100) / 100;
-    emp.leaveBalance = bal;
-    if (pay > 0) {
-      emp.leaveUsedYear = Math.round(((Number(emp.leaveUsedYear) || 0) + pay) * 100) / 100;
+    if (isNaN(pay)) pay = 0;
+    function ensureY(y) {
+      var k = String(y);
+      if (!emp.leaveYears[k]) emp.leaveYears[k] = { year: Number(y), entitled: 0, used: 0, remaining: 0, settled: false, settledAt: null, settledMode: null };
+      return emp.leaveYears[k];
     }
+    if (mode === 'annual') {
+      var row = ensureY(year);
+      if (row.settled) { skipped++; return; }
+      row.remaining = 0;
+      row.settled = true;
+      row.settledAt = new Date().toISOString();
+      row.settledMode = 'annual';
+    } else {
+      Object.keys(emp.leaveYears).forEach(function(yk) {
+        var row = emp.leaveYears[yk];
+        if (!row || row.settled) return;
+        if (Number(yk) > year) return;
+        row.remaining = 0;
+        row.settled = true;
+        row.settledAt = new Date().toISOString();
+        row.settledMode = 'final';
+      });
+      // سال جاری اگر نبود بساز و تسویه کن
+      var cur = ensureY(year);
+      cur.remaining = 0;
+      cur.settled = true;
+      cur.settledAt = new Date().toISOString();
+      cur.settledMode = 'final';
+    }
+    // سازگاری
+    var sum = 0;
+    Object.keys(emp.leaveYears).forEach(function(yk) {
+      var row = emp.leaveYears[yk];
+      if (row && !row.settled) sum += Number(row.remaining) || 0;
+    });
+    emp.leaveBalance = Math.round(sum * 100) / 100;
     emp.leaveBalanceYear = year;
     if (!emp._eidLeaveApplied) emp._eidLeaveApplied = {};
-    emp._eidLeaveApplied[year] = { payableLeave: pay, at: new Date().toISOString() };
+    emp._eidLeaveApplied[year] = { payableLeave: pay, mode: mode, at: new Date().toISOString() };
     n++;
   });
   try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
   try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-  alert('مانده مرخصی برای ' + n + ' نفر به‌روز شد.' + (skipped ? ('\nبدون تغییر: ' + skipped) : ''));
+  alert('تسویه مرخصی (' + modeLabel + ') برای ' + n + ' نفر ثبت شد.' + (skipped ? ('\nرد شده/قبلاً تسویه: ' + skipped) : '') + '\nهمگام‌سازی با سرور را انجام دهید تا در پرتال دیده شود.');
 }
-
 
 function applyProratedLeaveAllActive() {
   if (typeof computeProratedLeaveDays !== 'function') {
