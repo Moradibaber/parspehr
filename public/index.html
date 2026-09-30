@@ -1732,8 +1732,9 @@
           <input type="number" id="e_loanRemaining" value="0" min="0">
         </div>
         <div class="form-group">
-          <label>مانده مرخصی استحقاقی (روز)</label>
-          <input type="number" id="e_leaveBalance" value="26" step="0.01" min="0" inputmode="decimal" title="هر مقدار کسری مجاز است (مثلاً 18.75)">
+          <label>مانده مرخصی استحقاقی سال جاری (روز)</label>
+          <input type="number" id="e_leaveBalance" value="" step="0.01" inputmode="decimal" readonly style="background:#f1f5f9;cursor:not-allowed;" title="فقط از طریق تعدیل +/− در تب مأموریت/مرخصی تغییر می‌کند. بر اساس ماه‌های کارکرد تناسبی است.">
+          <small style="color:#64748b;font-size:0.7rem;">قابل ویرایش دستی نیست — از «تعدیل مانده» استفاده کنید</small>
           <button type="button" class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="calcProratedLeaveBalance()" title="بر اساس تاریخ استخدام و سقف سالانه نوع/گروه">محاسبه تناسبی از تاریخ استخدام</button>
         </div>
         <div class="form-group">
@@ -4712,6 +4713,8 @@ function openEmployeeModal(editId = null) {
     const emp = data.employees.find(e => e.code === editId);
     if (!emp) return;
     document.getElementById('empModalTitle').textContent = 'ویرایش کارمند';
+    window.__editingEmpLeaveBalance = (emp.leaveBalance != null ? emp.leaveBalance : null);
+    try { var lb=document.getElementById('e_leaveBalance'); if(lb) lb.value = (typeof displayEmpLeaveBalance==='function' ? displayEmpLeaveBalance(emp) : (emp.leaveBalance!=null?emp.leaveBalance:'')); } catch(e) {}
     document.getElementById('editEmpId').value = emp.code;
     const map = {
       code:'e_code', nationalId:'e_nationalId', firstName:'e_firstName', lastName:'e_lastName',
@@ -4756,6 +4759,7 @@ function openEmployeeModal(editId = null) {
     document.getElementById('e_notes').value = emp.notes || '';
   } else {
     document.getElementById('empModalTitle').textContent = 'افزودن کارمند';
+    window.__editingEmpLeaveBalance = null;
   }
   renderEmployeeCustomItems();
 }
@@ -4911,7 +4915,7 @@ function saveEmployee(e) {
     statusEnd: document.getElementById('e_statusEnd') ? document.getElementById('e_statusEnd').value.trim() : '',
     notes: document.getElementById('e_notes').value.trim(),
     loanAmount, loanInstallments: installments, loanRemaining: remaining,
-    leaveBalance: (function(){ var el=document.getElementById('e_leaveBalance'); return el ? Number(el.value) : 26; })(),
+    leaveBalance: (function(){ var el=document.getElementById('e_leaveBalance'); var existing=(window.__editingEmpLeaveBalance!=null)?window.__editingEmpLeaveBalance:(el&&el.value!==''?Number(el.value):null); return existing!=null && !isNaN(existing) ? existing : (el ? Number(el.value) : 0); })(),
     maxOtHours: (function(){ var el=document.getElementById('e_maxOtHours'); if(!el||el.value===''||el.value==null) return null; return Number(el.value); })(),
     monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
     loanLocked: currentLoanLocked || false,
@@ -5043,7 +5047,7 @@ function renderEmployees() {
       <td>${emp.bankName||'—'}</td>
       <td>${exMap[emp.exemption]||'—'}</td>
       <td>${formatNumber(emp.loanRemaining||0)}${emp.loanLocked ? ' 🔒' : ''}</td>
-      <td>${emp.leaveBalance != null ? emp.leaveBalance : '—'}</td>
+      <td>${typeof displayEmpLeaveBalance==='function' ? displayEmpLeaveBalance(emp) : (emp.leaveBalance != null ? emp.leaveBalance : '—')}</td>
       <td class="actions">
         <button class="btn btn-outline btn-sm" onclick="openEmployeeModal('${emp.code}')">ویرایش</button>
         <button class="btn btn-danger btn-sm" onclick="setEmployeeStatus('${emp.code}','inactive')">غیر فعال</button>
@@ -10627,6 +10631,35 @@ function parseHireJalali(str) {
   return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
 }
 /** سقف سالانه برای کارمند از سیاست تنظیمات */
+
+function computeAccruedLeaveDaysLocal(emp, year, month) {
+  var annual = typeof getAnnualLeaveDaysForEmpLocal === 'function' ? getAnnualLeaveDaysForEmpLocal(emp) : 30;
+  var cy = Number(year) || Number((data.settings && data.settings.currentYear) || 1405);
+  var cm = Number(month) || Number((data.settings && data.settings.currentMonth) || (data.settings && data.settings.activeMonth) || 1);
+  if (cm < 1) cm = 1; if (cm > 12) cm = 12;
+  var hd = (emp && emp.hireDate) ? String(emp.hireDate).trim() : '';
+  var parts = hd.split(/[\/\-]/);
+  if (parts.length < 2) return Math.round(annual * (cm / 12) * 100) / 100;
+  var hy = Number(parts[0]), hm = Number(parts[1]);
+  if (hy > cy) return 0;
+  var months = (hy < cy) ? cm : (hm > cm ? 0 : (cm - hm + 1));
+  if (months < 0) months = 0;
+  if (months > 12) months = 12;
+  return Math.round(annual * (months / 12) * 100) / 100;
+}
+function displayEmpLeaveBalance(emp) {
+  if (!emp) return '—';
+  var cy = Number((data.settings && data.settings.currentYear) || 1405);
+  if (emp.leaveYears && emp.leaveYears[String(cy)]) {
+    var row = emp.leaveYears[String(cy)];
+    if (row.settled) return '0 (تسویه)';
+    if (row.remaining != null && row.remaining !== '') return row.remaining;
+  }
+  // fallback: تناسبی − used
+  var used = Number(emp.leaveUsedYear) || 0;
+  return Math.round((computeAccruedLeaveDaysLocal(emp, cy) - used) * 100) / 100;
+}
+
 function getAnnualLeaveDaysForEmpLocal(emp) {
   var pol = (data.settings && data.settings.leavePolicy) || {};
   var annual = Number(pol.annualDays);
