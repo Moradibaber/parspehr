@@ -2317,6 +2317,31 @@ async function handleEmpCreateRequest(request, env) {
       }, 400);
     }
 
+    // بررسی مانده مرخصی استحقاقی (سال جاری / ذخیره سال‌های قبل)
+    let usePriorYears = !!b.usePriorYears;
+    if (kind === 'leave' && deductFromEntitlement) {
+      const fakeReq = { mode: mode, startDate: startDate, endDate: endDate, fromTime: fromTime, toTime: toTime, fixedDays: fixedDays };
+      const daysNeeded = countLeaveDays(fakeReq);
+      const avail = leaveAvailabilityForEmp(gd.obj, emp, daysNeeded);
+      if (avail.insufficient) {
+        return jsonResponse({
+          ok: false,
+          error: 'no_leave_balance',
+          message: 'مانده مرخصی کافی نیست. مانده امسال: ' + avail.currentRemaining + ' روز، ذخیره سال‌های قبل: ' + avail.priorRemaining + ' روز، درخواست: ' + daysNeeded + ' روز.',
+          availability: avail
+        }, 400);
+      }
+      if (avail.needPriorYears && !usePriorYears) {
+        return jsonResponse({
+          ok: false,
+          error: 'need_prior_years_confirm',
+          message: 'مانده مرخصی امسال (' + avail.currentRemaining + ' روز) برای این درخواست کافی نیست. از ذخیره سال‌های قبل (' + avail.priorRemaining + ' روز) استفاده شود؟',
+          availability: avail
+        }, 409);
+      }
+      if (avail.needPriorYears) usePriorYears = true;
+    }
+
     const req = {
       id: newRequestId(),
       empCode: String(emp.code),
@@ -2328,6 +2353,7 @@ async function handleEmpCreateRequest(request, env) {
       typeId: typeId || '',
       typeName: typeName,
       deductFromEntitlement: deductFromEntitlement,
+      usePriorYears: !!usePriorYears,
       fixedDays: fixedDays,
       frequency: frequency,
       grantId: grantId || '',
@@ -2468,20 +2494,87 @@ function computeProratedLeaveDaysW(obj, emp, year) {
 }
 function ensureEmpLeaveFields(emp, obj) {
   if (!emp) return;
-  const cy = Number((obj.settings || {}).currentYear) || 1405;
-  if (emp.leaveBalance == null || emp.leaveBalance === '') {
-    emp.leaveBalance = computeProratedLeaveDaysW(obj, emp, cy);
+  ensureEmpLeaveYears(emp, obj);
+}
+
+/** دفتر سالانه مرخصی: هر سال یک ردیف (استحقاقی / استفاده‌شده / مانده / تسویه‌شده) */
+function ensureEmpLeaveYears(emp, obj) {
+  if (!emp) return;
+  const cy = Number((obj && obj.settings && obj.settings.currentYear) || 1405);
+  if (!emp.leaveYears || typeof emp.leaveYears !== 'object') emp.leaveYears = {};
+  // مهاجرت از فیلدهای قدیمی
+  if (!emp.leaveYears[String(cy)]) {
+    let entitled = getAnnualLeaveDaysForEmp(obj, emp);
+    let used = Number(emp.leaveUsedYear) || 0;
+    let remaining = emp.leaveBalance != null && emp.leaveBalance !== '' ? Number(emp.leaveBalance) : (entitled - used);
+    if (isNaN(remaining)) remaining = entitled - used;
+    // اگر leaveBalance مجموع چند سال بوده، برای سال جاری حداقل 0
+    emp.leaveYears[String(cy)] = {
+      year: cy,
+      entitled: Math.round(entitled * 100) / 100,
+      used: Math.round(used * 100) / 100,
+      remaining: Math.round(remaining * 100) / 100,
+      settled: false,
+      settledAt: null,
+      settledMode: null
+    };
   }
-  if (emp.leaveUsedYear == null) emp.leaveUsedYear = 0;
-  if (!emp.leaveBalanceYear) {
-    emp.leaveBalanceYear = cy;
+  // اطمینان از سال جاری
+  const row = emp.leaveYears[String(cy)];
+  if (row.entitled == null || row.entitled === '') {
+    row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
   }
+  if (row.settled) {
+    row.remaining = 0;
+  } else {
+    // remaining را با entitled-used هم‌تراز نگه دار اگر used به‌روز شده
+    const calcRem = Math.round((Number(row.entitled) - Number(row.used || 0)) * 100) / 100;
+    // اگر remaining دستی خیلی پرت نیست، از calc استفاده کن مگر settled
+    if (row.remaining == null || row.remaining === '') row.remaining = calcRem;
+  }
+  // فیلدهای سازگاری با نسخه قبل
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
+  emp.leaveBalanceYear = cy;
+}
+
+function sumUnsettledLeaveRemaining(emp) {
+  if (!emp || !emp.leaveYears) return Number(emp.leaveBalance) || 0;
+  let s = 0;
+  Object.keys(emp.leaveYears).forEach(function (yk) {
+    const r = emp.leaveYears[yk];
+    if (!r || r.settled) return;
+    s += Number(r.remaining) || 0;
+  });
+  return Math.round(s * 100) / 100;
+}
+
+function getLeaveYearRow(emp, year) {
+  if (!emp.leaveYears) emp.leaveYears = {};
+  const k = String(year);
+  if (!emp.leaveYears[k]) {
+    emp.leaveYears[k] = {
+      year: Number(year),
+      entitled: 0,
+      used: 0,
+      remaining: 0,
+      settled: false,
+      settledAt: null,
+      settledMode: null
+    };
+  }
+  return emp.leaveYears[k];
+}
+
+function listLeaveYearsSorted(emp) {
+  if (!emp || !emp.leaveYears) return [];
+  return Object.keys(emp.leaveYears).map(Number).filter(function (y) { return !isNaN(y); }).sort(function (a, b) { return a - b; })
+    .map(function (y) { return emp.leaveYears[String(y)]; });
 }
 
 function countLeaveDays(req) {
   if (!req) return 0;
   if (req.mode === 'hourly') {
-    // approximate: each hourly leave counts as fraction; store hours/8
     const ft = String(req.fromTime || '00:00').split(':');
     const tt = String(req.toTime || '00:00').split(':');
     const h1 = Number(ft[0]) + Number(ft[1] || 0) / 60;
@@ -2490,7 +2583,6 @@ function countLeaveDays(req) {
     if (hrs < 0) hrs = 0;
     return Math.round((hrs / 8) * 100) / 100;
   }
-  // daily: inclusive days between start and end (simple calendar count via list if available)
   if (typeof listDayKeys === 'function' && req.startDate) {
     try {
       const keys = listDayKeys(req.startDate, req.endDate || req.startDate);
@@ -2501,31 +2593,120 @@ function countLeaveDays(req) {
   return 1;
 }
 
+/** کسر از سال جاری؛ در صورت نیاز و موافقت، از سال‌های قبلِ تسویه‌نشده */
 function applyLeaveDeduction(obj, req) {
   if (!req || req.status !== 'approved') return;
   if (!req.deductFromEntitlement) return;
   if (req.kind !== 'leave') return;
-  if (req._leaveDeducted) return; // idempotent
+  if (req._leaveDeducted) return;
   const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
   if (!emp) return;
-  ensureEmpLeaveFields(emp, obj);
+  ensureEmpLeaveYears(emp, obj);
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
   const days = countLeaveDays(req);
-  emp.leaveBalance = Math.round((Number(emp.leaveBalance) - days) * 100) / 100;
-  emp.leaveUsedYear = Math.round((Number(emp.leaveUsedYear || 0) + days) * 100) / 100;
+  let left = days;
+  const detail = [];
+  // اول سال جاری
+  const cur = getLeaveYearRow(emp, cy);
+  if (!cur.settled) {
+    const take = Math.min(Math.max(0, Number(cur.remaining) || 0), left);
+    if (take > 0) {
+      cur.remaining = Math.round((Number(cur.remaining) - take) * 100) / 100;
+      cur.used = Math.round((Number(cur.used || 0) + take) * 100) / 100;
+      left = Math.round((left - take) * 100) / 100;
+      detail.push({ year: cy, days: take });
+    }
+  }
+  // سپس سال‌های قبل (قدیمی‌تر اول) اگر usePriorYears
+  if (left > 0 && req.usePriorYears) {
+    const years = listLeaveYearsSorted(emp).map(function (r) { return r.year; }).filter(function (y) { return y < cy; });
+    for (let i = 0; i < years.length && left > 0; i++) {
+      const row = getLeaveYearRow(emp, years[i]);
+      if (row.settled) continue;
+      const take = Math.min(Math.max(0, Number(row.remaining) || 0), left);
+      if (take <= 0) continue;
+      row.remaining = Math.round((Number(row.remaining) - take) * 100) / 100;
+      row.used = Math.round((Number(row.used || 0) + take) * 100) / 100;
+      left = Math.round((left - take) * 100) / 100;
+      detail.push({ year: years[i], days: take });
+      req.usedPriorYears = true;
+    }
+  }
+  // اگر هنوز مانده (بیش‌تر از موجودی) از سال جاری منفی کن تا بدهی مشخص شود
+  if (left > 0) {
+    cur.remaining = Math.round((Number(cur.remaining) - left) * 100) / 100;
+    cur.used = Math.round((Number(cur.used || 0) + left) * 100) / 100;
+    detail.push({ year: cy, days: left, overdraft: true });
+    left = 0;
+  }
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  emp.leaveUsedYear = Number(cur.used) || 0;
+  emp.leaveBalanceYear = cy;
   req._leaveDeducted = true;
   req.leaveDaysDeducted = days;
+  req.leaveDeductDetail = detail;
+  if (req.usedPriorYears) {
+    req.managerNote = 'کارمند سقف/مانده مرخصی امسال را کامل استفاده کرده و از ذخیره سال‌های قبل استفاده می‌کند: ' +
+      detail.filter(function (d) { return d.year < cy; }).map(function (d) { return d.year + '(' + d.days + ' روز)'; }).join('، ');
+  }
 }
 
 function restoreLeaveDeduction(obj, req) {
   if (!req || !req._leaveDeducted) return;
   const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
   if (!emp) return;
-  const days = Number(req.leaveDaysDeducted) || countLeaveDays(req);
-  emp.leaveBalance = Math.round((Number(emp.leaveBalance || 0) + days) * 100) / 100;
-  emp.leaveUsedYear = Math.round((Number(emp.leaveUsedYear || 0) - days) * 100) / 100;
-  if (emp.leaveUsedYear < 0) emp.leaveUsedYear = 0;
+  ensureEmpLeaveYears(emp, obj);
+  const detail = Array.isArray(req.leaveDeductDetail) ? req.leaveDeductDetail : null;
+  if (detail && detail.length) {
+    detail.forEach(function (d) {
+      const row = getLeaveYearRow(emp, d.year);
+      const days = Number(d.days) || 0;
+      row.remaining = Math.round((Number(row.remaining || 0) + days) * 100) / 100;
+      row.used = Math.round(Math.max(0, (Number(row.used || 0) - days)) * 100) / 100;
+    });
+  } else {
+    const days = Number(req.leaveDaysDeducted) || countLeaveDays(req);
+    const cy = Number((obj.settings || {}).currentYear) || 1405;
+    const cur = getLeaveYearRow(emp, cy);
+    cur.remaining = Math.round((Number(cur.remaining || 0) + days) * 100) / 100;
+    cur.used = Math.round(Math.max(0, (Number(cur.used || 0) - days)) * 100) / 100;
+  }
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
+  emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
   req._leaveDeducted = false;
+  req.usedPriorYears = false;
 }
+
+/** خلاصه موجودی برای ثبت درخواست */
+function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
+  ensureEmpLeaveYears(emp, obj);
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
+  const cur = getLeaveYearRow(emp, cy);
+  const curRem = cur.settled ? 0 : (Number(cur.remaining) || 0);
+  let priorRem = 0;
+  const priorRows = [];
+  listLeaveYearsSorted(emp).forEach(function (r) {
+    if (r.year >= cy || r.settled) return;
+    const rem = Number(r.remaining) || 0;
+    if (rem > 0) {
+      priorRem += rem;
+      priorRows.push({ year: r.year, remaining: rem });
+    }
+  });
+  priorRem = Math.round(priorRem * 100) / 100;
+  const need = Number(daysNeeded) || 0;
+  return {
+    currentYear: cy,
+    currentRemaining: curRem,
+    priorRemaining: priorRem,
+    priorRows: priorRows,
+    totalUnsettled: Math.round((curRem + priorRem) * 100) / 100,
+    needPriorYears: need > curRem && priorRem > 0,
+    insufficient: need > curRem + priorRem
+  };
+}
+
 
 
 async function handleEmpDecideRequest(request, env) {
@@ -4091,23 +4272,36 @@ async function handleEmpBalances(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(sess.code); });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  ensureEmpLeaveFields(emp, gd.obj);
+  ensureEmpLeaveYears(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
   let annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
-  // اگر هنوز ۲۶ است ولی پیش‌فرض سیاست عدد دیگری است
   if (annualForEmp === 26 && Number(pol.annualDays) > 0 && Number(pol.annualDays) !== 26) {
     annualForEmp = Number(pol.annualDays);
   }
+  const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
+  const years = listLeaveYearsSorted(emp).map(function (r) {
+    return {
+      year: r.year,
+      entitled: Number(r.entitled) || 0,
+      used: Number(r.used) || 0,
+      remaining: r.settled ? 0 : (Number(r.remaining) || 0),
+      settled: !!r.settled,
+      settledAt: r.settledAt || null,
+      settledMode: r.settledMode || null
+    };
+  });
+  const cur = emp.leaveYears[String(cy)] || {};
   return jsonResponse({
     ok: true,
     leave: {
-      balance: Number(emp.leaveBalance),
-      usedYear: Number(emp.leaveUsedYear || 0),
+      balance: sumUnsettledLeaveRemaining(emp),
+      usedYear: Number(cur.used) || 0,
       annualDays: annualForEmp,
       defaultAnnualDays: pol.annualDays,
       contractType: emp.contractType || 'normal',
       group: emp.group || '',
-      year: emp.leaveBalanceYear
+      year: cy,
+      years: years
     },
     loan: {
       remaining: Number(emp.loanRemaining || 0),
@@ -4437,13 +4631,22 @@ async function loadBalancesEmp(){
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
     var L=j.leave||{}, Ln=j.loan||{};
-    var html='<div class="box"><table>';
-    html+='<tr><td><b>مانده مرخصی استحقاقی</b></td><td>'+(L.balance!=null?L.balance:'—')+' روز</td></tr>';
-    html+='<tr><td><b>استفاده‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
-    html+='<tr><td><b>سقف سالانه (بر اساس نوع/گروه شما)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
-    html+='<tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
-    html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
-    html+='</table></div>';
+    var html='<div class="box">';
+    html+='<p class="sub" style="margin-bottom:8px;">سقف سالانه: '+(L.annualDays!=null?L.annualDays:'—')+' روز — جمع مانده تسویه‌نشده: <b>'+(L.balance!=null?L.balance:'—')+'</b> روز</p>';
+    html+='<table><thead><tr><th>سال</th><th>استحقاقی</th><th>استفاده‌شده</th><th>مانده</th><th>وضعیت</th></tr></thead><tbody>';
+    var years=L.years||[];
+    if(!years.length){
+      html+='<tr><td>'+(L.year||'—')+'</td><td>'+(L.annualDays!=null?L.annualDays:'—')+'</td><td>'+(L.usedYear!=null?L.usedYear:'—')+'</td><td>'+(L.balance!=null?L.balance:'—')+'</td><td>—</td></tr>';
+    } else {
+      years.forEach(function(y){
+        var st=y.settled?('<span style="color:#0f766e;font-weight:700;">تسویه شد'+(y.settledMode==='final'?' (نهایی)':' (سالیانه)')+'</span>'):'باز';
+        var rem=y.settled?0:(y.remaining!=null?y.remaining:'—');
+        html+='<tr><td>'+y.year+'</td><td>'+(y.entitled!=null?y.entitled:'—')+'</td><td>'+(y.used!=null?y.used:'—')+'</td><td>'+rem+'</td><td>'+st+'</td></tr>';
+      });
+    }
+    html+='</tbody></table>';
+    html+='<table style="margin-top:12px;"><tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
+    html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr></table></div>';
     box.innerHTML=html;
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت اطلاعات.</div>'; }
 }
@@ -4678,7 +4881,7 @@ async function loadPayslip(){
 }
 async function submitRequest(){
   var err=document.getElementById('rqErr'); err.textContent=''; err.classList.remove('okmsg');
-  var body={typeId:document.getElementById('rqType').value,kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim()};
+  var body={typeId:document.getElementById('rqType').value,kind:document.getElementById('rqKind').value,mode:document.getElementById('rqMode').value,startDate:document.getElementById('rqStart').value.trim(),endDate:document.getElementById('rqEnd').value.trim(),fromTime:document.getElementById('rqFrom').value,toTime:document.getElementById('rqTo').value,place:document.getElementById('rqPlace').value.trim(),reason:document.getElementById('rqReason').value.trim(),usePriorYears:false};
   if(body.kind==='mission'&&!body.place){err.textContent='محل مأموریت الزامی است.';return}
   if(body.kind==='mission'&&!body.reason){err.textContent='توضیح / دلیل مأموریت الزامی است.';return}
   if(!body.startDate){err.textContent='تاریخ الزامی است.';return}
@@ -4686,15 +4889,22 @@ async function submitRequest(){
   try{
     var r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
     var j=await r.json();
+    if(!j.ok && j.error==='need_prior_years_confirm'){
+      if(confirm(j.message||'مانده امسال کافی نیست. از ذخیره سال‌های قبل استفاده شود؟')){
+        body.usePriorYears=true;
+        r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
+        j=await r.json();
+      } else { err.textContent='ثبت لغو شد.'; return; }
+    }
     if(!j.ok){err.textContent=j.message||j.error||'خطا';return}
-    err.classList.add('okmsg'); err.textContent='درخواست ثبت و برای مدیر ارسال شد.'; loadRequests();
+    err.classList.add('okmsg'); err.textContent='درخواست ثبت و برای مدیر ارسال شد.'+(body.usePriorYears?' (از ذخیره سال‌های قبل)':''); loadRequests();
   }catch(e){err.textContent='خطا در ارتباط'}
 }
 function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید نهایی</span>';if(s==='approved_l1')return'<span class="badge b-pending">تأیید سطح ۱ — منتظر سطح ۲</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
 function reqHtml(x,forManager){
   var title=(x.typeName||((x.kind==='mission'?'مأموریت':'مرخصی')+' '+(x.mode==='hourly'?'ساعتی':'روزانه')));
   var dates=x.mode==='hourly'?(x.startDate+' از '+x.fromTime+' تا '+x.toTime):(x.startDate+(x.endDate&&x.endDate!==x.startDate?' تا '+x.endDate:''));
-  var extra=''; if(x.place)extra+='<div>محل: '+x.place+'</div>'; if(x.reason)extra+='<div>دلیل: '+x.reason+'</div>'; if(x.status==='rejected'&&x.rejectReason)extra+='<div style="color:#b91c1c">دلیل رد: '+x.rejectReason+'</div>';
+  var extra=''; if(x.place)extra+='<div>محل: '+x.place+'</div>'; if(x.reason)extra+='<div>دلیل: '+x.reason+'</div>'; if(x.usePriorYears||x.managerNote)extra+='<div style="color:#b45309;font-weight:600;background:#fffbeb;padding:4px 6px;border-radius:6px;margin-top:4px;">⚠ '+(x.managerNote||'استفاده از ذخیره مرخصی سال‌های قبل')+'</div>'; if(x.status==='rejected'&&x.rejectReason)extra+='<div style="color:#b91c1c">دلیل رد: '+x.rejectReason+'</div>';
   var actions=''; if(forManager&&(x.status==='pending'||x.status==='approved_l1')) actions='<div class="actions"><button class="sm ok" onclick="decide(\\''+x.id+'\\',\\'approved\\')">تأیید</button><button class="sm danger" onclick="decide(\\''+x.id+'\\',\\'rejected\\')">رد</button></div>';
   return '<div class="req-card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>'+title+'</b>'+statusBadge(x.status)+'</div><div class="meta">'+(forManager?(x.empName+' — کد '+x.empCode+'<br>'):'')+dates+'</div>'+extra+actions+'</div>';
 }
@@ -4713,7 +4923,7 @@ async function loadRequests(){
 async function decide(id,decision){
   var rejectReason='';
   if(decision==='rejected'){rejectReason=prompt('دلیل رد درخواست:'); if(rejectReason===null)return; if(!String(rejectReason).trim()){alert('دلیل رد الزامی است.');return}}
-  else if(!confirm('تأیید شود؟ مرخصی در تایم‌شیت ثبت می‌شود.')) return;
+  else if(!confirm('تأیید شود؟ در صورت مرخصی استحقاقی، از مانده کسر و در تایم‌شیت ثبت می‌شود. اگر از ذخیره سال‌های قبل باشد در کارت مشخص است.')) return;
   try{
     var r=await fetch('/api/emp/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,decision:decision,rejectReason:rejectReason}),credentials:'same-origin'});
     var j=await r.json(); if(!j.ok){alert(j.message||j.error||'خطا');return} loadRequests();
