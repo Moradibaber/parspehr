@@ -4411,9 +4411,6 @@ function saveSettings() {
         if (isNaN(nN)) nN = annual;
         if (isNaN(nD)) nD = annual;
         if (isNaN(nH)) nH = 0;
-        // اگر نوع عادی/روزمزد روی 26 مانده و پیش‌فرض چیز دیگری است، با پیش‌فرض یکی کن
-        if (nN === 26 && annual !== 26) nN = annual;
-        if (nD === 26 && annual !== 26) nD = annual;
         return { normal: nN, daily: nD, hourly: nH };
       })(),
       byGroup: byGroup
@@ -10672,7 +10669,7 @@ function displayEmpLeaveBalance(emp) {
 function getAnnualLeaveDaysForEmpLocal(emp) {
   var pol = (data.settings && data.settings.leavePolicy) || {};
   var annual = Number(pol.annualDays);
-  if (isNaN(annual) || annual < 0) annual = 30;
+  if (isNaN(annual) || annual < 0) annual = 26;
   var grp = String((emp && emp.group) || '').trim();
   if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
     var ng = Number(pol.byGroup[grp]);
@@ -10681,10 +10678,7 @@ function getAnnualLeaveDaysForEmpLocal(emp) {
   var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
     var nc = Number(pol.byContractType[ct]);
-    if (!isNaN(nc) && nc >= 0) {
-      if (annual > nc && (nc === 26 || nc === 0)) return annual;
-      return nc;
-    }
+    if (!isNaN(nc) && nc >= 0) return nc;
   }
   return annual;
 }
