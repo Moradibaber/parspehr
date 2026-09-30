@@ -385,7 +385,7 @@
           <thead>
             <tr>
               <th>کد</th><th>نام</th><th>نوع قرارداد</th><th>سمت</th><th>مدیریت/معاونت</th><th>واحد</th><th>گروه</th><th>محل کار</th>
-              <th>تاریخ استخدام</th><th>حقوق پایه</th><th>بانک</th><th>معافیت</th><th>وام</th><th>عملیات</th>
+              <th>تاریخ استخدام</th><th>حقوق پایه</th><th>بانک</th><th>معافیت</th><th>وام</th><th>مانده مرخصی</th><th>عملیات</th>
             </tr>
             <tr id="empFilterRow">
               <th><select class="emp-filter" data-col="0" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
@@ -1282,7 +1282,7 @@
         <b>عیدی/سنوات:</b> مبنای مزد روزانه = جمع مشمول عیدی/سنوات از حکم ÷ ۳۰.
         حداقل عیدی = ۶۰ روز × مزد روزانه | حداکثر = ۹۰ روز × حداقل مزد قانون کار (تناسب کارکرد ÷ ۳۶۵). مالیات عیدی: معاف تا ۴۰۰ میلیون؛ مازاد ۱۰٪.
         <br>
-        <b>مرخصی (در تسویه عیدی):</b> استحقاقی = (کارکرد ÷ ۳۶۵) × سقف‌سالانه (از سیاست مرخصی؛ پیش‌فرض ۳۰).
+        <b>مرخصی (بازخرید در تسویه):</b> استحقاقی = (کارکرد ÷ ۳۶۵) × سقف سیاست مرخصی. <b>مانده</b> از فیلد مانده مرخصی کارت کارمند (در صورت وجود) خوانده می‌شود تا با سیستم مرخصی جدید هم‌راستا باشد.
         مانده = استحقاقی − استفاده‌شده (مثبت یا منفی).
         قابل پرداخت (روز) = حداقل(مانده ، سقف).
         <b>مبلغ مرخصی</b> = (جمع حکم ÷ ۳۰) × روز قابل پرداخت — می‌تواند منفی (کسر) باشد و با عیدی و سنوات جمع می‌شود.
@@ -4423,6 +4423,7 @@ function renderEmployeeCustomItems() {
     <div class="custom-item-row">
       <input type="text" placeholder="نام آیتم (مثلاً معوقه اقماری بهمن)" value="${ci.name||''}" onchange="tempCustomItems[${idx}].name=this.value">
       <input type="number" placeholder="مبلغ" value="${ci.amount||0}" min="0" onchange="tempCustomItems[${idx}].amount=Number(this.value)||0">
+      <input type="text" placeholder="فرمول (اختیاری)" value="${ci.formula||''}" title="مثال: basicSalary*0.1 یا workDays*50000 — متغیرها: basicSalary, workDays, leaveDays, otHours, amount, children, dailyRate, hourlyRate, functionalDays" onchange="tempCustomItems[${idx}].formula=this.value" style="min-width:120px;">
       <select onchange="tempCustomItems[${idx}].entryType=this.value">
         <option value="workdays" ${ci.entryType==='workdays'?'selected':''}>بر اساس کارکرد</option>
         <option value="quantity" ${ci.entryType==='quantity'?'selected':''}>بر اساس تعداد</option>
@@ -4454,7 +4455,7 @@ function addEmployeeCustomItem() {
   const y = Number((data.settings && data.settings.currentYear) || 1405);
   const m = Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
   tempCustomItems.push({
-    name: '', amount: 0, entryType: 'workdays', isDeduction: false, isFixed: false,
+    name: '', amount: 0, formula: '', entryType: 'workdays', isDeduction: false, isFixed: false,
     duration: 'always', enabled: true, startYear: y, startMonth: m
   });
   renderEmployeeCustomItems();
@@ -4978,6 +4979,7 @@ function renderEmployees() {
       <td>${emp.bankName||'—'}</td>
       <td>${exMap[emp.exemption]||'—'}</td>
       <td>${formatNumber(emp.loanRemaining||0)}${emp.loanLocked ? ' 🔒' : ''}</td>
+      <td>${emp.leaveBalance != null ? emp.leaveBalance : '—'}</td>
       <td class="actions">
         <button class="btn btn-outline btn-sm" onclick="openEmployeeModal('${emp.code}')">ویرایش</button>
         <button class="btn btn-danger btn-sm" onclick="setEmployeeStatus('${emp.code}','inactive')">غیر فعال</button>
