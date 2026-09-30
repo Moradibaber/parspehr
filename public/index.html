@@ -10650,14 +10650,23 @@ function computeAccruedLeaveDaysLocal(emp, year, month) {
 function displayEmpLeaveBalance(emp) {
   if (!emp) return '—';
   var cy = Number((data.settings && data.settings.currentYear) || 1405);
-  if (emp.leaveYears && emp.leaveYears[String(cy)]) {
-    var row = emp.leaveYears[String(cy)];
-    if (row.settled) return '0 (تسویه)';
-    if (row.remaining != null && row.remaining !== '') return row.remaining;
+  var cm = Number((data.settings && data.settings.currentMonth) || (data.settings && data.settings.activeMonth) || 1);
+  if (emp.leaveYears && emp.leaveYears[String(cy)] && emp.leaveYears[String(cy)].settled) {
+    return '0 (تسویه)';
   }
-  // fallback: تناسبی − used
+  // همیشه بر اساس سال جاری: استحقاق تناسبی ماه‌های کارکرد − استفاده‌شده (+ تعدیل‌های +)
   var used = Number(emp.leaveUsedYear) || 0;
-  return Math.round((computeAccruedLeaveDaysLocal(emp, cy) - used) * 100) / 100;
+  if (emp.leaveYears && emp.leaveYears[String(cy)] && emp.leaveYears[String(cy)].used != null) {
+    used = Number(emp.leaveYears[String(cy)].used) || 0;
+  }
+  var accrued = computeAccruedLeaveDaysLocal(emp, cy, cm);
+  var adjPos = 0;
+  (emp.leaveAdjustments || []).forEach(function(a) {
+    if (String(a.year) !== String(cy)) return;
+    var d = Number(a.delta) || 0;
+    if (d > 0) adjPos += d;
+  });
+  return Math.round((accrued - used + adjPos) * 100) / 100;
 }
 
 function getAnnualLeaveDaysForEmpLocal(emp) {
