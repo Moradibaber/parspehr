@@ -387,7 +387,16 @@ async function stamp(html, user, env) {
       '<div class="form-group" style="grid-column:1/-1;"><label>روزهای غیرکاری (پنجشنبه/جمعه/تعطیل) بین بازه مرخصی استحقاقی جزو مرخصی حساب شوند؟</label>' +
       '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری شمرده شوند</option><option value="yes">بلی — تعطیلات و روزهای غیرکاری هم جزو مرخصی</option></select></div>' +
       '<div class="form-group" style="grid-column:1/-1;"><span id="pspCurStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
-      '</div><div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div></div>' +
+      '</div>' +      '<div class="section-title" style="margin-top:16px;">تقویم تعطیلات سال</div>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">روزها را کلیک کنید تا تعطیل/غیرتعطیل شوند. پنجشنبه و جمعه طبق «روزهای کاری» بالا از قبل غیرکاری‌اند. این تعطیلات در شمارش مرخصی (وقتی گزینه «خیر» باشد) لحاظ می‌شوند.</p>' +
+      '<div class="form-grid" style="margin-bottom:8px;">' +
+      '<div class="form-group"><label>سال تقویم</label><input type="number" id="pspCalYear" value="1405"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
+      '<button type="button" class="btn btn-primary btn-sm" id="pspCalLoad">نمایش تقویم</button>' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspCalSave">ذخیره تعطیلات</button></div>' +
+      '</div><div id="pspCalBox" style="overflow:auto;margin-bottom:12px;"></div>' +
+      '<span id="pspCalStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
+'<div id="pspTsOut" style="overflow:auto;margin-bottom:20px;"></div></div>' +
       '<div class="psp-subpanel" id="pspSub-types" style="display:none;">' +
       '<div class="section-title">انواع مرخصی و مأموریت</div>' +
       '<p style="font-size:0.8rem;color:#64748b;margin-bottom:8px;">نام‌ها در پرتال کارکنان نمایش داده می‌شوند.</p>' +
@@ -1009,6 +1018,70 @@ async function stamp(html, user, env) {
       var st=document.getElementById('pspCurStatus');
       if (st && j.month) { st.style.color='#0f766e'; st.textContent='ماه جاری فعال: '+j.year+'/'+j.month; }
     }).catch(function(){});
+
+    window.__pspHolidays = {};
+    function renderHolidayCal() {
+      var box = document.getElementById('pspCalBox');
+      if (!box) return;
+      var year = Number(document.getElementById('pspCalYear').value) || 1405;
+      var monthNames = ['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+      var mdays = [0,31,31,31,31,31,31,30,30,30,30,30,29];
+      // سال کبیسه ساده
+      var cy = year - 979; var k = cy % 33; var breaks = [1,5,9,13,17,22,26,30];
+      if (breaks.indexOf(k)>=0) mdays[12]=30;
+      var hol = window.__pspHolidays[String(year)] || [];
+      var holSet = {}; hol.forEach(function(d){ holSet[d]=true; });
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">';
+      for (var m=1;m<=12;m++) {
+        html += '<div style="border:1px solid #99f6e4;border-radius:8px;padding:6px;"><div style="font-weight:700;font-size:0.8rem;color:#0f766e;margin-bottom:4px;">'+monthNames[m]+'</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:0.65rem;">';
+        for (var d=1;d<=mdays[m];d++) {
+          var key = year+'/'+String(m).padStart(2,'0')+'/'+String(d).padStart(2,'0');
+          var on = !!holSet[key];
+          html += '<button type="button" data-hday="'+key+'" style="padding:3px 0;border-radius:4px;border:1px solid '+(on?'#b91c1c':'#e2e8f0')+';background:'+(on?'#fecaca':'#fff')+';cursor:pointer;" title="'+key+'">'+d+'</button>';
+        }
+        html += '</div></div>';
+      }
+      html += '</div><p style="font-size:0.72rem;color:#64748b;margin-top:6px;">قرمز = تعطیل رسمی/تعطیل‌شده توسط ادمین. کلیک = تغییر وضعیت.</p>';
+      box.innerHTML = html;
+      box.querySelectorAll('[data-hday]').forEach(function(btn){
+        btn.onclick = function(){
+          var key = btn.getAttribute('data-hday');
+          var list = window.__pspHolidays[String(year)] || [];
+          var ix = list.indexOf(key);
+          if (ix >= 0) list.splice(ix,1); else list.push(key);
+          window.__pspHolidays[String(year)] = list;
+          renderHolidayCal();
+        };
+      });
+    }
+    var calLoad = document.getElementById('pspCalLoad');
+    if (calLoad) calLoad.onclick = function(){
+      var year = Number(document.getElementById('pspCalYear').value)||1405;
+      fetch('/api/admin/holidays?year='+year, {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
+        if (j.ok) {
+          window.__pspHolidays[String(year)] = j.days || [];
+          renderHolidayCal();
+          var st=document.getElementById('pspCalStatus'); if(st){ st.style.color='#0f766e'; st.textContent='بارگذاری شد: '+(j.days||[]).length+' روز تعطیل'; }
+        }
+      });
+    };
+    var calSave = document.getElementById('pspCalSave');
+    if (calSave) calSave.onclick = function(){
+      var year = Number(document.getElementById('pspCalYear').value)||1405;
+      var days = window.__pspHolidays[String(year)] || [];
+      var st=document.getElementById('pspCalStatus'); if(st) st.textContent='ذخیره…';
+      fetch('/api/admin/holidays', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ year: year, days: days })
+      }).then(function(r){return r.json()}).then(function(j){
+        if (st) {
+          if (j.ok) { st.style.color='#16a34a'; st.textContent='تعطیلات سال '+year+' ذخیره شد ('+days.length+' روز)'; }
+          else { st.style.color='#b91c1c'; st.textContent=j.message||j.error||'خطا'; }
+        }
+      });
+    };
+
     window.__pspTypes = [];
     function renderTypes() {
       var box = document.getElementById('pspTypesList');
@@ -2520,15 +2593,17 @@ async function handleEmpListRequests(request, env) {
 function getLeavePolicy(obj) {
   const s = (obj && obj.settings) || {};
   const p = s.leavePolicy || {};
+  var annual = Number(p.annualDays);
+  if (isNaN(annual) || annual < 0) annual = 26;
   return {
-    annualDays: Number(p.annualDays) >= 0 ? Number(p.annualDays) : 30,
+    annualDays: annual,
     carryMax: Number(p.carryMax) >= 0 ? Number(p.carryMax) : 9,
     byContractType: (p.byContractType && typeof p.byContractType === 'object') ? p.byContractType : {},
     byGroup: (p.byGroup && typeof p.byGroup === 'object') ? p.byGroup : {}
   };
 }
 
-/** سقف استحقاقی سالانه برای یک کارمند: اول گروه کاری، بعد نوع قرارداد، بعد پیش‌فرض */
+/** سقف استحقاقی: گروه کاری > نوع قرارداد > پیش‌فرض سیاست (بدون مهاجرت اعداد قدیمی) */
 function getAnnualLeaveDaysForEmp(obj, emp) {
   const pol = getLeavePolicy(obj);
   if (!emp) return pol.annualDays;
@@ -2537,20 +2612,12 @@ function getAnnualLeaveDaysForEmp(obj, emp) {
     const n = Number(pol.byGroup[grp]);
     if (!isNaN(n) && n >= 0) return n;
   }
-  const annual = Number(pol.annualDays);
-  const annualOk = !isNaN(annual) && annual >= 0;
   const ct = String(emp.contractType || 'normal').trim() || 'normal';
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
     const n = Number(pol.byContractType[ct]);
-    if (!isNaN(n) && n >= 0) {
-      // اگر پیش‌فرض بزرگ‌تر است و نوع روی ۲۶ (یا ۰) قدیمی مانده → پیش‌فرض
-      if (annualOk && annual > n && (n === 26 || n === 0) && (ct === 'normal' || ct === 'daily' || ct === 'hourly')) {
-        return annual;
-      }
-      return n;
-    }
+    if (!isNaN(n) && n >= 0) return n;
   }
-  return annualOk ? annual : 30;
+  return pol.annualDays;
 }
 
 function jalaliDaysInYearW(y) {
@@ -2724,6 +2791,32 @@ function jalaliWeekday(jy, jm, jd) {
   return dt.getUTCDay();
 }
 
+
+function getHolidaySet(obj, year) {
+  const s = (obj && obj.settings) || {};
+  const by = s.holidaysByYear || {};
+  const list = by[String(year)] || by[year] || [];
+  const set = {};
+  (list || []).forEach(function (d) {
+    const k = String(d).replace(/\//g, '-');
+    set[k] = true;
+    // also slash form
+    set[String(d)] = true;
+  });
+  return set;
+}
+
+function isHolidayOrNonWork(obj, y, m, d) {
+  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  const hol = getHolidaySet(obj, y);
+  if (hol[keyDash] || hol[keySlash]) return true;
+  const ws = getWorkWeekSettings(obj);
+  const wd = jalaliWeekday(y, m, d);
+  if (ws.workWeekDays.indexOf(wd) < 0) return true; // not a work day
+  return false;
+}
+
 function getWorkWeekSettings(obj) {
   const s = (obj && obj.settings) || {};
   const days = Array.isArray(s.workWeekDays) ? s.workWeekDays.map(Number) : [6, 0, 1, 2, 3];
@@ -2752,10 +2845,11 @@ function countLeaveDays(req, obj) {
       if (ws.countNonWorkDaysAsLeave) return keys.length || 1;
       let n = 0;
       keys.forEach(function (k) {
-        const parts = String(k).split('-');
+        const parts = String(k).split(/[-\/]/);
         if (parts.length < 3) { n++; return; }
-        const wd = jalaliWeekday(parts[0], parts[1], parts[2]);
-        if (ws.workWeekDays.indexOf(wd) >= 0) n++;
+        const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
+        if (isHolidayOrNonWork(obj, yy, mm, dd)) return; // تعطیل یا غیرکاری — شمارش نشود
+        n++;
       });
       return n || 0;
     } catch (e) {}
@@ -3731,6 +3825,47 @@ async function handleAdminSetCurrentMonth(request, who, env) {
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
+
+async function handleAdminGetHolidays(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const url = new URL(request.url);
+  const year = Number(url.searchParams.get('year')) || 1405;
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const by = ((gd.obj && gd.obj.settings) || {}).holidaysByYear || {};
+  return jsonResponse({ ok: true, year: year, days: by[String(year)] || [] });
+}
+
+async function handleAdminSaveHolidays(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const days = Array.isArray(r.body.days) ? r.body.days.map(String) : [];
+  if (!isInt(year, 1300, 1600)) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!gd.obj.settings) gd.obj.settings = {};
+    if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
+    gd.obj.settings.holidaysByYear[String(year)] = days;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, year: year, count: days.length });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 async function handleAdminGetCurrentMonth(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -4108,6 +4243,10 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
+  if (path === '/api/admin/holidays') {
+    if (request.method === 'POST') return handleAdminSaveHolidays(request, who, env);
+    return handleAdminGetHolidays(request, who, env);
+  }
   if (path === '/api/admin/attendance-requests') return handleAdminListAttendanceRequests(request, who, env);
   if (path === '/api/admin/attendance-request') {
     if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
@@ -4719,19 +4858,21 @@ async function handleEmpBalances(request, env) {
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
   ensureEmpLeaveYears(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
+  // همیشه از سیاست فعلی (نه مقدار قدیمی leaveYears.entitled)
   let annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
-  if (annualForEmp === 26 && Number(pol.annualDays) > 0 && Number(pol.annualDays) !== 26) {
-    annualForEmp = Number(pol.annualDays);
-  }
   const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
   // فقط سال جاری در پرتال
+  // entitled همیشه از سیاست فعلی
   const years = listLeaveYearsSorted(emp).filter(function (r) { return Number(r.year) === cy; }).map(function (r) {
+    const entitledNow = annualForEmp;
+    const accruedNow = computeAccruedLeaveDaysW(gd.obj, emp, cy);
+    const usedNow = Number(r.used) || 0;
     return {
       year: r.year,
-      entitled: Number(r.entitled) || 0,
-      accrued: Number(r.accrued) || computeAccruedLeaveDaysW(gd.obj, emp, cy),
-      used: Number(r.used) || 0,
-      remaining: r.settled ? 0 : (Number(r.remaining) || 0),
+      entitled: entitledNow,
+      accrued: accruedNow,
+      used: usedNow,
+      remaining: r.settled ? 0 : Math.round((accruedNow - usedNow) * 100) / 100,
       settled: !!r.settled,
       settledAt: r.settledAt || null,
       settledMode: r.settledMode || null
