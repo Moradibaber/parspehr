@@ -570,6 +570,7 @@
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
+        <div class="form-group"><label>سقف اضافه‌کار ماهانه (ساعت، ۰=بدون سقف)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="صفر یعنی بدون محدودیت"></div>
         <div class="form-group"><label>ضریب شب‌کاری</label><input type="number" id="nightFactor" value="1.35" step="0.05"></div>
         <div class="form-group"><label>ضریب نوبت صبح و عصر (%)</label><input type="number" id="shiftMorningEvening" value="10" step="0.5" title="طبق ماده ۵۶ قانون کار"></div>
         <div class="form-group"><label>ضریب نوبت صبح/عصر و شب (%)</label><input type="number" id="shiftWithNight" value="22.5" step="0.5" title="صبح و شب یا عصر و شب"></div>
@@ -4272,6 +4273,8 @@ function loadSettingsToForm() {
   if (ie) ie.value = (s.insEmployee != null && s.insEmployee !== '') ? s.insEmployee : 7;
   if (ir) ir.value = (s.insEmployer != null && s.insEmployer !== '') ? s.insEmployer : 23;
   if (ot) ot.value = (s.overtimeFactor != null && s.overtimeFactor !== '') ? s.overtimeFactor : 1.4;
+  var mot = document.getElementById('maxOtHours');
+  if (mot) mot.value = (s.maxOtHours != null && s.maxOtHours !== '') ? s.maxOtHours : 0;
   if (ie && (ie.value === '' || ie.value === 'undefined' || ie.value === 'null')) ie.value = 7;
   if (ir && (ir.value === '' || ir.value === 'undefined' || ir.value === 'null')) ir.value = 23;
   try {
@@ -4349,6 +4352,7 @@ function saveSettings() {
   data.settings.insEmployee = Number(document.getElementById('insEmployee').value)||7;
   data.settings.insEmployer = Number(document.getElementById('insEmployer').value)||23;
   data.settings.overtimeFactor = Number(document.getElementById('overtimeFactor').value)||1.4;
+  try { var mot=document.getElementById('maxOtHours'); data.settings.maxOtHours = mot ? (Number(mot.value)||0) : 0; } catch(e){}
   try {
     var la = document.getElementById('leaveAnnualDays');
     var lc = document.getElementById('leaveCarryMax');
@@ -5724,7 +5728,7 @@ function loadDataEntry() {
   pruneOrphanQtyKeys(key, allQtyNames);
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
-  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
+  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
   // ستون‌های پویا با ترتیب ذخیره‌شده (ثابت ماهانه + تعدادی / کسورات / معوقه)
   var orderedCols = resolveDataEntryColOrder();
   var fixedVars = [];
@@ -5786,7 +5790,9 @@ function loadDataEntry() {
       'onchange="updateDataField(\'' + emp.code + '\',\'workDays\',this.value,this)"' + clampAttr + '></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.leaveDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'leaveDays\',this.value)"></td>' +
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.hourlyLeave||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'hourlyLeave\',this.value)" title="ساعات مرخصی ساعتی"></td>' +
-      '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
+
+      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionDays\',this.value)" title="روز مأموریت تأییدشده"></td>' +
+      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionHours\',this.value)" title="ساعات مأموریت تأییدشده"></td>' +      '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.nightHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value)"></td>' +
       '<td><select class="data-input" style="width:68px;font-size:0.65rem;padding:1px;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
         '<option value="none"' + ((row.shiftType||'none')==='none'?' selected':'') + '>ندارد</option>' +
@@ -5844,6 +5850,14 @@ function updateDataField(code, field, value, el) {
         if (num < maxAllowed) el.classList.add('workdays-incomplete');
         else el.classList.remove('workdays-incomplete');
       }
+    }
+  }
+  if (field === 'otHours') {
+    var maxOt = Number((data.settings && data.settings.maxOtHours) || 0);
+    if (maxOt > 0 && num > maxOt) {
+      num = maxOt;
+      if (el) el.value = maxOt;
+      alert('سقف اضافه‌کار ماهانه ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.');
     }
   }
   data.monthlyData[key][code][field] = num;
@@ -6934,7 +6948,11 @@ function renderEidResults(results) {
     '<td>' + formatNumber(sumEid) + '</td><td>' + formatNumber(sumTax) + '</td>' +
     '<td>' + formatNumber(sumEid - sumTax) + '</td><td>' + formatNumber(sumSev) + '</td>' +
     '<td>' + formatNumber(sumTotal) + '</td></tr></tfoot></table>';
-  html += '<div style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="exportEidExcel()">خروجی اکسل عیدی، سنوات و مرخصی</button></div>';
+  html += '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">' +
+    '<button class="btn btn-outline btn-sm" onclick="exportEidExcel()">خروجی اکسل عیدی، سنوات و مرخصی</button>' +
+    '<button class="btn btn-warning btn-sm" onclick="applyEidLeaveToBalances()">ثبت بازخرید/کسر مرخصی روی مانده کارت‌ها</button>' +
+    '</div>' +
+    '<p style="font-size:0.75rem;color:#64748b;margin-top:6px;">ثبت روی مانده: برای روز قابل‌پرداخت مثبت از مانده کم می‌شود. فقط یک‌بار پس از محاسبه نهایی بزنید.</p>';
   box.innerHTML = html;
 }
 
@@ -10636,6 +10654,36 @@ function applyLeaveYearRollover() {
   try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
   try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
   alert('انتقال برای ' + n + ' نفر انجام شد.\nسقف انتقال: ' + carryMax + ' روز');
+}
+
+
+function applyEidLeaveToBalances() {
+  var year = Number(document.getElementById('eidYear') && document.getElementById('eidYear').value) || (data.settings && data.settings.currentYear) || 1405;
+  var rows = (data.eidResults && data.eidResults[year]) || [];
+  if (!rows.length) { alert('ابتدا محاسبه عیدی/سنوات/مرخصی را اجرا کنید.'); return; }
+  if (!confirm('مانده مرخصی کارت کارکنان بر اساس «روز قابل پرداخت» سال ' + year + ' به‌روز شود؟\nبرگشت خودکار ندارد؛ در صورت نیاز از پشتیبان JSON استفاده کنید.')) return;
+  var n = 0, skipped = 0;
+  rows.forEach(function(r) {
+    if (!r || !r.code) return;
+    var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); });
+    if (!emp) { skipped++; return; }
+    var pay = Number(r.payableLeave);
+    if (isNaN(pay) || pay === 0) { skipped++; return; }
+    var bal = Number(emp.leaveBalance);
+    if (isNaN(bal)) bal = 0;
+    bal = Math.round((bal - pay) * 100) / 100;
+    emp.leaveBalance = bal;
+    if (pay > 0) {
+      emp.leaveUsedYear = Math.round(((Number(emp.leaveUsedYear) || 0) + pay) * 100) / 100;
+    }
+    emp.leaveBalanceYear = year;
+    if (!emp._eidLeaveApplied) emp._eidLeaveApplied = {};
+    emp._eidLeaveApplied[year] = { payableLeave: pay, at: new Date().toISOString() };
+    n++;
+  });
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
+  alert('مانده مرخصی برای ' + n + ' نفر به‌روز شد.' + (skipped ? ('\nبدون تغییر: ' + skipped) : ''));
 }
 
 </script>
