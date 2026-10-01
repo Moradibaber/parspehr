@@ -3140,11 +3140,24 @@ function refreshLeavePolicyContractRows() {
 function contractTypeLabel(ct) {
   ct = ct || 'normal';
   if (CONTRACT_TYPE_LABELS[ct]) return CONTRACT_TYPE_LABELS[ct];
+  try {
+    var list = (data.settings && data.settings.contractTypesList) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === ct) return list[i].name || ct;
+    }
+  } catch (e) {}
   return String(ct);
 }
-/** همه انواع قرارداد موجود در کارکنان + پیش‌فرض‌ها */
+/** همه انواع قرارداد: لیست تنظیمات + کارکنان */
 function getKnownContractTypes() {
-  var set = { normal: true, daily: true, hourly: true };
+  var set = {};
+  var list = (typeof getContractTypesListLocal === 'function') ? getContractTypesListLocal() : [];
+  (list || []).forEach(function(t) {
+    if (t && t.id) set[t.id] = true;
+  });
+  if (!Object.keys(set).length) {
+    set.normal = true; set.daily = true; set.hourly = true;
+  }
   (data.employees || []).forEach(function(e) {
     if (e && e.contractType) set[e.contractType] = true;
   });
@@ -3189,24 +3202,25 @@ function renderSheetOrgFilters(containerId, prefix, onChangeFn) {
   var box = document.getElementById(containerId);
   if (!box) return;
   var onchange = onChangeFn || ('apply' + prefix.charAt(0).toUpperCase() + prefix.slice(1) + 'Filters()');
+  var prevCt = '';
+  var prevEl = document.getElementById(prefix + 'FilterContract');
+  if (prevEl) prevCt = prevEl.value || '';
   var cts = getKnownContractTypes();
-  var ctHtml = cts.map(function(ct) {
-    return '<label class="check-label" style="margin-left:10px;"><input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '" checked onchange="' + onchange + '"> ' + contractTypeLabel(ct) + '</label>';
-  }).join('');
+  var ctOpts = '<option value="">همه</option>';
+  cts.forEach(function(ct) {
+    ctOpts += '<option value="' + ct + '"' + (prevCt === ct ? ' selected' : '') + '>' + contractTypeLabel(ct) + '</option>';
+  });
   box.innerHTML =
     '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:10px 12px;background:#f8fffe;">' +
     '<div style="font-weight:600;color:#0f766e;font-size:0.82rem;margin-bottom:8px;">فیلتر سازمانی و نوع قرارداد</div>' +
-    '<div class="form-grid" style="margin-bottom:8px;">' +
+    '<div class="form-grid" style="margin-bottom:0;">' +
     '<div class="form-group"><label>مدیریت/معاونت</label><select id="' + prefix + 'FilterMgmt" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>واحد</label><select id="' + prefix + 'FilterUnit" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>گروه</label><select id="' + prefix + 'FilterGroup" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>محل کار</label><select id="' + prefix + 'FilterWorkplace" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>سمت</label><select id="' + prefix + 'FilterPosition" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
-    '</div>' +
-    '<div style="font-size:0.8rem;">نوع قرارداد: ' + ctHtml +
-    ' <button type="button" class="btn btn-outline btn-sm" style="margin-right:8px;" onclick="sheetCtSelectAll(\'' + prefix + '\',true);' + onchange + '">همه</button>' +
-    ' <button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);' + onchange + '">هیچ‌کدام</button></div>' +
-    '</div>';
+    '<div class="form-group"><label>نوع قرارداد</label><select id="' + prefix + 'FilterContract" class="contract-type-filter" onchange="' + onchange + '">' + ctOpts + '</select></div>' +
+    '</div></div>';
   fillSelectOptions(document.getElementById(prefix + 'FilterMgmt'), uniqueEmpFieldValues('management'));
   fillSelectOptions(document.getElementById(prefix + 'FilterUnit'), uniqueEmpFieldValues('unit'));
   fillSelectOptions(document.getElementById(prefix + 'FilterGroup'), uniqueEmpFieldValues('group'));
@@ -3214,23 +3228,31 @@ function renderSheetOrgFilters(containerId, prefix, onChangeFn) {
   fillSelectOptions(document.getElementById(prefix + 'FilterPosition'), uniqueEmpFieldValues('position'));
 }
 function sheetCtSelectAll(prefix, on) {
-  document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) { cb.checked = !!on; });
+  var sel = document.getElementById(prefix + 'FilterContract');
+  if (sel) sel.value = on ? '' : '__none__';
 }
 function getSheetFilterState(prefix) {
   function val(id) {
     var el = document.getElementById(id);
     return el ? (el.value || '').trim() : '';
   }
-  var cts = [];
-  document.querySelectorAll('.' + prefix + '-ct-filter:checked').forEach(function(cb) { cts.push(cb.value); });
-  // اگر هیچ‌کدام تیک نبود، هیچ‌کس رد نشود با خالی بودن — صریحاً هیچ قرارداد
+  var ctVal = val(prefix + 'FilterContract');
+  var cts;
+  if (!ctVal) {
+    cts = getKnownContractTypes();
+  } else if (ctVal === '__none__') {
+    cts = [];
+  } else {
+    cts = [ctVal];
+  }
   return {
     management: val(prefix + 'FilterMgmt'),
     unit: val(prefix + 'FilterUnit'),
     group: val(prefix + 'FilterGroup'),
     workplace: val(prefix + 'FilterWorkplace'),
     position: val(prefix + 'FilterPosition'),
-    contractTypes: cts
+    contractTypes: cts,
+    contractType: ctVal
   };
 }
 function empMatchesSheetFilter(emp, prefixOrState) {
@@ -3250,17 +3272,20 @@ function empMatchesSheetFilter(emp, prefixOrState) {
   if (st.workplace && (emp.workplace || '') !== st.workplace) return false;
   if (st.position && (emp.position || '') !== st.position) return false;
   var ct = emp.contractType || 'normal';
-  var hasCtUi = prefix ? !!document.querySelector('.' + prefix + '-ct-filter') : false;
+  var hasCtUi = prefix ? !!document.getElementById(prefix + 'FilterContract') : (st.contractType !== undefined || st.contractTypes !== undefined);
   if (hasCtUi) {
-    if (!st.contractTypes || !st.contractTypes.length) return false;
-    if (st.contractTypes.indexOf(ct) < 0) return false;
+    if (st.contractType === '__none__') return false;
+    if (st.contractType && st.contractType !== '__none__') {
+      if (ct !== st.contractType) return false;
+    } else if (st.contractTypes && st.contractTypes.length) {
+      if (st.contractTypes.indexOf(ct) < 0) return false;
+    }
   }
   return true;
 }
 function filterEmployeesBySheet(prefix, list) {
   var src = list || getActiveEmployees();
-  // اگر فیلتر UI هنوز رندر نشده، همه را برگردان
-  if (!document.getElementById(prefix + 'FilterUnit') && !document.querySelector('.' + prefix + '-ct-filter')) {
+  if (!document.getElementById(prefix + 'FilterUnit') && !document.getElementById(prefix + 'FilterContract')) {
     return src;
   }
   return src.filter(function(e) { return empMatchesSheetFilter(e, prefix); });
@@ -6342,7 +6367,7 @@ async function runCalculation() {
 function renderPayrollResult(results) {
   document.getElementById('payrollArea').style.display = 'block';
   var filtered = results || [];
-  if (document.getElementById('payFilterUnit') || document.querySelector('.pay-ct-filter')) {
+  if (document.getElementById('payFilterUnit') || document.getElementById('payFilterContract')) {
     filtered = filtered.filter(function(r) {
       var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); }) || r;
       return empMatchesSheetFilter(emp, 'pay');
