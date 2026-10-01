@@ -306,14 +306,11 @@ async function stamp(html, user, env) {
 
 
   function ensurePortalTab() {
+    if (window.__pspPortalWired) return;
     var existingBtn = document.getElementById('pspPortalTabBtn');
     var existingPanel = document.getElementById('panel-portalatt');
-    // اگر تب هست ولی محتوای اصلی نیست، از نو بساز
-    if (existingBtn && existingPanel && document.getElementById('pspSub-ts') && document.getElementById('pspSubTabs')) {
-      return;
-    }
-    if (existingBtn) { try { existingBtn.parentNode.removeChild(existingBtn); } catch (e) {} }
-    if (existingPanel) { try { existingPanel.parentNode.removeChild(existingPanel); } catch (e) {} }
+    // محتوا فقط از Worker تزریق می‌شود — index فقط میزبان خالی است
+
     // Find tab strip: parent of any existing tab button
     var sample = document.querySelector('button.tab-btn[data-tab], button.tab-btn, .tabs button, [class*="tab"] button[data-tab]');
     if (!sample) sample = document.querySelector('button.tab-btn');
@@ -338,18 +335,27 @@ async function stamp(html, user, env) {
     if (existingPanel && !existingBtn) {
       try { existingPanel.parentNode.removeChild(existingPanel); } catch (e) {}
     }
-    var btn = document.createElement('button');
-    btn.id = 'pspPortalTabBtn';
-    btn.className = (sample && sample.className) ? sample.className : 'tab-btn';
-    btn.type = 'button';
-    btn.setAttribute('data-tab', 'portalatt');
-    btn.textContent = 'مأموریت/مرخصی و سایر';
-    btn.style.cssText = (btn.style.cssText||'') + ';cursor:pointer;';
-    tabs.appendChild(btn);
+    var btn = document.getElementById('pspPortalTabBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'pspPortalTabBtn';
+      btn.className = (sample && sample.className) ? sample.className : 'tab-btn';
+      btn.type = 'button';
+      btn.setAttribute('data-tab', 'portalatt');
+      btn.textContent = 'مأموریت/مرخصی و سایر';
+      btn.style.cssText = (btn.style.cssText||'') + ';cursor:pointer;';
+      tabs.appendChild(btn);
+    }
 
-    var panel = document.createElement('div');
-    panel.className = 'panel';
-    panel.id = 'panel-portalatt';
+    var panel = document.getElementById('panel-portalatt');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.className = 'panel';
+      panel.id = 'panel-portalatt';
+      var host0 = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
+      if (host0) host0.appendChild(panel);
+      else document.body.appendChild(panel);
+    }
     panel.innerHTML =
       '<div class="card">' +
       '<div class="section-title" style="margin-bottom:10px;">مأموریت / مرخصی و تایم‌شیت</div>' +
@@ -520,10 +526,7 @@ async function stamp(html, user, env) {
 
       '</div>';
 
-    // insert panel after other panels
-    var host = document.querySelector('.panel') && document.querySelector('.panel').parentNode;
-    if (host) host.appendChild(panel);
-    else document.body.appendChild(panel);
+    // panel already in DOM (static index or created above)
     try {
       var oldFab = document.getElementById('pspPortalFab');
       if (oldFab && oldFab.parentNode) oldFab.parentNode.removeChild(oldFab);
@@ -1615,7 +1618,6 @@ async function stamp(html, user, env) {
       loadTypes();
     });
     // When other tabs clicked, hide our panel (their handler already removes active from panels)
-    // Ensure our panel is not left active: observe other tab clicks
     tabs.querySelectorAll('.tab-btn').forEach(function(other) {
       if (other === btn) return;
       other.addEventListener('click', function() {
@@ -1623,6 +1625,7 @@ async function stamp(html, user, env) {
         btn.classList.remove('active');
       });
     });
+    window.__pspPortalWired = true;
       } catch (e) { console.error('psp portal tab', e); }
   }
   function bootPortalTab() {
