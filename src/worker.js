@@ -1,4 +1,4 @@
-// parspehr gate: personal login + watermark + payroll API + employee self-service portal 
+// parspehr gate: personal login + watermark + payroll API + employee self-service portal
 import { makeEngine } from './engine.js';
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 
@@ -390,8 +390,18 @@ async function stamp(html, user, env) {
       '<label><input type="checkbox" class="psp-wd" value="4"> پنجشنبه</label>' +
       '<label><input type="checkbox" class="psp-wd" value="5"> جمعه</label>' +
       '</div></div>' +
-      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای غیرکاری (پنجشنبه/جمعه/تعطیل) بین بازه مرخصی استحقاقی جزو مرخصی حساب شوند؟</label>' +
-      '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری شمرده شوند</option><option value="yes">بلی — تعطیلات و روزهای غیرکاری هم جزو مرخصی</option></select></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای غیرکاری بین بازه مرخصی جزو مرخصی حساب شوند؟</label>' +
+      '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری</option><option value="yes">بلی — تعطیل/غیرکاری هم شمرده شود</option></select></div>' +
+      '<div class="section-title" style="grid-column:1/-1;margin:12px 0 4px;font-size:0.9rem;">ساعت کاری نوع قرارداد انتخاب‌شده</div>' +
+      '<div class="form-group"><label>شروع کار</label><input id="pspWsStart" type="time" value="08:00" dir="ltr"></div>' +
+      '<div class="form-group"><label>پایان کار</label><input id="pspWsEnd" type="time" value="17:00" dir="ltr"></div>' +
+      '<div class="form-group"><label>شروع وقفه</label><input id="pspWsBreakStart" type="time" value="12:00" dir="ltr"></div>' +
+      '<div class="form-group"><label>پایان وقفه</label><input id="pspWsBreakEnd" type="time" value="13:00" dir="ltr"></div>' +
+      '<div class="form-group"><label>پایان روز (حد ثبت)</label><input id="pspWsDayEnd" type="time" value="23:59" dir="ltr" title="معمولاً 23:59"></div>' +
+      '<div class="form-group"><label>شناوری (دقیقه)</label><input id="pspWsFloat" type="number" min="0" step="1" value="15"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><label style="font-size:0.78rem;"><input type="checkbox" id="pspWsBreakAsWork"> وقفه جزو ساعت کار باشد</label></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><label style="font-size:0.78rem;"><input type="checkbox" id="pspWsFloatComp"> جبران تأخیر با ماندن در پایان تایم</label></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><span id="pspWsHint" style="font-size:0.72rem;color:#64748b;">مثال: شروع ۰۸:۰۰، شناوری ۱۵، ورود ۰۸:۱۶ → بدون جبران: ۱۶ دقیقه تأخیر؛ با جبران: باید تا ۱۷:۱۶ بماند.</span></div>' +
       '<div class="form-group" style="grid-column:1/-1;"><span id="pspCurStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '</div>' +      '<div class="section-title" style="margin-top:16px;">تقویم تعطیلات سال</div>' +
       '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">پیش‌فرض ایران: پنجشنبه و جمعه تعطیل + تعطیلات رسمی شمسی (نوروز، ۲۲ بهمن، …). مناسبت‌های قمری را ادمین اضافه کند. هر نوع قرارداد تقویم مستقل دارد و روی بقیه کپی/پاک نمی‌شود.</p>' +
@@ -1011,6 +1021,15 @@ async function stamp(html, user, env) {
           }
           var nw=document.getElementById('pspCountNonWorkAsLeave');
           if (nw) nw.value = j.countNonWorkDaysAsLeave ? 'yes' : 'no';
+          function setT(id,v){ var el=document.getElementById(id); if(el&&v!=null) el.value=v; }
+          setT('pspWsStart', j.workStart||'08:00');
+          setT('pspWsEnd', j.workEnd||'17:00');
+          setT('pspWsBreakStart', j.breakStart||'12:00');
+          setT('pspWsBreakEnd', j.breakEnd||'13:00');
+          setT('pspWsDayEnd', j.dayEnd||'23:59');
+          setT('pspWsFloat', j.floatMinutes!=null?j.floatMinutes:15);
+          var ba=document.getElementById('pspWsBreakAsWork'); if(ba) ba.checked=!!j.breakCountsAsWork;
+          var fc=document.getElementById('pspWsFloatComp'); if(fc) fc.checked=!!j.floatCompensate;
           pspFillContractTypes(j.contractTypesList || [], ct);
           var st=document.getElementById('pspCurStatus');
           if (st && j.month) { st.style.color='#0f766e'; st.textContent='ماه جاری: '+j.year+'/'+j.month+' | تقویم: '+(j.contractTypeName||ct); }
@@ -1028,7 +1047,15 @@ async function stamp(html, user, env) {
           month: Number(document.getElementById('pspCurMonth').value),
           contractType: pspSelectedCt(),
           workWeekDays: wds,
-          countNonWorkDaysAsLeave: (document.getElementById('pspCountNonWorkAsLeave')||{}).value === 'yes'
+          countNonWorkDaysAsLeave: (document.getElementById('pspCountNonWorkAsLeave')||{}).value === 'yes',
+          workStart: (document.getElementById('pspWsStart')||{}).value || '08:00',
+          workEnd: (document.getElementById('pspWsEnd')||{}).value || '17:00',
+          breakStart: (document.getElementById('pspWsBreakStart')||{}).value || '12:00',
+          breakEnd: (document.getElementById('pspWsBreakEnd')||{}).value || '13:00',
+          dayEnd: (document.getElementById('pspWsDayEnd')||{}).value || '23:59',
+          floatMinutes: Number((document.getElementById('pspWsFloat')||{}).value) || 0,
+          breakCountsAsWork: !!(document.getElementById('pspWsBreakAsWork')||{}).checked,
+          floatCompensate: !!(document.getElementById('pspWsFloatComp')||{}).checked
         })
       }).then(function(r){return r.json()}).then(function(j){
         if (j.ok) {
@@ -2980,11 +3007,11 @@ function ensureContractCalendars(obj) {
       // تقویم جدید: پیش‌فرض ایران، مستقل از انواع دیگر (کپی از لیست پیش‌فرض نه از نوع دیگر)
       const hy = {};
       hy[String(cy)] = defaultIranHolidaysForYear(cy);
-      s.contractCalendars[t.id] = {
+      s.contractCalendars[t.id] = Object.assign({
         workWeekDays: [6, 0, 1, 2, 3], // شنبه تا چهارشنبه؛ پنجشنبه و جمعه تعطیل
         countNonWorkDaysAsLeave: false,
         holidaysByYear: hy
-      };
+      }, defaultWorkSchedule());
     } else {
       // اطمینان از وجود آرایه تعطیلات سال جاری بدون پاک کردن سال‌های دیگر
       const cal = s.contractCalendars[t.id];
@@ -3005,17 +3032,214 @@ function ensureContractCalendars(obj) {
   return s;
 }
 
+function defaultWorkSchedule() {
+  return {
+    workStart: '08:00',
+    workEnd: '17:00',
+    breakStart: '12:00',
+    breakEnd: '13:00',
+    breakCountsAsWork: false,
+    dayEnd: '23:59',
+    floatMinutes: 15,
+    floatCompensate: false
+  };
+}
+
+function normalizeWorkSchedule(cal) {
+  const d = defaultWorkSchedule();
+  const c = cal || {};
+  return {
+    workStart: c.workStart || d.workStart,
+    workEnd: c.workEnd || d.workEnd,
+    breakStart: c.breakStart != null ? c.breakStart : d.breakStart,
+    breakEnd: c.breakEnd != null ? c.breakEnd : d.breakEnd,
+    breakCountsAsWork: !!c.breakCountsAsWork,
+    dayEnd: c.dayEnd || d.dayEnd,
+    floatMinutes: Math.max(0, Number(c.floatMinutes) || 0),
+    floatCompensate: !!c.floatCompensate
+  };
+}
+
 function getContractCalendar(obj, contractType) {
   ensureContractCalendars(obj || {});
   const s = (obj && obj.settings) || {};
   const ct = String(contractType || 'normal').trim() || 'normal';
   const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
+  const sched = normalizeWorkSchedule(cal);
   return {
     workWeekDays: Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3],
     countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
-    holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {}
+    holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {},
+    workStart: sched.workStart,
+    workEnd: sched.workEnd,
+    breakStart: sched.breakStart,
+    breakEnd: sched.breakEnd,
+    breakCountsAsWork: sched.breakCountsAsWork,
+    dayEnd: sched.dayEnd,
+    floatMinutes: sched.floatMinutes,
+    floatCompensate: sched.floatCompensate
   };
 }
+
+/** HH:MM یا HH:MM:SS → دقیقه از نیمه‌شب (۰..۱۴۳۹+) */
+function timeToMinutes(t) {
+  if (t == null || t === '') return null;
+  const s = String(t).trim().replace('.', ':');
+  const p = s.split(':');
+  if (p.length < 2) return null;
+  const h = Number(p[0]), m = Number(p[1]);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h * 60 + m;
+}
+function minutesToTime(mins) {
+  if (mins == null || isNaN(mins)) return '';
+  let m = Math.round(Number(mins)) % (24 * 60);
+  if (m < 0) m += 24 * 60;
+  const h = Math.floor(m / 60), mm = m % 60;
+  return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+}
+
+/** مدت شیفت رسمی (دقیقه) با احتساب وقفه */
+function officialWorkMinutes(cal) {
+  const sched = normalizeWorkSchedule(cal);
+  const a = timeToMinutes(sched.workStart);
+  const b = timeToMinutes(sched.workEnd);
+  if (a == null || b == null) return 0;
+  let total = b - a;
+  if (total < 0) total += 24 * 60; // شب‌کار
+  if (!sched.breakCountsAsWork) {
+    const bs = timeToMinutes(sched.breakStart);
+    const be = timeToMinutes(sched.breakEnd);
+    if (bs != null && be != null) {
+      let br = be - bs;
+      if (br < 0) br += 24 * 60;
+      // فقط بخشی از وقفه که داخل بازه کاری است
+      total = Math.max(0, total - br);
+    }
+  }
+  return total;
+}
+
+/**
+ * محاسبه یک روز کارکرد از ورود/خروج‌ها
+ * punches: [{in:'08:05', out:'12:00'}, {in:'13:00', out:'17:10'}] یا in1,out1,in2,out2
+ * نتیجه: دقیقه کار خالص، تأخیر، تعجیل خروج، اضافه‌کار، شناوری جبران‌شده
+ */
+function computeDayTimesheet(cal, punches) {
+  const sched = normalizeWorkSchedule(cal);
+  const start = timeToMinutes(sched.workStart);
+  const end = timeToMinutes(sched.workEnd);
+  const dayEnd = timeToMinutes(sched.dayEnd);
+  const floatM = sched.floatMinutes;
+  const compensate = sched.floatCompensate;
+  const official = officialWorkMinutes(sched);
+
+  // نرمال‌سازی پانچ‌ها
+  let pairs = [];
+  if (Array.isArray(punches)) {
+    punches.forEach(function (p) {
+      if (!p) return;
+      if (p.in != null || p.out != null) {
+        pairs.push({ inn: timeToMinutes(p.in), out: timeToMinutes(p.out) });
+      }
+    });
+  } else if (punches && typeof punches === 'object') {
+    if (punches.in1 || punches.out1) pairs.push({ inn: timeToMinutes(punches.in1), out: timeToMinutes(punches.out1) });
+    if (punches.in2 || punches.out2) pairs.push({ inn: timeToMinutes(punches.in2), out: timeToMinutes(punches.out2) });
+  }
+  pairs = pairs.filter(function (p) { return p.inn != null || p.out != null; });
+
+  let present = 0;
+  pairs.forEach(function (p) {
+    let a = p.inn, b = p.out;
+    if (a == null && b == null) return;
+    if (a == null) a = start;
+    if (b == null) b = end;
+    if (b < a) b += 24 * 60; // عبور از نیمه‌شب تا dayEnd
+    present += Math.max(0, b - a);
+  });
+
+  // کسر وقفه از حضور واقعی اگر وقفه جزو کار نیست و حضور روی وقفه افتاده
+  if (!sched.breakCountsAsWork) {
+    const bs = timeToMinutes(sched.breakStart);
+    const be = timeToMinutes(sched.breakEnd);
+    if (bs != null && be != null && pairs.length) {
+      let br = be - bs;
+      if (br < 0) br += 24 * 60;
+      // اگر حداقل یک بازه حضور کل وقفه را پوشش دهد، کسر کن
+      let covers = false;
+      pairs.forEach(function (p) {
+        let a = p.inn, b = p.out;
+        if (a == null) a = start;
+        if (b == null) b = end;
+        if (b < a) b += 24 * 60;
+        if (a <= bs && b >= be) covers = true;
+      });
+      if (covers) present = Math.max(0, present - br);
+    }
+  }
+
+  const firstIn = pairs.length ? pairs.map(function (p) { return p.inn; }).filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; })[0] : null;
+  const lastOut = pairs.length ? pairs.map(function (p) { return p.out; }).filter(function (x) { return x != null; }).sort(function (a, b) { return b - a; })[0] : null;
+
+  let delay = 0; // تأخیر ورود (دقیقه)
+  let earlyLeave = 0; // تعجیل خروج
+  let compensated = 0; // دقایق جبران‌شده با ماندن بیشتر
+  let requiredEnd = end;
+
+  if (firstIn != null && start != null) {
+    delay = Math.max(0, firstIn - start);
+  }
+  if (compensate && delay > 0 && end != null) {
+    // اجازه جبران: پایان مورد انتظار = پایان رسمی + تأخیر
+    requiredEnd = end + delay;
+    if (lastOut != null) {
+      if (lastOut >= requiredEnd) {
+        compensated = delay;
+        delay = 0; // جبران کامل
+      } else if (lastOut > end) {
+        compensated = lastOut - end;
+        delay = Math.max(0, delay - compensated);
+      }
+    }
+  } else if (!compensate && delay > 0) {
+    // تأخیر می‌ماند؛ شناوری فقط برای نمایش پنجره است
+  }
+
+  if (lastOut != null && end != null && !compensate) {
+    earlyLeave = Math.max(0, end - lastOut);
+  } else if (lastOut != null && requiredEnd != null && compensate) {
+    earlyLeave = Math.max(0, requiredEnd - lastOut);
+  }
+
+  // اضافه‌کار نسبت به پایان رسمی (پس از جبران)
+  let ot = 0;
+  if (lastOut != null && end != null) {
+    const beyond = lastOut - (compensate && compensated ? requiredEnd : end);
+    if (beyond > 0) ot = beyond;
+  }
+
+  // کمبود کارکرد نسبت به شیفت رسمی
+  const shortfall = Math.max(0, official - present);
+
+  return {
+    officialMinutes: official,
+    presentMinutes: Math.round(present),
+    delayMinutes: Math.round(delay),
+    earlyLeaveMinutes: Math.round(earlyLeave),
+    compensatedMinutes: Math.round(compensated),
+    otMinutes: Math.round(ot),
+    shortfallMinutes: Math.round(shortfall),
+    floatMinutes: floatM,
+    floatCompensate: compensate,
+    firstIn: firstIn != null ? minutesToTime(firstIn) : null,
+    lastOut: lastOut != null ? minutesToTime(lastOut) : null,
+    requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
+    workHours: Math.round((present / 60) * 100) / 100,
+    otHours: Math.round((ot / 60) * 100) / 100
+  };
+}
+
 
 function getHolidaySet(obj, year, contractType) {
   const cal = getContractCalendar(obj, contractType);
@@ -4053,6 +4277,13 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (r.body.countNonWorkDaysAsLeave != null) {
       cal.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
     }
+    const schedFields = ['workStart','workEnd','breakStart','breakEnd','dayEnd'];
+    schedFields.forEach(function (f) {
+      if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
+    });
+    if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
+    if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
+    if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
@@ -4070,6 +4301,14 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       contractTypeName: tdef ? tdef.name : ct,
       workWeekDays: cal.workWeekDays,
       countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
+      workStart: cal.workStart,
+      workEnd: cal.workEnd,
+      breakStart: cal.breakStart,
+      breakEnd: cal.breakEnd,
+      dayEnd: cal.dayEnd,
+      floatMinutes: cal.floatMinutes,
+      breakCountsAsWork: !!cal.breakCountsAsWork,
+      floatCompensate: !!cal.floatCompensate,
       contractTypesList: gd.obj.settings.contractTypesList
     });
   }
@@ -4207,6 +4446,15 @@ async function handleAdminGetCurrentMonth(request, who, env) {
     contractTypeName: tdef ? tdef.name : ct,
     workWeekDays: cal.workWeekDays,
     countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave,
+    workStart: cal.workStart,
+    workEnd: cal.workEnd,
+    breakStart: cal.breakStart,
+    breakEnd: cal.breakEnd,
+    dayEnd: cal.dayEnd,
+    floatMinutes: cal.floatMinutes,
+    breakCountsAsWork: cal.breakCountsAsWork,
+    floatCompensate: cal.floatCompensate,
+    officialWorkMinutes: officialWorkMinutes(cal),
     contractTypesList: s.contractTypesList || defaultContractTypesList()
   });
 }
