@@ -537,7 +537,8 @@ export default `(function(){
             '<button type="button" class="btn btn-outline btn-sm" id="pspTsSample">نمونه اکسل</button>' +
             '<label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">بارگذاری فایل<input type="file" id="pspTsFile" accept=".csv,.txt" style="display:none;"></label>' +
             '<span id="pspTsDayStatus" style="font-size:0.78rem;color:#0f766e;"></span></div>';
-          html += '<p style="font-size:0.75rem;color:#0f766e;margin-bottom:6px;">روزهای دارای رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b>س</p>';
+          var wdShow = (j.rows && j.rows[0] && j.rows[0].workDays != null) ? j.rows[0].workDays : '—';
+          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> | روز دارای رکورد: <b>' + filled + '</b> | ساعت کار: <b>' + sumWork.toFixed(2) + '</b> | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b>س</p>';
           html += '<div style="overflow:auto;"><table style="font-size:0.7rem;min-width:980px;"><thead><tr>' +
             '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
             '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th>' +
@@ -665,9 +666,9 @@ export default `(function(){
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:8px;">برای جدول روزبه‌روز و ثبت ورود/خروج، یک کد پرسنلی وارد کنید.</p>';
         }
         var rows = (j.rows || []).map(function(x){
-          return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td>' + x.workDays + '</td><td>' + x.leaveDays + '</td><td>' + x.hourlyLeave + '</td><td>' + x.missions + '</td><td>' + x.leaves + '</td></tr>';
+          return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td><b>' + (x.workDays!=null?x.workDays:0) + '</b></td><td>' + (x.leaveDays!=null?x.leaveDays:0) + '</td><td>' + (x.hourlyLeave!=null?x.hourlyLeave:0) + '</td><td>' + (x.missions!=null?x.missions:0) + '</td></tr>';
         }).join('');
-        html += '<h4 style="margin-top:14px;">خلاصه ماه</h4><table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد</th><th>مرخصی روز</th><th>مرخصی ساعت</th><th>مأموریت</th><th>مرخصی</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        html += '<h4 style="margin-top:14px;">خلاصه ماه</h4><table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد (روز)</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th></tr></thead><tbody>' + rows + '</tbody></table>';
         out.innerHTML = html;
       });
     };
