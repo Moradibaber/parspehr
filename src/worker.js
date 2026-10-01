@@ -1094,7 +1094,27 @@ async function stamp(html, user, env) {
         for (var d=1;d<=mdays[m];d++) {
           var key = year+'/'+String(m).padStart(2,'0')+'/'+String(d).padStart(2,'0');
           var on = !!holSet[key];
-          html += '<button type="button" data-hday="'+key+'" style="padding:3px 0;border-radius:4px;border:1px solid '+(on?'#b91c1c':'#e2e8f0')+';background:'+(on?'#fecaca':'#fff')+';cursor:pointer;" title="'+key+'">'+d+'</button>';
+          // پنجشنبه/جمعه و روزهای غیرکاری هفته (از تیک‌های بالای صفحه) هم قرمز نمایش داده شوند
+          var isNonWork = false;
+          try {
+            var wd = (function(jy,jm,jd){
+              // تقریب روز هفته جلالی (0=یکشنبه … 6=شنبه)
+              var jy2=jy-979, days=365*jy2+Math.floor(jy2/33)*8+Math.floor(((jy2%33)+3)/4)+78+jd+(jm<7?(jm-1)*31:((jm-7)*30+186));
+              var gy2=1600+400*Math.floor(days/146097); days%=146097; var leap=true;
+              if(days>=36525){days--;gy2+=100*Math.floor(days/36524);days%=36524;if(days>=365)days++;else leap=false;}
+              gy2+=4*Math.floor(days/1461);days%=1461;
+              if(days>=366){leap=false;gy2+=Math.floor((days-1)/365);days=(days-1)%365;}
+              var sal=[0,31,(leap?29:28),31,30,31,30,31,31,30,31,30,31], gm=0;
+              for(;gm<13;gm++){var v=sal[gm];if(days<v)break;days-=v;}
+              return (new Date(Date.UTC(gy2,gm-1,days+1))).getUTCDay();
+            })(year,m,d);
+            var wds = [];
+            document.querySelectorAll('.psp-wd:checked').forEach(function(c){ wds.push(Number(c.value)); });
+            if (wds.length && wds.indexOf(wd) < 0) isNonWork = true;
+          } catch(e) {}
+          var mark = on || isNonWork;
+          var title = key + (on ? ' (تعطیل رسمی)' : (isNonWork ? ' (غیرکاری هفته)' : ''));
+          html += '<button type="button" data-hday="'+key+'" style="padding:3px 0;border-radius:4px;border:1px solid '+(mark?'#b91c1c':'#e2e8f0')+';background:'+(on?'#fecaca':(isNonWork?'#fee2e2':'#fff'))+';cursor:pointer;opacity:'+(isNonWork&&!on?'0.85':'1')+';" title="'+title+'">'+d+'</button>';
         }
         html += '</div></div>';
       }
@@ -1119,7 +1139,13 @@ async function stamp(html, user, env) {
       fetch('/api/admin/holidays?year='+year+'&contractType='+encodeURIComponent(pspSelectedCt()), {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
         if (j.ok) {
           var ctL = j.contractType || pspSelectedCt();
-          window.__pspHolidays[pspHolKey(ctL, year)] = (j.days || []).slice();
+          var daysL = (j.days || []).slice();
+          if (!daysL.length) {
+            // پیش‌فرض تعطیلات رسمی شمسی اگر سرور خالی بود
+            function dI(m,day){ return year+'/'+String(m).padStart(2,'0')+'/'+String(day).padStart(2,'0'); }
+            daysL = [dI(1,1),dI(1,2),dI(1,3),dI(1,4),dI(1,12),dI(1,13),dI(3,14),dI(3,15),dI(11,22),dI(12,29)];
+          }
+          window.__pspHolidays[pspHolKey(ctL, year)] = daysL;
           renderHolidayCal();
           var st=document.getElementById('pspCalStatus'); if(st){ st.style.color='#0f766e'; st.textContent='بارگذاری شد: '+(j.days||[]).length+' روز تعطیل'; }
         }
