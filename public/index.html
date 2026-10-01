@@ -3202,39 +3202,69 @@ function renderSheetOrgFilters(containerId, prefix, onChangeFn) {
   var box = document.getElementById(containerId);
   if (!box) return;
   var onchange = onChangeFn || ('apply' + prefix.charAt(0).toUpperCase() + prefix.slice(1) + 'Filters()');
-  // حفظ تیک‌های قبلی نوع قرارداد
   var prevChecked = {};
   document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) {
     prevChecked[cb.value] = cb.checked;
   });
   var hadPrev = Object.keys(prevChecked).length > 0;
   var cts = getKnownContractTypes();
+  var checkedCount = 0;
   var ctHtml = cts.map(function(ct) {
     var ck = hadPrev ? !!prevChecked[ct] : true;
-    return '<label class="check-label" style="margin-left:10px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;">' +
-      '<input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '"' + (ck ? ' checked' : '') + ' onchange="' + onchange + '"> ' +
-      contractTypeLabel(ct) + '</label>';
+    if (ck) checkedCount++;
+    return '<label class="check-label" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+      '<input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '"' + (ck ? ' checked' : '') +
+      ' onchange="updateSheetCtSummary(\'' + prefix + '\');' + onchange + '"> ' +
+      '<span>' + contractTypeLabel(ct) + '</span></label>';
   }).join('');
+  var summaryTxt = (!cts.length) ? 'نوع قرارداد — خالی'
+    : (checkedCount === cts.length) ? 'نوع قرارداد — همه (' + cts.length + ')'
+    : (!checkedCount) ? 'نوع قرارداد — هیچ‌کدام'
+    : 'نوع قرارداد — ' + checkedCount + ' از ' + cts.length;
   box.innerHTML =
     '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:10px 12px;background:#f8fffe;">' +
     '<div style="font-weight:600;color:#0f766e;font-size:0.82rem;margin-bottom:8px;">فیلتر سازمانی و نوع قرارداد</div>' +
-    '<div class="form-grid" style="margin-bottom:8px;">' +
+    '<div class="form-grid" style="margin-bottom:10px;">' +
     '<div class="form-group"><label>مدیریت/معاونت</label><select id="' + prefix + 'FilterMgmt" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>واحد</label><select id="' + prefix + 'FilterUnit" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>گروه</label><select id="' + prefix + 'FilterGroup" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>محل کار</label><select id="' + prefix + 'FilterWorkplace" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>سمت</label><select id="' + prefix + 'FilterPosition" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '</div>' +
-    '<div style="font-size:0.8rem;display:flex;flex-wrap:wrap;align-items:center;gap:4px 0;">' +
-    '<span style="margin-left:8px;font-weight:600;color:#0f766e;">نوع قرارداد:</span> ' + ctHtml +
-    ' <button type="button" class="btn btn-outline btn-sm" style="margin-right:8px;" onclick="sheetCtSelectAll(\'' + prefix + '\',true);' + onchange + '">همه</button>' +
-    ' <button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);' + onchange + '">هیچ‌کدام</button></div>' +
-    '</div>';
+    '<div style="border:1px solid #99f6e4;border-radius:10px;overflow:hidden;background:#ecfdf5;">' +
+    '<button type="button" id="' + prefix + 'CtToggle" onclick="toggleSheetCtDrop(\'' + prefix + '\')" style="width:100%;text-align:right;padding:9px 12px;border:0;background:#ecfdf5;cursor:pointer;font-family:inherit;font-size:0.82rem;color:#0f766e;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+    '<span id="' + prefix + 'CtSummary">' + summaryTxt + '</span>' +
+    '<span id="' + prefix + 'CtChevron" style="font-size:0.75rem;color:#64748b;">▼ باز کردن</span></button>' +
+    '<div id="' + prefix + 'CtDropdown" style="display:none;padding:8px 10px;border-top:1px solid #99f6e4;background:#fff;">' +
+    '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
+    '<button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',true);updateSheetCtSummary(\'' + prefix + '\');' + onchange + '">همه</button>' +
+    '<button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);updateSheetCtSummary(\'' + prefix + '\');' + onchange + '">هیچ‌کدام</button>' +
+    '</div>' +
+    '<div style="max-height:180px;overflow:auto;font-size:0.8rem;">' + ctHtml + '</div>' +
+    '</div></div></div>';
   fillSelectOptions(document.getElementById(prefix + 'FilterMgmt'), uniqueEmpFieldValues('management'));
   fillSelectOptions(document.getElementById(prefix + 'FilterUnit'), uniqueEmpFieldValues('unit'));
   fillSelectOptions(document.getElementById(prefix + 'FilterGroup'), uniqueEmpFieldValues('group'));
   fillSelectOptions(document.getElementById(prefix + 'FilterWorkplace'), uniqueEmpFieldValues('workplace'));
   fillSelectOptions(document.getElementById(prefix + 'FilterPosition'), uniqueEmpFieldValues('position'));
+}
+function toggleSheetCtDrop(prefix) {
+  var dd = document.getElementById(prefix + 'CtDropdown');
+  var ch = document.getElementById(prefix + 'CtChevron');
+  if (!dd) return;
+  var open = dd.style.display === 'none' || !dd.style.display;
+  dd.style.display = open ? 'block' : 'none';
+  if (ch) ch.textContent = open ? '▲ بستن' : '▼ باز کردن';
+}
+function updateSheetCtSummary(prefix) {
+  var all = document.querySelectorAll('.' + prefix + '-ct-filter');
+  var checked = document.querySelectorAll('.' + prefix + '-ct-filter:checked');
+  var sum = document.getElementById(prefix + 'CtSummary');
+  if (!sum) return;
+  if (!all.length) sum.textContent = 'نوع قرارداد — خالی';
+  else if (checked.length === all.length) sum.textContent = 'نوع قرارداد — همه (' + all.length + ')';
+  else if (!checked.length) sum.textContent = 'نوع قرارداد — هیچ‌کدام';
+  else sum.textContent = 'نوع قرارداد — ' + checked.length + ' از ' + all.length;
 }
 function sheetCtSelectAll(prefix, on) {
   document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) { cb.checked = !!on; });
