@@ -308,9 +308,12 @@ async function stamp(html, user, env) {
   function ensurePortalTab() {
     var existingBtn = document.getElementById('pspPortalTabBtn');
     var existingPanel = document.getElementById('panel-portalatt');
-    if (existingBtn && existingPanel) {
+    // اگر تب هست ولی محتوای اصلی نیست، از نو بساز
+    if (existingBtn && existingPanel && document.getElementById('pspSub-ts') && document.getElementById('pspSubTabs')) {
       return;
     }
+    if (existingBtn) { try { existingBtn.parentNode.removeChild(existingBtn); } catch (e) {} }
+    if (existingPanel) { try { existingPanel.parentNode.removeChild(existingPanel); } catch (e) {} }
     // Find tab strip: parent of any existing tab button
     var sample = document.querySelector('button.tab-btn[data-tab], button.tab-btn, .tabs button, [class*="tab"] button[data-tab]');
     if (!sample) sample = document.querySelector('button.tab-btn');
@@ -397,8 +400,8 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>پایان کار</label><input id="pspWsEnd" type="text" value="17:00" dir="ltr" placeholder="17:00" style="font-variant-numeric:tabular-nums;"></div>' +
       '<div class="form-group"><label>پایان روز (حد ثبت)</label><input id="pspWsDayEnd" type="text" value="23:59" dir="ltr" placeholder="23:59"></div>' +
       '<div class="form-group"><label>شناوری (دقیقه)</label><input id="pspWsFloat" type="number" min="0" step="1" value="15"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;"><label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pspWsHasBreak" onchange="var on=this.checked;[\'pspWsBreakStart\',\'pspWsBreakEnd\',\'pspWsBreakAsWork\'].forEach(function(id){var e=document.getElementById(id);if(!e)return;if(e.type===\'checkbox\'){e.disabled=!on;if(!on)e.checked=false;}else{e.disabled=!on;e.style.opacity=on?\'\':\'0.45\';}});"> دارای وقفه (ناهار/نماز)</label></div>' +
-      '<div class="form-group"><label>شروع وقفه</label><input id="pspWsBreakStart" type="text" value="12:00" dir="ltr" placeholder="12:00" disabled style="opacity:0.45;"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;"><label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pspWsHasBreak"> دارای وقفه (ناهار/نماز)</label></div>' +
+            '<div class="form-group"><label>شروع وقفه</label><input id="pspWsBreakStart" type="text" value="12:00" dir="ltr" placeholder="12:00" disabled style="opacity:0.45;"></div>' +
       '<div class="form-group"><label>پایان وقفه</label><input id="pspWsBreakEnd" type="text" value="13:00" dir="ltr" placeholder="13:00" disabled style="opacity:0.45;"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;"><label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pspWsBreakAsWork" disabled> وقفه جزو ساعت کار باشد</label></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:4px;"><label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="pspWsFloatComp"> جبران تأخیر با ماندن در پایان</label></div>' +
@@ -543,6 +546,28 @@ async function stamp(html, user, env) {
       document.querySelectorAll('.psp-subtab').forEach(function(b){
         b.onclick = function(){ showSub(b.getAttribute('data-sub')); };
       });
+
+      function pspToggleBreakFields() {
+        var hb = document.getElementById('pspWsHasBreak');
+        var on = !!(hb && hb.checked);
+        ['pspWsBreakStart','pspWsBreakEnd','pspWsBreakAsWork'].forEach(function(id){
+          var e = document.getElementById(id);
+          if (!e) return;
+          if (e.type === 'checkbox') {
+            e.disabled = !on;
+            if (!on) e.checked = false;
+          } else {
+            e.disabled = !on;
+            e.style.opacity = on ? '' : '0.45';
+          }
+        });
+      }
+      var hbEl = document.getElementById('pspWsHasBreak');
+      if (hbEl) {
+        hbEl.addEventListener('change', pspToggleBreakFields);
+        pspToggleBreakFields();
+      }
+
       var sample = document.getElementById('pspUpSample');
       if (sample) sample.onclick = function(){
         alert('نمونه:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
