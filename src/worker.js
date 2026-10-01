@@ -569,416 +569,8 @@ const PORTAL_ADMIN_JS = `(function(){
 
       var sample = document.getElementById('pspUpSample');
       if (sample) sample.onclick = function(){
-        alert('نمونه:\\\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
+        alert('نمونه:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
       };
-
-      window.__pspPortalViewData = null;
-      function loadPortalViewCfg(){
-        var body = document.getElementById('pspPortalViewBody');
-        if (!body) return;
-        body.innerHTML = '<div style="color:#64748b;font-size:0.85rem;">در حال بارگذاری…</div>';
-        fetch('/api/admin/portal-view', { credentials: 'same-origin' })
-          .then(function(r){ return r.json(); })
-          .then(function(j){
-            if (!j.ok) { body.innerHTML = '<div style="color:#b91c1c;">خطا: ' + (j.message||j.error||'دسترسی') + '</div>'; return; }
-            window.__pspPortalViewData = j;
-            renderPortalViewCfg(j);
-          })
-          .catch(function(){ body.innerHTML = '<div style="color:#b91c1c;">خطا در ارتباط با سرور</div>'; });
-      }
-      function renderPortalViewCfg(j){
-        var body = document.getElementById('pspPortalViewBody');
-        var cfg = j.config || {};
-        var dOpts = j.decreeOptions || [];
-        var pOpts = j.profileOptions || [];
-        var emps = j.employees || [];
-        var dFields = cfg.decreeFields || [];
-        var pFields = cfg.profileFields || [];
-        var dCodes = cfg.decreeSelectedCodes || [];
-        var pCodes = cfg.profileSelectedCodes || [];
-        function modeSel(id, val){
-          var opts = [
-            ['self','فقط خود فرد (هر کس حکم/مشخصات خودش)'],
-            ['self_and_manager','خود فرد + مدیران مستقیم'],
-            ['all','همه کارکنان دارای پرتال'],
-            ['selected','فقط افراد انتخاب‌شده (با تیک)']
-          ];
-          var h = '<select id="'+id+'" style="width:100%;padding:6px 8px;border:1px solid #99f6e4;border-radius:7px;font-size:0.82rem;margin-bottom:8px;">';
-          opts.forEach(function(o){ h += '<option value="'+o[0]+'"'+(val===o[0]?' selected':'')+'>'+o[1]+'</option>'; });
-          return h + '</select>';
-        }
-        function empChecks(prefix, selected){
-          var h = '<div style="max-height:160px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
-          h += '<label style="display:block;margin-bottom:6px;"><input type="checkbox" id="'+prefix+'AllEmps"> انتخاب همه</label>';
-          emps.forEach(function(e){
-            var on = selected.indexOf(String(e.code))>=0;
-            h += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="'+prefix+'-emp" value="'+e.code+'"'+(on?' checked':'')+'> '+(e.fullName||'')+' ('+e.code+')'+(e.unit?' — '+e.unit:'')+'</label>';
-          });
-          return h + '</div>';
-        }
-        var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
-        // DECREE
-        html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">';
-        html += '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «حکم»</div>';
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowDecree"'+(cfg.showDecree!==false?' checked':'')+'> نمایش تب حکم</label>';
-        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>';
-        html += modeSel('pspDecreeMode', cfg.decreeMode||'self');
-        html += '<div id="pspDecreeEmpWrap" style="'+(cfg.decreeMode==='selected'?'':'display:none;')+'margin-bottom:8px;"><label style="font-size:0.78rem;">انتخاب افراد:</label>'+empChecks('pspDec', dCodes)+'</div>';
-        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">آیتم‌های حکم (از انتقال انتخابی / مزایا / آیتم‌های کارمند):</label>';
-        html += '<div style="max-height:180px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
-        html += '<label style="display:block;margin-bottom:4px;"><input type="checkbox" id="pspDecFieldAll"> همه آیتم‌ها</label>';
-        dOpts.forEach(function(o){
-          var on = !dFields.length || dFields.indexOf(String(o.id))>=0 || dFields.indexOf(String(o.name))>=0;
-          html += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="psp-dec-field" value="'+String(o.id).replace(/"/g,'&quot;')+'" data-name="'+String(o.name).replace(/"/g,'&quot;')+'"'+(on?' checked':'')+'> '+o.name+'</label>';
-        });
-        if (!dOpts.length) html += '<div style="color:#64748b;">آیتمی در حکم/مزایا یافت نشد.</div>';
-        html += '</div></div>';
-        // PROFILE
-        html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#fff;">';
-        html += '<div style="font-weight:700;color:#0f766e;margin-bottom:8px;">تب «مشخصات پرسنلی»</div>';
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:8px;"><input type="checkbox" id="pspShowProfile"'+(cfg.showProfile!==false?' checked':'')+'> نمایش تب مشخصات</label>';
-        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">چه کسانی ببینند؟</label>';
-        html += modeSel('pspProfileMode', cfg.profileMode||'self');
-        html += '<div id="pspProfileEmpWrap" style="'+(cfg.profileMode==='selected'?'':'display:none;')+'margin-bottom:8px;"><label style="font-size:0.78rem;">انتخاب افراد:</label>'+empChecks('pspProf', pCodes)+'</div>';
-        html += '<label style="font-size:0.78rem;display:block;margin-bottom:4px;">فیلدهای کارت کارمند:</label>';
-        html += '<div style="max-height:180px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;font-size:0.78rem;">';
-        html += '<label style="display:block;margin-bottom:4px;"><input type="checkbox" id="pspProfFieldAll"> همه فیلدها</label>';
-        pOpts.forEach(function(o){
-          var on = !pFields.length || pFields.indexOf(o.key)>=0;
-          html += '<label style="display:block;margin:2px 0;"><input type="checkbox" class="psp-prof-field" value="'+o.key+'"'+(on?' checked':'')+'> '+o.label+'</label>';
-        });
-        html += '</div></div></div>';
-        body.innerHTML = html;
-        function bindAll(allId, cls){
-          var all = document.getElementById(allId);
-          if (!all) return;
-          all.onchange = function(){
-            document.querySelectorAll('.'+cls).forEach(function(c){ c.checked = all.checked; });
-          };
-        }
-        bindAll('pspDecFieldAll', 'psp-dec-field');
-        bindAll('pspProfFieldAll', 'psp-prof-field');
-        bindAll('pspDecAllEmps', 'pspDec-emp');
-        bindAll('pspProfAllEmps', 'pspProf-emp');
-        var dm = document.getElementById('pspDecreeMode');
-        if (dm) dm.onchange = function(){ document.getElementById('pspDecreeEmpWrap').style.display = dm.value==='selected'?'':'none'; };
-        var pm = document.getElementById('pspProfileMode');
-        if (pm) pm.onchange = function(){ document.getElementById('pspProfileEmpWrap').style.display = pm.value==='selected'?'':'none'; };
-      }
-      var saveBtn = document.getElementById('pspPortalViewSave');
-      if (saveBtn) saveBtn.onclick = function(){
-        var st = document.getElementById('pspPortalViewStatus');
-        st.textContent = 'در حال ذخیره…';
-        var payload = {
-          showDecree: !!(document.getElementById('pspShowDecree')||{}).checked,
-          decreeMode: (document.getElementById('pspDecreeMode')||{}).value || 'self',
-          decreeSelectedCodes: Array.prototype.map.call(document.querySelectorAll('.pspDec-emp:checked'), function(c){ return c.value; }),
-          decreeFields: Array.prototype.map.call(document.querySelectorAll('.psp-dec-field:checked'), function(c){ return c.value; }),
-          showProfile: !!(document.getElementById('pspShowProfile')||{}).checked,
-          profileMode: (document.getElementById('pspProfileMode')||{}).value || 'self',
-          profileSelectedCodes: Array.prototype.map.call(document.querySelectorAll('.pspProf-emp:checked'), function(c){ return c.value; }),
-          profileFields: Array.prototype.map.call(document.querySelectorAll('.psp-prof-field:checked'), function(c){ return c.value; })
-        };
-        fetch('/api/admin/portal-view', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-          body: JSON.stringify(payload)
-        }).then(function(r){ return r.json(); }).then(function(j){
-          if (j.ok) { st.style.color = '#16a34a'; st.textContent = 'ذخیره شد.'; }
-          else { st.style.color = '#b91c1c'; st.textContent = j.message || j.error || 'خطا'; }
-        }).catch(function(){ st.style.color = '#b91c1c'; st.textContent = 'خطا در ارتباط'; });
-      };
-      
-      var rel = document.getElementById('pspPortalViewReload');
-      if (rel) rel.onclick = loadPortalViewCfg;
-
-      
-      // ---- Contracts ----
-      window.__pspCtrEmps = [];
-      function ctrTypeFa(t){
-        return ({fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'})[t]||t||'—';
-      }
-      function ctrStatusFa(c){
-        if (c.adminApproved) {
-          if (c.status === 'expired' || c.status === 'terminated') return '<span style="color:#b45309">پایان‌یافته</span>';
-          return '<span style="color:#15803d">تأییدشده / جاری</span>';
-        }
-        return '<span style="color:#b91c1c">منتظر تأیید ادمین</span>';
-      }
-      function loadCtrEmployees(){
-        fetch('/api/admin/portal-view', { credentials:'same-origin' })
-          .then(function(r){ return r.json(); })
-          .then(function(j){
-            if (!j.ok) return;
-            window.__pspCtrEmps = j.employees || [];
-            renderCtrEmpList();
-          }).catch(function(){});
-      }
-      function updateCtrEmpSummary(){
-        var n = document.querySelectorAll('.psp-ctr-emp:checked').length;
-        var sum = document.getElementById('pspCtrEmpSummary');
-        if (!sum) return;
-        if (n === 0) sum.textContent = 'انتخاب کارکنان — هیچ‌کس انتخاب نشده';
-        else sum.textContent = 'انتخاب کارکنان — ' + n + ' نفر انتخاب شده';
-      }
-      function renderCtrEmpList(){
-        var box = document.getElementById('pspCtrEmpList');
-        if (!box) return;
-        var q = ((document.getElementById('pspCtrEmpSearch')||{}).value || '').trim().toLowerCase();
-        var prevChecked = {};
-        document.querySelectorAll('.psp-ctr-emp:checked').forEach(function(c){ prevChecked[c.value] = true; });
-        var list = window.__pspCtrEmps || [];
-        if (q) {
-          list = list.filter(function(e){
-            return String(e.code).toLowerCase().indexOf(q) >= 0 || String(e.fullName||'').toLowerCase().indexOf(q) >= 0;
-          });
-        }
-        if (!list.length) {
-          box.innerHTML = '<div style="color:#64748b;padding:6px;">کارمندی یافت نشد.</div>';
-          updateCtrEmpSummary();
-          return;
-        }
-        var html = '';
-        list.forEach(function(e){
-          var ck = prevChecked[String(e.code)] ? ' checked' : '';
-          html += '<label style="display:flex;align-items:center;gap:8px;margin:0;padding:5px 6px;border-radius:6px;cursor:pointer;">' +
-            '<input type="checkbox" class="psp-ctr-emp" value="'+e.code+'"'+ck+'>' +
-            '<span style="flex:1;">'+(e.fullName||'')+'</span>' +
-            '<span style="color:#64748b;font-size:0.72rem;direction:ltr;">'+e.code+(e.unit?' · '+e.unit:'')+'</span></label>';
-        });
-        box.innerHTML = html;
-        box.querySelectorAll('.psp-ctr-emp').forEach(function(c){
-          c.onchange = updateCtrEmpSummary;
-        });
-        updateCtrEmpSummary();
-      }
-      function selectedCtrCodes(){
-        return Array.prototype.map.call(document.querySelectorAll('.psp-ctr-emp:checked'), function(c){ return c.value; });
-      }
-      function loadContracts(){
-        var st = document.getElementById('pspCtrStatus');
-        if (st) st.textContent = 'در حال بارگذاری…';
-        var filter = (document.getElementById('pspCtrFilter')||{}).value || 'all';
-        fetch('/api/admin/contracts?filter=' + encodeURIComponent(filter), { credentials:'same-origin' })
-          .then(function(r){ return r.json(); })
-          .then(function(j){
-            if (!j.ok) { if (st) st.textContent = j.message||j.error||'خطا'; return; }
-            renderContracts(j.contracts||[]);
-            if (st) st.textContent = (j.contracts||[]).length + ' قرارداد';
-          }).catch(function(){ if (st) st.textContent = 'خطا در ارتباط'; });
-      }
-      function renderContracts(list){
-        var box = document.getElementById('pspCtrList');
-        if (!box) return;
-        if (!list.length) { box.innerHTML = '<p style="font-size:0.85rem;color:#64748b;">قراردادی ثبت نشده.</p>'; return; }
-        var html = '<table style="font-size:0.75rem;min-width:1100px;"><thead><tr>'+
-          '<th>کد</th><th>نام</th><th>نوع</th><th>از</th><th>تا</th><th>وضعیت</th><th>محاسبه حقوق</th>'+
-          '<th>نمایش مدت</th><th>قابل مشاهده در پرتال</th><th>فایل امضا (ادمین)</th><th>عملیات</th></tr></thead><tbody>';
-        list.forEach(function(c){
-          html += '<tr data-id="'+c.id+'">'+
-            '<td>'+c.empCode+'</td><td>'+(c.empName||'')+'</td><td>'+ctrTypeFa(c.type)+'</td>'+
-            '<td dir="ltr">'+(c.startDate||'')+'</td><td dir="ltr">'+(c.endDate||'')+'</td>'+
-            '<td>'+ctrStatusFa(c)+'</td>'+
-            '<td>'+(c.adminApproved?'<span style="color:#15803d">مجاز</span>':'<span style="color:#b91c1c">غیرمجاز</span>')+'</td>'+
-            '<td style="text-align:center;"><input type="checkbox" class="psp-ctr-showdur" data-id="'+c.id+'"'+(c.showDurationToEmployee?' checked':'')+'></td>'+
-            '<td style="text-align:center;"><input type="checkbox" class="psp-ctr-visible" data-id="'+c.id+'"'+(c.visibleToEmployee!==false?' checked':'')+'></td>'+
-            '<td style="font-size:0.72rem;min-width:140px;">'+
-              (c.signedFileName?('<div>✓ '+c.signedFileName+'</div>'):'<div style="color:#64748b;">—</div>')+
-              '<label style="color:#0f766e;cursor:pointer;font-size:0.72rem;">آپلود<input type="file" class="psp-ctr-upload" data-id="'+c.id+'" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;"></label>'+
-            '</td>'+
-            '<td style="white-space:nowrap;">'+
-              (c.adminApproved?'':'<button type="button" class="btn btn-primary btn-sm psp-ctr-approve" data-id="'+c.id+'">تأیید حقوق</button> ')+
-              (c.adminApproved?'<button type="button" class="btn btn-outline btn-sm psp-ctr-revoke" data-id="'+c.id+'">لغو تأیید</button> ':'')+
-              '<button type="button" class="btn btn-outline btn-sm psp-ctr-del" data-id="'+c.id+'" style="color:#b91c1c;">حذف</button>'+
-            '</td></tr>';
-        });
-        html += '</tbody></table>';
-        box.innerHTML = html;
-        box.querySelectorAll('.psp-ctr-approve').forEach(function(b){
-          b.onclick = function(){ ctrAction(b.getAttribute('data-id'), 'approve'); };
-        });
-        box.querySelectorAll('.psp-ctr-revoke').forEach(function(b){
-          b.onclick = function(){ if(confirm('لغو تأیید محاسبه حقوق؟')) ctrAction(b.getAttribute('data-id'), 'revoke'); };
-        });
-        box.querySelectorAll('.psp-ctr-del').forEach(function(b){
-          b.onclick = function(){
-            var id = b.getAttribute('data-id');
-            if (!confirm('حذف قرارداد؟ (تأیید ۱ از ۲)')) return;
-            if (!confirm('آیا مطمئن هستید؟ قابل بازگشت نیست. (تأیید ۲ از ۲)')) return;
-            ctrAction(id, 'delete');
-          };
-        });
-        box.querySelectorAll('.psp-ctr-showdur').forEach(function(c){
-          c.onchange = function(){
-            fetch('/api/admin/contracts', {
-              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-              body: JSON.stringify({ action:'set_show_duration', id: c.getAttribute('data-id'), showDurationToEmployee: !!c.checked })
-            }).then(function(r){return r.json();}).then(function(j){
-              var st=document.getElementById('pspCtrStatus');
-              if (st) st.textContent = j.ok ? 'ذخیره شد' : (j.message||'خطا');
-            });
-          };
-        });
-        box.querySelectorAll('.psp-ctr-visible').forEach(function(c){
-          c.onchange = function(){
-            fetch('/api/admin/contracts', {
-              method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-              body: JSON.stringify({ action:'set_visible', id: c.getAttribute('data-id'), visibleToEmployee: !!c.checked })
-            }).then(function(r){return r.json();}).then(function(j){
-              var st=document.getElementById('pspCtrStatus');
-              if (st) st.textContent = j.ok ? 'ذخیره شد' : (j.message||'خطا');
-            });
-          };
-        });
-        box.querySelectorAll('.psp-ctr-upload').forEach(function(inp){
-          inp.onchange = function(){
-            var f = inp.files && inp.files[0];
-            if (!f) return;
-            if (f.size > 400000) { alert('حداکثر حجم حدود ۳۵۰KB'); return; }
-            var reader = new FileReader();
-            reader.onload = function(){
-              fetch('/api/admin/contracts', {
-                method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-                body: JSON.stringify({
-                  action: 'upload_signed',
-                  id: inp.getAttribute('data-id'),
-                  fileName: f.name,
-                  fileData: reader.result
-                })
-              }).then(function(r){return r.json();}).then(function(j){
-                var st=document.getElementById('pspCtrStatus');
-                if (!j.ok) { if(st) st.textContent = j.message||'خطا'; alert(j.message||'خطا'); return; }
-                if (st) st.textContent = 'فایل امضا ثبت شد.';
-                loadContracts();
-              });
-            };
-            reader.readAsDataURL(f);
-          };
-        });
-      }
-      function ctrAction(id, action){
-        fetch('/api/admin/contracts', {
-          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-          body: JSON.stringify({ action: action, id: id })
-        }).then(function(r){return r.json();}).then(function(j){
-          var st=document.getElementById('pspCtrStatus');
-          if (!j.ok) { if(st) st.textContent = j.message||j.error||'خطا'; return; }
-          if (st) st.textContent = action==='delete'?'حذف شد.':(action==='approve'?'تأیید شد.':'انجام شد.');
-          loadContracts();
-        });
-      }
-      function parseCodesFromText(text){
-        var codes = [];
-        var lines = String(text||'').split(/\\\\r?\\\\n/);
-        lines.forEach(function(line, idx){
-          var cells = line.split(/[,;\\\\t]/);
-          if (!cells.length) return;
-          // header skip
-          var first = (cells[0]||'').trim().replace(/^["']|["']$/g,'');
-          if (idx === 0 && /code|کد|پرسنل/i.test(first)) {
-            // find code column
-            return;
-          }
-          if (idx === 0 && /code|کد/i.test(line)) {
-            var hi = cells.findIndex(function(c){ return /code|کد/i.test(c); });
-            if (hi >= 0) {
-              // process rest of lines with that col - store on window
-              window.__pspCtrExcelCol = hi;
-              return;
-            }
-          }
-          var col = window.__pspCtrExcelCol != null ? window.__pspCtrExcelCol : 0;
-          var code = (cells[col]||cells[0]||'').trim().replace(/^["']|["']$/g,'');
-          if (code && !/code|کد|نام/i.test(code) && codes.indexOf(code) < 0) codes.push(code);
-        });
-        window.__pspCtrExcelCol = null;
-        return codes;
-      }
-      var ctrCreate = document.getElementById('pspCtrCreate');
-      if (ctrCreate) ctrCreate.onclick = function(){
-        var codes = selectedCtrCodes();
-        if (!codes.length) { alert('حداقل یک نفر را از لیست تیک بزنید.'); return; }
-        var body = {
-          action: 'create',
-          codes: codes,
-          startDate: (document.getElementById('pspCtrFrom').value||'').trim(),
-          endDate: (document.getElementById('pspCtrTo').value||'').trim(),
-          type: document.getElementById('pspCtrType').value,
-          note: (document.getElementById('pspCtrNote').value||'').trim(),
-          showDurationToEmployee: !!(document.getElementById('pspCtrShowDurDef')||{}).checked,
-          visibleToEmployee: !!(document.getElementById('pspCtrVisibleDef')||{}).checked
-        };
-        if (!body.startDate) { alert('تاریخ شروع الزامی است.'); return; }
-        fetch('/api/admin/contracts', {
-          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-          body: JSON.stringify(body)
-        }).then(function(r){return r.json();}).then(function(j){
-          var st=document.getElementById('pspCtrStatus');
-          if (!j.ok) { if(st) st.textContent = j.message||j.error||'خطا'; alert(j.message||'خطا'); return; }
-          if (st) st.textContent = (j.created||0)+' قرارداد ایجاد شد.';
-          loadContracts();
-        });
-      };
-      var ctrLoad = document.getElementById('pspCtrLoad');
-      if (ctrLoad) ctrLoad.onclick = loadContracts;
-      var ctrFilter = document.getElementById('pspCtrFilter');
-      if (ctrFilter) ctrFilter.onchange = loadContracts;
-      var empSearch = document.getElementById('pspCtrEmpSearch');
-      if (empSearch) empSearch.oninput = renderCtrEmpList;
-      var empAll = document.getElementById('pspCtrEmpAll');
-      if (empAll) empAll.onchange = function(){
-        document.querySelectorAll('.psp-ctr-emp').forEach(function(c){ c.checked = empAll.checked; });
-        updateCtrEmpSummary();
-      };
-      var empToggle = document.getElementById('pspCtrEmpToggle');
-      if (empToggle) empToggle.onclick = function(){
-        var dd = document.getElementById('pspCtrEmpDropdown');
-        var ch = document.getElementById('pspCtrEmpChevron');
-        if (!dd) return;
-        var open = dd.style.display === 'none' || !dd.style.display;
-        // currently hidden if display none
-        if (dd.style.display === 'none') {
-          dd.style.display = 'block';
-          if (ch) ch.textContent = '▲ بستن';
-          if (!(window.__pspCtrEmps||[]).length) loadCtrEmployees();
-          else renderCtrEmpList();
-        } else {
-          dd.style.display = 'none';
-          if (ch) ch.textContent = '▼ باز کردن';
-        }
-      };
-      var excelInp = document.getElementById('pspCtrExcel');
-      if (excelInp) excelInp.onchange = function(){
-        var f = excelInp.files && excelInp.files[0];
-        if (!f) return;
-        var reader = new FileReader();
-        reader.onload = function(){
-          var codes = parseCodesFromText(reader.result);
-          if (!codes.length) { alert('کدی از فایل خوانده نشد. ستون اول را کد پرسنلی بگذارید.'); return; }
-          // tick matching employees
-          var set = {};
-          codes.forEach(function(c){ set[String(c)] = true; });
-          document.querySelectorAll('.psp-ctr-emp').forEach(function(cb){
-            if (set[cb.value]) cb.checked = true;
-          });
-          // if some codes not in current filter list, expand: clear search and retick
-          var missing = codes.filter(function(c){
-            return !(window.__pspCtrEmps||[]).some(function(e){ return String(e.code)===String(c); });
-          });
-          var st=document.getElementById('pspCtrStatus');
-          updateCtrEmpSummary();
-          if (st) st.textContent = codes.length + ' کد از فایل — ' + document.querySelectorAll('.psp-ctr-emp:checked').length + ' نفر تیک خورد' +
-            (missing.length ? (' | یافت‌نشده: '+missing.slice(0,10).join(', ')) : '');
-          excelInp.value = '';
-        };
-        reader.readAsText(f);
-      };
-      // preload employees when opening contracts tab
-      var _origShowSub = null;
-    })()
-    try {
-;
-
-
 
     var __tsLoad = document.getElementById('pspTsLoad');
     if (__tsLoad) __tsLoad.onclick = function() {
@@ -1005,31 +597,31 @@ const PORTAL_ADMIN_JS = `(function(){
             sumOt += Number(d.otHours) || 0;
           });
           html += '<p style="font-size:0.85rem;margin-bottom:6px;"><b>' + (j.daily.fullName||'') + '</b> — کد ' + j.daily.code + ' — ' + j.year + '/' + j.month;
-          html += ' <span style="color:#64748b;font-size:0.75rem;">| شیفت ' + (sch.workStart||'') + '–' + (sch.workEnd||'') + (sch.hasBreak?(' وقفه '+sch.breakStart+'-'+sch.breakEnd):' بدون وقفه') + ' | رسمی ' + ((sch.officialMinutes||0)/60).toFixed(1) + 'س</span></p>';
+          html += ' <span style="color:#64748b;font-size:0.75rem;">| شیفت ' + (sch.workStart||'') + '–' + (sch.workEnd||'') + (sch.hasBreak?(' وقفه '+sch.breakStart+'-'+sch.breakEnd):' بدون وقفه') + '</span></p>';
           html += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
             '<button type="button" class="btn btn-primary btn-sm" id="pspTsSaveDays">ذخیره ورود/خروج ماه</button>' +
             '<button type="button" class="btn btn-outline btn-sm" id="pspTsSample">نمونه اکسل</button>' +
-            '<label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">بارگذاری فایل<input type="file" id="pspTsFile" accept=".csv,.txt,.xlsx" style="display:none;"></label>' +
+            '<label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">بارگذاری فایل<input type="file" id="pspTsFile" accept=".csv,.txt" style="display:none;"></label>' +
             '<span id="pspTsDayStatus" style="font-size:0.78rem;color:#0f766e;"></span></div>';
-          html += '<p style="font-size:0.75rem;color:#0f766e;margin-bottom:6px;">روزهای دارای رکورد: <b>' + filled + '</b> | جمع کار: <b>' + sumWork.toFixed(2) + '</b> س | تأخیر: <b>' + sumDelay + '</b> د | تعجیل: <b>' + sumEarly + '</b> د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b> س</p>';
-          html += '<div style="overflow:auto;"><table style="font-size:0.72rem;min-width:1100px;"><thead><tr>' +
+          html += '<p style="font-size:0.75rem;color:#0f766e;margin-bottom:6px;">روزهای دارای رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b>س</p>';
+          html += '<div style="overflow:auto;"><table style="font-size:0.7rem;min-width:980px;"><thead><tr>' +
             '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
-            '<th>کار(س)</th><th>تأخیر(د)</th><th>تعجیل(د)</th><th>اضافه(س)</th>' +
+            '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th>' +
             '<th>مأموریت</th><th>مرخصی</th><th>توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
             var bg = d.isNonWork ? 'background:#fef2f2;' : '';
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
-              '<td data-date="'+d.date+'">' + d.date + '</td><td>' + (d.weekday||'') + '</td>' +
-              '<td><input class="ts-in1" value="'+(d.in1||'')+'" style="width:58px;padding:2px;" dir="ltr" placeholder="08:00"></td>' +
-              '<td><input class="ts-out1" value="'+(d.out1||'')+'" style="width:58px;padding:2px;" dir="ltr" placeholder="12:00"></td>' +
-              '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="width:58px;padding:2px;" dir="ltr"></td>' +
-              '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="width:58px;padding:2px;" dir="ltr"></td>' +
+              '<td data-date="'+d.date+'" style="white-space:nowrap;">' + d.date + '</td><td>' + (d.weekday||'') + '</td>' +
+              '<td><input class="ts-in1" value="'+(d.in1||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr" placeholder="08:00"></td>' +
+              '<td><input class="ts-out1" value="'+(d.out1||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
+              '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
+              '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
               '<td>' + (d.workHours!=null?d.workHours:'') + '</td>' +
               '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
-              '<td>' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td>' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:90px;padding:2px;"></td></tr>';
+              '<td style="font-size:0.65rem;">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td style="font-size:0.65rem;">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:70px;padding:1px;font-size:0.68rem;"></td></tr>';
           });
           html += '</tbody></table></div>';
           window.__pspTsDaily = j.daily;
@@ -1078,15 +670,15 @@ const PORTAL_ADMIN_JS = `(function(){
             }
             var btn = document.getElementById('pspTsSaveDays');
             if (btn) btn.onclick = function(){ saveDays(true); };
-            var sample = document.getElementById('pspTsSample');
-            if (sample) sample.onclick = function(){
-              var lines = ['تاریخ,ورود1,خروج1,ورود2,خروج2,توضیح'];
+            var smp = document.getElementById('pspTsSample');
+            if (smp) smp.onclick = function(){
               var y = window.__pspTsYear, m = window.__pspTsMonth;
+              var lines = ['date,in1,out1,in2,out2,note'];
               for (var d=1; d<=3; d++) {
                 var ds = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
                 lines.push(ds + ',08:00,12:00,13:00,17:05,');
               }
-              var blob = new Blob([lines.join('\\n')], {type:'text/csv;charset=utf-8'});
+              var blob = new Blob(['\ufeff' + lines.join('\n')], {type:'text/csv;charset=utf-8'});
               var a = document.createElement('a');
               a.href = URL.createObjectURL(blob);
               a.download = 'timesheet-sample.csv';
@@ -1099,14 +691,13 @@ const PORTAL_ADMIN_JS = `(function(){
               var reader = new FileReader();
               reader.onload = function(){
                 var text = String(reader.result||'');
-                var lines = text.split(/\\r?\\n/).filter(function(l){ return l.trim(); });
+                var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
                 var map = {};
-                lines.forEach(function(line, li){
-                  var parts = line.split(/[,;\\t|]/);
+                lines.forEach(function(line){
+                  var parts = line.split(/[,;\t|]/);
                   if (!parts.length) return;
                   var date = (parts[0]||'').trim().replace(/-/g,'/');
-                  if (!/\\d{4}\\/\\d{1,2}\\/\\d{1,2}/.test(date)) return;
-                  // normalize pad
+                  if (!/\d{4}\/\d{1,2}\/\d{1,2}/.test(date)) return;
                   var p = date.split('/');
                   date = p[0] + '/' + String(Number(p[1])).padStart(2,'0') + '/' + String(Number(p[2])).padStart(2,'0');
                   map[date] = {
@@ -1131,12 +722,12 @@ const PORTAL_ADMIN_JS = `(function(){
                   n++;
                 });
                 var st = document.getElementById('pspTsDayStatus');
-                if (st) { st.style.color='#0f766e'; st.textContent = n + ' روز از فایل در جدول قرار گرفت. «ذخیره» را بزنید.'; }
+                if (st) { st.style.color='#0f766e'; st.textContent = n + ' روز از فایل. «ذخیره» را بزنید.'; }
               };
               reader.readAsText(f);
             };
           }, 50);
-                } else if (!document.getElementById('pspTsCode').value.trim()) {
+        } else if (!document.getElementById('pspTsCode').value.trim()) {
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:8px;">برای جدول روزبه‌روز و ثبت ورود/خروج، یک کد پرسنلی وارد کنید.</p>';
         }
         var rows = (j.rows || []).map(function(x){
@@ -3337,7 +2928,9 @@ function officialWorkMinutes(cal) {
  * punches: [{in:'08:05', out:'12:00'}, {in:'13:00', out:'17:10'}] یا in1,out1,in2,out2
  * نتیجه: دقیقه کار خالص، تأخیر، تعجیل خروج، اضافه‌کار، شناوری جبران‌شده
  */
-function computeDayTimesheet(cal, punches) {
+function computeDayTimesheet(cal, punches, opts) {
+  opts = opts || {};
+  const isHoliday = !!opts.isHoliday;
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
@@ -3431,8 +3024,18 @@ function computeDayTimesheet(cal, punches) {
     if (beyond > 0) ot = beyond;
   }
 
-  // کمبود کارکرد نسبت به شیفت رسمی
-  const shortfall = Math.max(0, official - present);
+  // روز تعطیل/غیرکاری: تمام حضور = اضافه‌کار
+  let workPresent = present;
+  if (isHoliday && present > 0) {
+    ot = present;
+    workPresent = 0;
+    delay = 0;
+    earlyLeave = 0;
+    compensated = 0;
+  }
+
+  // کمبود کارکرد نسبت به شیفت رسمی (تعطیل: کمبود معنا ندارد)
+  const shortfall = isHoliday ? 0 : Math.max(0, official - present);
 
   return {
     officialMinutes: official,
@@ -3444,10 +3047,11 @@ function computeDayTimesheet(cal, punches) {
     shortfallMinutes: Math.round(shortfall),
     floatMinutes: floatM,
     floatCompensate: compensate,
+    isHoliday: isHoliday,
     firstIn: firstIn != null ? minutesToTime(firstIn) : null,
     lastOut: lastOut != null ? minutesToTime(lastOut) : null,
     requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
-    workHours: Math.round((present / 60) * 100) / 100,
+    workHours: Math.round((workPresent / 60) * 100) / 100,
     otHours: Math.round((ot / 60) * 100) / 100
   };
 }
@@ -3890,18 +3494,37 @@ async function handleEmpTimesheet(request, env) {
   reMissionHours = Math.round(reMissionHours * 100) / 100;
   const emp = (gd.obj.employees || []).find(e => String(e.code) === code);
   // day-by-day sheet (same shape as admin Excel-like timesheet)
-  const dim = daysInJalaliMonth(year, month);
+    const dim = daysInJalaliMonth(year, month);
+  if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
+  const punchStore = gd.obj.dailyAttendance[String(code)] || {};
+  const empCt = (emp && emp.contractType) || 'normal';
+  const cal = getContractCalendar(gd.obj, empCt);
   const dayMap = {};
   for (let d = 1; d <= dim; d++) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+    const punch = punchStore[dk] || punchStore[dateFa] || {};
+    const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
+    const calc = computeDayTimesheet(cal, {
+      in1: punch.in1 || '', out1: punch.out1 || '',
+      in2: punch.in2 || '', out2: punch.out2 || ''
+    }, { isHoliday: nonWork });
     dayMap[dk] = {
       day: d,
-      date: year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0'),
+      date: dateFa,
+      in1: punch.in1 || '',
+      out1: punch.out1 || '',
+      in2: punch.in2 || '',
+      out2: punch.out2 || '',
+      workHours: calc.workHours,
+      otHours: calc.otHours,
+      delayMin: calc.delayMinutes,
       leaveDaily: '',
       leaveHourly: '',
       missionDaily: '',
       missionHourly: '',
-      note: ''
+      note: punch.note || '',
+      isNonWork: nonWork
     };
   }
   reqs.forEach(function (x) {
@@ -3923,17 +3546,38 @@ async function handleEmpTimesheet(request, env) {
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
 
+  // کارکرد نمایشی = روزهای حضور تایم‌شیت + مرخصی روزانه تأییدشده + مأموریت روزانه تأییدشده
+  let punchWorkDays = 0;
+  let punchOt = 0;
+  Object.keys(dayMap).forEach(function (k) {
+    const c = dayMap[k];
+    if ((c.in1 || c.out1 || c.in2 || c.out2) && !c.isNonWork && (Number(c.workHours) || 0) > 0) punchWorkDays++;
+    else if ((c.in1 || c.out1 || c.in2 || c.out2) && c.isNonWork) { /* تعطیل فقط OT */ }
+    punchOt += Number(c.otHours) || 0;
+  });
+  const leaveD = (typeof reLeaveDays === 'number' ? reLeaveDays : (Number(row.leaveDays) || 0));
+  const missionD = (typeof reMissionDays === 'number' ? reMissionDays : (Number(row.missionDays) || 0));
+  // روزهایی که فقط مرخصی/مأموریت دارند و پانچ ندارند هم جزو کارکرد
+  let leaveMissionAsWork = 0;
+  Object.keys(dayMap).forEach(function (k) {
+    const c = dayMap[k];
+    const hasPunch = !!(c.in1 || c.out1 || c.in2 || c.out2);
+    if (!hasPunch && (c.leaveDaily || c.missionDaily)) leaveMissionAsWork++;
+  });
+  const displayWorkDays = Math.max(Number(row.workDays) || 0, punchWorkDays + leaveMissionAsWork);
+  // اگر مرخصی/مأموریت روزانه تأیید شده، در کارکرد لحاظ شود
+  const workWithAtt = punchWorkDays + leaveMissionAsWork;
   return jsonResponse({
     ok: true,
     code,
     fullName: emp ? emp.fullName : '',
     year, month,
-    workDays: Number(row.workDays) || 0,
-    leaveDays: (typeof reLeaveDays === 'number' ? reLeaveDays : (Number(row.leaveDays) || 0)),
+    workDays: workWithAtt || displayWorkDays,
+    leaveDays: leaveD,
     hourlyLeave: (typeof reHourlyLeave === 'number' ? reHourlyLeave : (Number(row.hourlyLeave) || 0)),
-    missionDays: (typeof reMissionDays === 'number' ? reMissionDays : (Number(row.missionDays) || 0)),
+    missionDays: missionD,
     missionHours: (typeof reMissionHours === 'number' ? reMissionHours : (Number(row.missionHours) || 0)),
-    otHours: Number(row.otHours) || 0,
+    otHours: punchOt || (Number(row.otHours) || 0),
     nightHours: Number(row.nightHours) || 0,
     requests: reqs,
     daily: { code: code, fullName: emp ? emp.fullName : '', days: dailyDays }
@@ -4076,10 +3720,11 @@ async function handleAdminTimesheet(request, who, env) {
       const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
       const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
       const punch = punchStore[dk] || punchStore[dateFa] || {};
+      const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
         in2: punch.in2 || '', out2: punch.out2 || ''
-      });
+      }, { isHoliday: nonWork });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -4100,7 +3745,7 @@ async function handleAdminTimesheet(request, who, env) {
         missionDaily: '',
         missionHourly: '',
         note: punch.note || '',
-        isNonWork: isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal')
+        isNonWork: nonWork
       };
     }
     (rows[0].requests || []).forEach(function (x) {
@@ -4196,9 +3841,11 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         const punch = store[dk];
         if (!punch) continue;
         if (!punch.in1 && !punch.out1 && !punch.in2 && !punch.out2) continue;
-        const calc = computeDayTimesheet(cal, punch);
+        const p = parseJalaliYMD(dk.replace(/-/g, '/'));
+        const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
+        const calc = computeDayTimesheet(cal, punch, { isHoliday: nonWork });
         if (calc.presentMinutes > 0) {
-          workDays++;
+          if (!nonWork && calc.workHours > 0) workDays++;
           sumWorkMin += calc.presentMinutes;
           sumOt += calc.otMinutes;
           sumDelay += calc.delayMinutes;
@@ -6449,15 +6096,22 @@ async function loadTimesheet(){
     html+='<tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      html+='<div style="overflow:auto"><table style="font-size:0.78rem;min-width:720px"><thead><tr>';
+      html+='<div style="overflow:auto"><table style="font-size:0.7rem;min-width:100%;width:100%"><thead><tr>';
       html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>';
-      html+='<th>مأموریت ساعتی</th><th>مأموریت روزانه</th><th>مرخصی ساعتی</th><th>مرخصی روزانه</th><th>توضیح</th>';
+      html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
-        html+='<tr><td>'+d.date+'</td><td></td><td></td><td></td><td></td>';
-        html+='<td>'+(d.missionHourly||'')+'</td><td>'+(d.missionDaily||'')+'</td>';
-        html+='<td>'+(d.leaveHourly||'')+'</td><td>'+(d.leaveDaily||'')+'</td>';
-        html+='<td>'+(d.note||'')+'</td></tr>';
+        var bg=d.isNonWork?'background:#fef2f2;':'';
+        html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in1||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out1||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in2||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out2||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.missionHourly||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.missionDaily||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.leaveHourly||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.leaveDaily||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.note||''))+'</td></tr>';
       });
       html+='</tbody></table></div>';
     }
