@@ -394,7 +394,7 @@ async function stamp(html, user, env) {
       '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری شمرده شوند</option><option value="yes">بلی — تعطیلات و روزهای غیرکاری هم جزو مرخصی</option></select></div>' +
       '<div class="form-group" style="grid-column:1/-1;"><span id="pspCurStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '</div>' +      '<div class="section-title" style="margin-top:16px;">تقویم تعطیلات سال</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">تقویم تعطیلات برای <b>نوع قرارداد انتخاب‌شده</b>. روز قرمز = تعطیل. روزهای غیرکاری هفته طبق تیک‌های بالا برای همان نوع قرارداد اعمال می‌شود.</p>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">پیش‌فرض ایران: پنجشنبه و جمعه تعطیل + تعطیلات رسمی شمسی (نوروز، ۲۲ بهمن، …). مناسبت‌های قمری را ادمین اضافه کند. هر نوع قرارداد تقویم مستقل دارد و روی بقیه کپی/پاک نمی‌شود.</p>' +
       '<div class="form-grid" style="margin-bottom:8px;">' +
       '<div class="form-group"><label>سال تقویم</label><input type="number" id="pspCalYear" value="1405"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
@@ -1074,17 +1074,18 @@ async function stamp(html, user, env) {
     }).catch(function(){});
     function defaultContractTypesClient(){ return [{id:'normal',name:'عادی'},{id:'daily',name:'روزمزد'},{id:'hourly',name:'ساعتی'}]; }
 
-    window.__pspHolidays = {};
+    window.__pspHolidays = {}; // key: contractType + '|' + year
+    function pspHolKey(ct, year) { return String(ct || 'normal') + '|' + String(year); }
     function renderHolidayCal() {
       var box = document.getElementById('pspCalBox');
       if (!box) return;
       var year = Number(document.getElementById('pspCalYear').value) || 1405;
+      var ct = (typeof pspSelectedCt === 'function') ? pspSelectedCt() : 'normal';
       var monthNames = ['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
       var mdays = [0,31,31,31,31,31,31,30,30,30,30,30,29];
-      // سال کبیسه ساده
       var cy = year - 979; var k = cy % 33; var breaks = [1,5,9,13,17,22,26,30];
       if (breaks.indexOf(k)>=0) mdays[12]=30;
-      var hol = window.__pspHolidays[String(year)] || [];
+      var hol = window.__pspHolidays[pspHolKey(ct, year)] || [];
       var holSet = {}; hol.forEach(function(d){ holSet[d]=true; });
       var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">';
       for (var m=1;m<=12;m++) {
@@ -1102,10 +1103,12 @@ async function stamp(html, user, env) {
       box.querySelectorAll('[data-hday]').forEach(function(btn){
         btn.onclick = function(){
           var key = btn.getAttribute('data-hday');
-          var list = window.__pspHolidays[String(year)] || [];
+          var ct2 = (typeof pspSelectedCt === 'function') ? pspSelectedCt() : 'normal';
+          var hk = pspHolKey(ct2, year);
+          var list = (window.__pspHolidays[hk] || []).slice();
           var ix = list.indexOf(key);
           if (ix >= 0) list.splice(ix,1); else list.push(key);
-          window.__pspHolidays[String(year)] = list;
+          window.__pspHolidays[hk] = list;
           renderHolidayCal();
         };
       });
@@ -1115,7 +1118,8 @@ async function stamp(html, user, env) {
       var year = Number(document.getElementById('pspCalYear').value)||1405;
       fetch('/api/admin/holidays?year='+year+'&contractType='+encodeURIComponent(pspSelectedCt()), {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
         if (j.ok) {
-          window.__pspHolidays[String(year)] = j.days || [];
+          var ctL = j.contractType || pspSelectedCt();
+          window.__pspHolidays[pspHolKey(ctL, year)] = (j.days || []).slice();
           renderHolidayCal();
           var st=document.getElementById('pspCalStatus'); if(st){ st.style.color='#0f766e'; st.textContent='بارگذاری شد: '+(j.days||[]).length+' روز تعطیل'; }
         }
@@ -1124,7 +1128,7 @@ async function stamp(html, user, env) {
     var calSave = document.getElementById('pspCalSave');
     if (calSave) calSave.onclick = function(){
       var year = Number(document.getElementById('pspCalYear').value)||1405;
-      var days = window.__pspHolidays[String(year)] || [];
+      var days = (window.__pspHolidays[pspHolKey(pspSelectedCt(), year)] || []).slice();
       var st=document.getElementById('pspCalStatus'); if(st) st.textContent='ذخیره…';
       fetch('/api/admin/holidays', {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
@@ -2526,28 +2530,41 @@ async function handleEmpCreateRequest(request, env) {
     }
 
 
-    // رد مرخصی روزانه در روزهای تعطیل/غیرکاری (تقویم نوع قرارداد کارمند)
-    if (kind === 'leave' && mode === 'daily' && startDate) {
+    // قوانین مرخصی روزانه و تعطیل (تقویم نوع قرارداد کارمند):
+    // - کل بازه تعطیل → رد
+    // - روز شروع تعطیل → رد
+    // - روز پایان تعطیل → رد
+    // - شروع و پایان عادی، تعطیل میانی → قبول؛ فقط روزهای کاری شمرده می‌شوند
+    if (kind === 'leave' && mode === 'daily' && startDate && !fixedDays) {
       const empCt = emp.contractType || 'normal';
       const ws = getWorkWeekSettings(gd.obj, empCt);
       if (!ws.countNonWorkDaysAsLeave) {
-        const nonWork = listNonWorkDaysInRange(gd.obj, startDate, endDate || startDate, empCt);
-        if (nonWork.length) {
+        const endD = endDate || startDate;
+        const sp = parseJalaliYMD(startDate);
+        const ep = parseJalaliYMD(endD);
+        if (sp && isHolidayOrNonWork(gd.obj, sp.y, sp.m, sp.d, empCt)) {
           return jsonResponse({
             ok: false,
             error: 'holiday_not_leave',
-            message: 'روز تعطیل/غیرکاری به‌عنوان مرخصی محسوب نمی‌شود: ' + nonWork.join('، ') + '. فقط روزهای کاری تقویم نوع قرارداد «' + empCt + '» قابل ثبت است.',
-            nonWorkDays: nonWork
+            message: 'روز شروع (' + startDate + ') تعطیل/غیرکاری است و به‌عنوان مرخصی محسوب نمی‌شود. تاریخ شروع را روی یک روز کاری بگذارید.'
           }, 400);
         }
-      }
-      const daysNeeded0 = countLeaveDays({ mode: 'daily', startDate: startDate, endDate: endDate || startDate, fixedDays: fixedDays }, gd.obj, empCt);
-      if (!fixedDays && daysNeeded0 <= 0) {
-        return jsonResponse({
-          ok: false,
-          error: 'holiday_not_leave',
-          message: 'در بازه انتخاب‌شده هیچ روز کاری وجود ندارد؛ روز تعطیل به‌عنوان مرخصی محسوب نمی‌شود.'
-        }, 400);
+        if (ep && isHolidayOrNonWork(gd.obj, ep.y, ep.m, ep.d, empCt)) {
+          return jsonResponse({
+            ok: false,
+            error: 'holiday_not_leave',
+            message: 'روز پایان (' + endD + ') تعطیل/غیرکاری است و به‌عنوان مرخصی محسوب نمی‌شود. تاریخ پایان را روی یک روز کاری بگذارید.'
+          }, 400);
+        }
+        const daysNeeded0 = countLeaveDays({ mode: 'daily', startDate: startDate, endDate: endD }, gd.obj, empCt);
+        if (daysNeeded0 <= 0) {
+          return jsonResponse({
+            ok: false,
+            error: 'holiday_not_leave',
+            message: 'در بازه انتخاب‌شده هیچ روز کاری وجود ندارد؛ مرخصی فقط روی روزهای کاری ثبت می‌شود.'
+          }, 400);
+        }
+        // تعطیلات میانی فقط از شمارش کسر می‌شوند (در countLeaveDays) — درخواست پذیرفته می‌شود
       }
     }
 
@@ -2881,6 +2898,32 @@ function defaultContractTypesList() {
   ];
 }
 
+/** تعطیلات رسمی شمسی ثابت (بدون مناسبت‌های قمری که هر سال جابه‌جا می‌شوند) */
+function defaultIranHolidaysForYear(year) {
+  year = Number(year);
+  function d(m, day) {
+    return year + '/' + String(m).padStart(2, '0') + '/' + String(day).padStart(2, '0');
+  }
+  return [
+    d(1, 1), d(1, 2), d(1, 3), d(1, 4), // نوروز
+    d(1, 12), // روز جمهوری اسلامی
+    d(1, 13), // روز طبیعت
+    d(3, 14), // رحلت امام خمینی
+    d(3, 15), // قیام ۱۵ خرداد
+    d(11, 22), // پیروزی انقلاب
+    d(12, 29) // ملی شدن صنعت نفت
+  ];
+}
+
+function cloneHolidaysByYear(src) {
+  const out = {};
+  if (!src || typeof src !== 'object') return out;
+  Object.keys(src).forEach(function (y) {
+    out[y] = Array.isArray(src[y]) ? src[y].slice() : [];
+  });
+  return out;
+}
+
 function ensureContractCalendars(obj) {
   if (!obj.settings) obj.settings = {};
   const s = obj.settings;
@@ -2888,22 +2931,49 @@ function ensureContractCalendars(obj) {
     s.contractTypesList = defaultContractTypesList();
   }
   if (!s.contractCalendars || typeof s.contractCalendars !== 'object') s.contractCalendars = {};
-  // مهاجرت از تنظیمات سراسری قدیمی به نوع «عادی»
+  const cy = Number(s.currentYear) || 1405;
+
+  // مهاجرت یک‌باره از تنظیمات سراسری — کپی عمیق تا اشتراک مرجع نباشد
   if (!s.contractCalendars.normal) {
+    const migrated = (s.holidaysByYear && typeof s.holidaysByYear === 'object')
+      ? cloneHolidaysByYear(s.holidaysByYear)
+      : {};
+    if (!migrated[String(cy)] || !migrated[String(cy)].length) {
+      migrated[String(cy)] = defaultIranHolidaysForYear(cy);
+    }
     s.contractCalendars.normal = {
-      workWeekDays: Array.isArray(s.workWeekDays) ? s.workWeekDays.slice() : [6, 0, 1, 2, 3],
-      countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave,
-      holidaysByYear: s.holidaysByYear && typeof s.holidaysByYear === 'object' ? s.holidaysByYear : {}
+      workWeekDays: Array.isArray(s.workWeekDays) && s.workWeekDays.length ? s.workWeekDays.slice() : [6, 0, 1, 2, 3],
+      countNonWorkDaysAsLeave: false,
+      holidaysByYear: migrated
     };
   }
+
   s.contractTypesList.forEach(function (t) {
     if (!t || !t.id) return;
     if (!s.contractCalendars[t.id]) {
+      // تقویم جدید: پیش‌فرض ایران، مستقل از انواع دیگر (کپی از لیست پیش‌فرض نه از نوع دیگر)
+      const hy = {};
+      hy[String(cy)] = defaultIranHolidaysForYear(cy);
       s.contractCalendars[t.id] = {
-        workWeekDays: [6, 0, 1, 2, 3],
+        workWeekDays: [6, 0, 1, 2, 3], // شنبه تا چهارشنبه؛ پنجشنبه و جمعه تعطیل
         countNonWorkDaysAsLeave: false,
-        holidaysByYear: {}
+        holidaysByYear: hy
       };
+    } else {
+      // اطمینان از وجود آرایه تعطیلات سال جاری بدون پاک کردن سال‌های دیگر
+      const cal = s.contractCalendars[t.id];
+      if (!cal.holidaysByYear || typeof cal.holidaysByYear !== 'object') cal.holidaysByYear = {};
+      if (!Array.isArray(cal.workWeekDays) || !cal.workWeekDays.length) {
+        cal.workWeekDays = [6, 0, 1, 2, 3];
+      }
+      // اگر سال جاری هیچ تعطیلی ندارد، فقط همان سال را با پیش‌فرض پر کن (سال‌های دیگر دست نخورند)
+      if (!Array.isArray(cal.holidaysByYear[String(cy)]) || cal.holidaysByYear[String(cy)].length === 0) {
+        if (cal._seededYears && cal._seededYears[String(cy)]) {
+          // قبلاً ادمین عمداً خالی کرده — دست نزن
+        } else {
+          cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
+        }
+      }
     }
   });
   return s;
@@ -4073,10 +4143,12 @@ async function handleAdminSaveHolidays(request, who, env) {
       gd.obj.settings.contractCalendars[ct] = { workWeekDays: [6,0,1,2,3], countNonWorkDaysAsLeave: false, holidaysByYear: {} };
     }
     if (!gd.obj.settings.contractCalendars[ct].holidaysByYear) gd.obj.settings.contractCalendars[ct].holidaysByYear = {};
-    gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days;
+    gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days.slice();
+    if (!gd.obj.settings.contractCalendars[ct]._seededYears) gd.obj.settings.contractCalendars[ct]._seededYears = {};
+    gd.obj.settings.contractCalendars[ct]._seededYears[String(year)] = true; // حتی اگر خالی — دیگر پیش‌فرض نریز
     if (ct === 'normal') {
       if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
-      gd.obj.settings.holidaysByYear[String(year)] = days;
+      gd.obj.settings.holidaysByYear[String(year)] = days.slice();
     }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
