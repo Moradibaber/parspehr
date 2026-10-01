@@ -1034,6 +1034,10 @@ async function handleEmpCreateRequest(request, env) {
     if (mode === 'hourly' && (!fromTime || !toTime)) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'ساعت شروع و پایان الزامی است.' }, 400);
     }
+    if (mode === 'hourly') {
+      const sh = assertHourlyWithinShift(gd.obj, emp, fromTime, toTime);
+      if (!sh.ok) return jsonResponse({ ok: false, error: 'outside_shift', message: sh.message }, 400);
+    }
     if (kind === 'mission' && !place) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
     }
@@ -1791,8 +1795,9 @@ function computeDayTimesheet(cal, punches, opts) {
     compensated = 0;
   }
 
-  // کمبود کارکرد نسبت به شیفت رسمی (تعطیل: کمبود معنا ندارد)
-  const shortfall = isHoliday ? 0 : Math.max(0, official - present);
+  // غیبت ساعتی = کمبود نسبت به موظفی پس از کسر پوشش مرخصی/مأموریت ساعتی
+  const covered = Number(opts.coveredMinutes) || 0;
+  const shortfall = isHoliday ? 0 : Math.max(0, official - present - covered);
 
   return {
     officialMinutes: official,
@@ -1802,6 +1807,8 @@ function computeDayTimesheet(cal, punches, opts) {
     compensatedMinutes: Math.round(compensated),
     otMinutes: Math.round(ot),
     shortfallMinutes: Math.round(shortfall),
+    hourlyAbsenceMinutes: Math.round(shortfall),
+    hourlyAbsenceHours: Math.round((shortfall / 60) * 100) / 100,
     floatMinutes: floatM,
     floatCompensate: compensate,
     isHoliday: isHoliday,
@@ -1973,18 +1980,34 @@ function isUnpaidLeaveRequest(obj, req) {
  * مرخصی بدون حقوق از این جمع کسر می‌شود
  * تعطیلات رسمی/غیرکاری هفته شمرده نمی‌شوند
  */
+
+function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
+  const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
+  const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+  let mins = 0;
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (x.mode !== 'hourly') return;
+    if (x.kind !== 'leave' && x.kind !== 'mission') return;
+    const sk = String(x.startDate || '').replace(/-/g, '/');
+    const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
+    if (k !== dateDash && sk !== dateFa) return;
+    const a = timeToMinutes(x.fromTime);
+    const b = timeToMinutes(x.toTime);
+    if (a == null || b == null || b <= a) return;
+    mins += (b - a);
+  });
+  return mins;
+}
+
 function recountEmpMonthWorkDays(obj, year, month, code) {
-  const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(code); });
-  const ct = (emp && emp.contractType) || 'normal';
+  /* کارکرد = تعداد روزهای تقویمی از ۱ تا آخرین فعالیت (تردد/مرخصی روزانه/مأموریت روزانه)
+     شامل پنجشنبه، جمعه و تعطیل — فقط مرخصی بدون حقوق کسر می‌شود */
   const dim = daysInJalaliMonth(year, month);
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
   const flags = {};
   for (let d = 1; d <= dim; d++) {
-    flags[d] = {
-      activity: false,
-      unpaid: false,
-      nonWork: isHolidayOrNonWork(obj, year, month, d, ct)
-    };
+    flags[d] = { activity: false, unpaid: false };
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
@@ -2002,7 +2025,7 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
       const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
       if (yy !== Number(year) || mm !== Number(month)) return;
       if (!flags[dd]) return;
-      flags[dd].activity = true; // مرخصی/مأموریت روزانه = فعالیت برای تعیین انتهای بازه
+      flags[dd].activity = true;
       if (unpaid) flags[dd].unpaid = true;
     });
   });
@@ -2011,11 +2034,9 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     if (flags[d].activity) last = d;
   }
   if (!last) return 0;
-  // همه روزهای کاری از ۱ تا last، منهای مرخصی بدون حقوق
   let n = 0;
   for (let d = 1; d <= last; d++) {
-    if (flags[d].nonWork) continue;
-    if (flags[d].unpaid) continue; // کسر مرخصی بدون حقوق
+    if (flags[d].unpaid) continue;
     n++;
   }
   return n;
@@ -2421,10 +2442,11 @@ async function handleEmpTimesheet(request, env) {
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
     const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
+    const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
     const calc = computeDayTimesheet(cal, {
       in1: punch.in1 || '', out1: punch.out1 || '',
       in2: punch.in2 || '', out2: punch.out2 || ''
-    }, { isHoliday: nonWork });
+    }, { isHoliday: nonWork, coveredMinutes: coveredMin });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -2435,6 +2457,8 @@ async function handleEmpTimesheet(request, env) {
       workHours: calc.workHours,
       otHours: calc.otHours,
       delayMin: calc.delayMinutes,
+      hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
+      hourlyAbsenceHours: calc.hourlyAbsenceHours,
       leaveDaily: '',
       leaveHourly: '',
       missionDaily: '',
@@ -2639,10 +2663,11 @@ async function handleAdminTimesheet(request, who, env) {
       const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
       const punch = punchStore[dk] || punchStore[dateFa] || {};
       const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
+      const coveredMin = hourlyCoverMinutesOnDay(gd.obj, filterCode, year, month, d);
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
         in2: punch.in2 || '', out2: punch.out2 || ''
-      }, { isHoliday: nonWork });
+      }, { isHoliday: nonWork, coveredMinutes: coveredMin });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -2657,6 +2682,8 @@ async function handleAdminTimesheet(request, who, env) {
         delayMin: calc.delayMinutes,
         earlyMin: calc.earlyLeaveMinutes,
         otHours: calc.otHours,
+        hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
+        hourlyAbsenceHours: calc.hourlyAbsenceHours,
         compensatedMin: calc.compensatedMinutes,
         leaveDaily: '',
         leaveHourly: '',
