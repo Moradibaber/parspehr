@@ -565,12 +565,12 @@
       </div>
       <div style="margin-bottom:12px;overflow-x:auto;">
         <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس نوع قرارداد</div>
-        <table style="max-width:520px;">
+        <table style="max-width:520px;" id="leavePolicyByContract">
           <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
           <tbody>
-            <tr><td>عادی</td><td><input type="number" id="leaveCt_normal" value="30" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>روزمزد</td><td><input type="number" id="leaveCt_daily" value="30" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>ساعتی</td><td><input type="number" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>عادی</td><td><input type="number" class="leave-ct-days" data-ct="normal" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>روزمزد</td><td><input type="number" class="leave-ct-days" data-ct="daily" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>ساعتی</td><td><input type="number" class="leave-ct-days" data-ct="hourly" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
           </tbody>
         </table>
       </div>
@@ -1647,6 +1647,7 @@
             <option value="daily">روزمزد</option>
             <option value="hourly">ساعتی</option>
           </select>
+          <small style="color:#64748b;font-size:0.68rem;">انواع از تنظیمات مأموریت/مرخصی (تقویم) می‌آیند</small>
         </div>
         <div class="form-group" id="grp_basicSalary"><label>حقوق پایه ماهانه *</label><input type="number" id="e_basicSalary" min="0" value="0"></div>
         <div class="form-group" id="grp_seniorityBase"><label>پایه سنوات ماهانه</label><input type="number" id="e_seniorityBase" min="0" value="0" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا"></div>
@@ -3061,6 +3062,57 @@ var CONTRACT_TYPE_LABELS = {
   daily: 'روزمزد',
   hourly: 'ساعتی'
 };
+
+function getContractTypesListLocal() {
+  var list = (data.settings && data.settings.contractTypesList) || [];
+  if (!list.length) {
+    list = [
+      { id: 'normal', name: 'عادی' },
+      { id: 'daily', name: 'روزمزد' },
+      { id: 'hourly', name: 'ساعتی' }
+    ];
+  }
+  return list;
+}
+function refreshContractTypeSelects(selected) {
+  var list = getContractTypesListLocal();
+  // merge ids seen on employees
+  var seen = {};
+  list.forEach(function(t){ seen[t.id] = true; });
+  (data.employees || []).forEach(function(e) {
+    if (e && e.contractType && !seen[e.contractType]) {
+      list.push({ id: e.contractType, name: e.contractType });
+      seen[e.contractType] = true;
+    }
+  });
+  var sels = [document.getElementById('e_contractType')];
+  document.querySelectorAll('select.contract-type-select').forEach(function(s){ sels.push(s); });
+  sels.forEach(function(sel) {
+    if (!sel) return;
+    var cur = selected != null ? selected : sel.value;
+    sel.innerHTML = list.map(function(t) {
+      return '<option value="' + t.id + '">' + (t.name || t.id) + '</option>';
+    }).join('');
+    if (cur && list.some(function(t){ return t.id === cur; })) sel.value = cur;
+  });
+  // جدول سقف مرخصی بر اساس نوع قرارداد
+  try { refreshLeavePolicyContractRows(); } catch (e) {}
+}
+function refreshLeavePolicyContractRows() {
+  var tb = document.querySelector('#leavePolicyByContract tbody');
+  if (!tb) return;
+  var list = getContractTypesListLocal();
+  var lp = (data.settings && data.settings.leavePolicy) || {};
+  var bct = lp.byContractType || {};
+  var annual = lp.annualDays != null ? lp.annualDays : 26;
+  var html = '';
+  list.forEach(function(t) {
+    var v = bct[t.id] != null ? bct[t.id] : annual;
+    html += '<tr><td>' + (t.name || t.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + t.id + '" value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
+  });
+  tb.innerHTML = html;
+}
+
 function contractTypeLabel(ct) {
   ct = ct || 'normal';
   if (CONTRACT_TYPE_LABELS[ct]) return CONTRACT_TYPE_LABELS[ct];
@@ -4321,6 +4373,7 @@ function loadSettingsToForm() {
     if (elN) elN.value = bct.normal != null ? bct.normal : (lp.annualDays != null ? lp.annualDays : 26);
     if (elD) elD.value = bct.daily != null ? bct.daily : (lp.annualDays != null ? lp.annualDays : 26);
     if (elH) elH.value = bct.hourly != null ? bct.hourly : 0;
+    try { refreshContractTypeSelects(); } catch (e) {}
     renderLeaveGroupPolicyRows(lp.byGroup || {});
   } catch (e) {}
 
@@ -4405,13 +4458,18 @@ function saveSettings() {
       carryMax: lc ? Number(lc.value) || 0 : 0,
       byContractType: (function(){
         var annual = la ? Number(la.value) || 0 : 26;
-        var nN = elN ? Number(elN.value) : annual;
-        var nD = elD ? Number(elD.value) : annual;
-        var nH = elH ? Number(elH.value) : 0;
-        if (isNaN(nN)) nN = annual;
-        if (isNaN(nD)) nD = annual;
-        if (isNaN(nH)) nH = 0;
-        return { normal: nN, daily: nD, hourly: nH };
+        var out = {};
+        document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+          var id = inp.getAttribute('data-ct') || inp.id && String(inp.id).replace(/^leaveCt_/, '');
+          if (!id) return;
+          var n = Number(inp.value);
+          if (isNaN(n) || n < 0) n = annual;
+          out[id] = n;
+        });
+        if (!Object.keys(out).length) {
+          out = { normal: annual, daily: annual, hourly: 0 };
+        }
+        return out;
       })(),
       byGroup: byGroup
     };
@@ -4710,6 +4768,7 @@ function openEmployeeModal(editId = null) {
     const emp = data.employees.find(e => e.code === editId);
     if (!emp) return;
     document.getElementById('empModalTitle').textContent = 'ویرایش کارمند';
+    try { refreshContractTypeSelects(emp.contractType); } catch(e) {}
     window.__editingEmpLeaveBalance = (emp.leaveBalance != null ? emp.leaveBalance : null);
     try { var lb=document.getElementById('e_leaveBalance'); if(lb) lb.value = (typeof displayEmpLeaveBalance==='function' ? displayEmpLeaveBalance(emp) : (emp.leaveBalance!=null?emp.leaveBalance:'')); } catch(e) {}
     document.getElementById('editEmpId').value = emp.code;
@@ -4756,6 +4815,7 @@ function openEmployeeModal(editId = null) {
     document.getElementById('e_notes').value = emp.notes || '';
   } else {
     document.getElementById('empModalTitle').textContent = 'افزودن کارمند';
+    try { refreshContractTypeSelects('normal'); } catch(e) {}
     window.__editingEmpLeaveBalance = null;
   }
   renderEmployeeCustomItems();
