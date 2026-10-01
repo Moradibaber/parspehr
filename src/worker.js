@@ -5580,6 +5580,37 @@ export default {
     if (url.pathname === '/api/emp/timesheet') return handleEmpTimesheet(request, env);
     if (url.pathname === '/api/emp/attendance-types') return handleEmpAttendanceTypes(request, env);
 
+    // ---- Portal admin boot JS (always application/javascript; needs session) ----
+    if (url.pathname === '/api/admin/portal-boot.js') {
+      const sessBoot = await readSession(request, env, users);
+      if (!sessBoot) {
+        return new Response(
+          'console.error("[psp] portal-boot: login required");'
+          + 'window.__pspPortalAdmin=false;'
+          + '(function(){var p=document.getElementById("panel-portalatt");'
+          + 'if(p&&!document.getElementById("pspSub-ts"))'
+          + 'p.innerHTML="<div class=card style=padding:14px;color:#b91c1c>نشست منقضی شده. خارج شوید و دوباره وارد شوید.</div>";})();',
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/javascript; charset=utf-8',
+              'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff'
+            }
+          }
+        );
+      }
+      return new Response(PORTAL_ADMIN_JS, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/javascript; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'X-Content-Type-Options': 'nosniff'
+        }
+      });
+    }
+
+
     // LOGIN_MODE = basic (emergency)
     if (env.LOGIN_MODE === 'basic') {
       const b = await authenticate(request, users);
