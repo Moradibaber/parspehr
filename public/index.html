@@ -580,17 +580,19 @@
         <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
       </div>
 
-      <div style="margin-bottom:14px;padding:10px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
-        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">انتقال مانده به سال جدید</div>
-        <p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">مانده هر کارمند تا سقف انتقال نگه داشته می‌شود و با استحقاقی تناسبی سال جدید جمع می‌شود. یک‌بار در ابتدای سال بزنید.</p>
-        <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده سال</button>
-        <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی مانده برای همه فعال‌ها</button>
+      <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;">
+          <span style="font-weight:700;color:#0f766e;font-size:0.85rem;">انتقال مانده مرخصی به سال جدید</span>
+          <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی همه فعال‌ها</button>
+        </div>
       </div>
-<div class="form-grid">
+      <div class="section-title" style="font-size:0.88rem;margin-bottom:8px;">نرخ‌ها و ضرایب</div>
+      <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
-        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت، نمونه)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="برای نفراتی که سقف فردی ندارند؛ ۰=بدون سقف. سقف هر نفر در کارت کارمند یا ستون اکسل"></div>
+        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="۰=بدون سقف؛ سقف فردی در کارت کارمند"></div>
         <div class="form-group"><label>ضریب شب‌کاری</label><input type="number" id="nightFactor" value="1.35" step="0.05"></div>
         <div class="form-group"><label>ضریب نوبت صبح و عصر (%)</label><input type="number" id="shiftMorningEvening" value="10" step="0.5" title="طبق ماده ۵۶ قانون کار"></div>
         <div class="form-group"><label>ضریب نوبت صبح/عصر و شب (%)</label><input type="number" id="shiftWithNight" value="22.5" step="0.5" title="صبح و شب یا عصر و شب"></div>
@@ -760,7 +762,7 @@
         <div class="form-group"><label>کد اقتصادی</label><input type="text" id="co_ecoCode" placeholder="کد/شماره اقتصادی" dir="ltr"></div>
         <div class="form-group"><label>کلاسه پرونده مالیاتی</label><input type="text" id="co_taxFileNo" placeholder="شماره کلاسه پرونده" dir="ltr"></div>
         <div class="form-group"><label>کد واحد مالیاتی</label><input type="text" id="co_taxUnit" placeholder="کد اداره/واحد مالیاتی" dir="ltr"></div>
-        <div class="form-group"><label>شناسه یکتای حافظه مالیاتی (اختیاری)</label><input type="text" id="co_taxMemory" placeholder="سامانه مودیان" dir="ltr"></div>
+        <div class="form-group"><label>شناسه حافظه مالیاتی</label><input type="text" id="co_taxMemory" placeholder="شناسه یکتای سامانه مودیان" dir="ltr"></div>
       </div>
 
       <div class="section-title" style="font-size:0.9rem;margin-top:14px;">تأمین اجتماعی — کارگاه و پیمان</div>
@@ -1656,7 +1658,6 @@
             <option value="daily">روزمزد</option>
             <option value="hourly">ساعتی</option>
           </select>
-          <small style="color:#64748b;font-size:0.68rem;">انواع از تنظیمات مأموریت/مرخصی (تقویم) می‌آیند</small>
         </div>
         <div class="form-group" id="grp_basicSalary"><label>حقوق پایه ماهانه *</label><input type="number" id="e_basicSalary" min="0" value="0"></div>
         <div class="form-group" id="grp_seniorityBase"><label>پایه سنوات ماهانه</label><input type="number" id="e_seniorityBase" min="0" value="0" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا"></div>
@@ -1742,14 +1743,15 @@
           <input type="number" id="e_loanRemaining" value="0" min="0">
         </div>
         <div class="form-group">
-          <label>مانده مرخصی استحقاقی سال جاری (روز)</label>
-          <input type="number" id="e_leaveBalance" value="" step="0.01" inputmode="decimal" readonly style="background:#f1f5f9;cursor:not-allowed;" title="فقط از طریق تعدیل +/− در تب مأموریت/مرخصی تغییر می‌کند. بر اساس ماه‌های کارکرد تناسبی است.">
-          <small style="color:#64748b;font-size:0.7rem;">قابل ویرایش دستی نیست — از «تعدیل مانده» استفاده کنید</small>
-          <button type="button" class="btn btn-outline btn-sm" style="margin-top:4px;" onclick="calcProratedLeaveBalance()" title="بر اساس تاریخ استخدام و سقف سالانه نوع/گروه">محاسبه تناسبی از تاریخ استخدام</button>
+          <label>مانده مرخصی سال جاری (روز)</label>
+          <input type="number" id="e_leaveBalance" value="" step="0.01" inputmode="decimal" readonly style="background:#f1f5f9;cursor:not-allowed;" title="فقط از طریق تعدیل +/−">
         </div>
         <div class="form-group">
           <label>سقف اضافه‌کار ماهانه (ساعت)</label>
-          <input type="number" id="e_maxOtHours" value="" min="0" step="1" placeholder="خالی = از پیش‌فرض تنظیمات" title="۰ یعنی بدون سقف برای این نفر؛ خالی یعنی از پیش‌فرض سیستم">
+          <input type="number" id="e_maxOtHours" value="" min="0" step="1" placeholder="خالی = پیش‌فرض سیستم" title="۰ = بدون سقف؛ خالی = پیش‌فرض سیستم">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="calcProratedLeaveBalance()" title="محاسبه مانده تناسبی از تاریخ استخدام">محاسبه تناسبی مرخصی</button>
         </div>
       </div>
 
