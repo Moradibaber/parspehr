@@ -2495,6 +2495,7 @@ async function handleAdminGetManager(request, who, env) {
 }
 
 async function handleAdminTimesheet(request, who, env) {
+  try {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
@@ -2626,15 +2627,17 @@ async function handleAdminTimesheet(request, who, env) {
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
     const computedWork = recountEmpMonthWorkDays(gd.obj, year, month, filterCode);
+    const reqList = rows[0].requests || [];
+    const ct0 = (emp0 && emp0.contractType) || 'normal';
     rows[0].workDays = computedWork;
     rows[0].leaveDays = Math.round((function(){
-      let n=0; empReqs.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,(emp0&&emp0.contractType)||'normal'); }); return n;
+      let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,ct0); }); return n;
     })()*100)/100;
     rows[0].hourlyLeave = Math.round((function(){
-      let n=0; empReqs.forEach(function(x){ if(x.kind==='leave'&&x.mode==='hourly'){ const p=parseJalaliYMD(x.startDate); if(p&&p.y===year&&p.m===month) n+=hoursBetween(x.fromTime,x.toTime);} }); return n;
+      let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='hourly'){ const p=parseJalaliYMD(x.startDate); if(p&&p.y===year&&p.m===month) n+=hoursBetween(x.fromTime,x.toTime);} }); return n;
     })()*100)/100;
     rows[0].missions = Math.round((function(){
-      let n=0; empReqs.forEach(function(x){ if(x.kind==='mission'&&x.mode==='daily') n+=countAllDaysInMonth(x.startDate,x.endDate||x.startDate,year,month); }); return n;
+      let n=0; reqList.forEach(function(x){ if(x.kind==='mission'&&x.mode==='daily') n+=countAllDaysInMonth(x.startDate,x.endDate||x.startDate,year,month); }); return n;
     })()*100)/100;
     rows[0].leaves = rows[0].leaveDays;
     daily = {
@@ -2652,6 +2655,10 @@ async function handleAdminTimesheet(request, who, env) {
   }
 
   return jsonResponse({ ok: true, year, month, rows, daily: daily });
+  } catch (e) {
+    console.error('handleAdminTimesheet', e && e.stack ? e.stack : e);
+    return jsonResponse({ ok: false, error: 'server_error', message: String(e && e.message ? e.message : e) }, 500);
+  }
 }
 
 /** ذخیره ورود/خروج روزانه یک کارمند (یک روز یا چند روز ماه) */
