@@ -1162,7 +1162,7 @@
         <div class="form-group"><label>گروه</label><select id="dashFilterGroup"><option value="">همه</option></select></div>
         <div class="form-group"><label>محل کار</label><select id="dashFilterWorkplace"><option value="">همه</option></select></div>
         <div class="form-group"><label>نوع قرارداد</label>
-          <select id="dashFilterContract">
+          <select id="dashFilterContract" class="contract-type-filter">
             <option value="">همه</option>
             <option value="normal">عادی</option>
             <option value="daily">روزمزد</option>
@@ -1374,11 +1374,20 @@
       <div id="annualTaxSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
       <div class="form-group" style="margin-bottom:10px;">
         <label>کارکنان مشمول تسویه</label>
-        <div style="display:flex;gap:6px;margin-bottom:4px;">
-          <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(true)">همه</button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(false)">هیچ‌کدام</button>
+        <div style="border:1px solid #99f6e4;border-radius:10px;overflow:hidden;background:#f0fdfa;">
+          <button type="button" id="annualTaxEmpToggle" onclick="toggleAnnualTaxEmpDrop()" style="width:100%;text-align:right;padding:10px 12px;border:0;background:#ecfdf5;cursor:pointer;font-family:inherit;font-size:0.85rem;color:#0f766e;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span id="annualTaxEmpSummary">انتخاب کارکنان — همه</span>
+            <span id="annualTaxEmpChevron" style="font-size:0.75rem;color:#64748b;">▼ باز کردن</span>
+          </button>
+          <div id="annualTaxEmpDropdown" style="display:none;padding:10px;border-top:1px solid #99f6e4;">
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;">
+              <input id="annualTaxEmpSearch" placeholder="جستجوی نام یا کد…" oninput="filterAnnualTaxEmpList()" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(true)">همه</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(false)">هیچ‌کدام</button>
+            </div>
+            <div id="annualTaxEmpList" style="max-height:220px;overflow:auto;font-size:0.78rem;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fff;"></div>
+          </div>
         </div>
-        <div id="annualTaxEmpList" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px;"></div>
       </div>
       <div id="annualTaxSummary" style="font-size:0.82rem;color:#0f766e;margin-bottom:8px;"></div>
       <div style="overflow-x:auto;">
@@ -3087,6 +3096,13 @@ function refreshContractTypeSelects(selected) {
   });
   var sels = [document.getElementById('e_contractType')];
   document.querySelectorAll('select.contract-type-select').forEach(function(s){ sels.push(s); });
+  // فیلتر داشبورد و سایر شیت‌ها (با گزینه «همه»)
+  var filterSels = [];
+  ['dashFilterContract'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) filterSels.push(el);
+  });
+  document.querySelectorAll('select.contract-type-filter').forEach(function(s){ filterSels.push(s); });
   sels.forEach(function(sel) {
     if (!sel) return;
     var cur = selected != null ? selected : sel.value;
@@ -3094,6 +3110,14 @@ function refreshContractTypeSelects(selected) {
       return '<option value="' + t.id + '">' + (t.name || t.id) + '</option>';
     }).join('');
     if (cur && list.some(function(t){ return t.id === cur; })) sel.value = cur;
+  });
+  filterSels.forEach(function(sel) {
+    if (!sel) return;
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">همه</option>' + list.map(function(t) {
+      return '<option value="' + t.id + '">' + (t.name || t.id) + '</option>';
+    }).join('');
+    if (cur) sel.value = cur;
   });
   // جدول سقف مرخصی بر اساس نوع قرارداد
   try { refreshLeavePolicyContractRows(); } catch (e) {}
@@ -7659,11 +7683,38 @@ function autoDeactivateByEndDate(refYear, refMonth) {
  * (دقیق نیست ولی بهتر از صفر است؛ پس از محاسبهٔ مجدد ماه‌ها فیلد taxable ذخیره می‌شود)
  */
 
+function toggleAnnualTaxEmpDrop() {
+  var dd = document.getElementById('annualTaxEmpDropdown');
+  var ch = document.getElementById('annualTaxEmpChevron');
+  if (!dd) return;
+  var open = dd.style.display === 'none' || !dd.style.display;
+  dd.style.display = open ? 'block' : 'none';
+  if (ch) ch.textContent = open ? '▲ بستن' : '▼ باز کردن';
+}
+function updateAnnualTaxEmpSummary() {
+  var all = document.querySelectorAll('.annual-tax-emp');
+  var checked = document.querySelectorAll('.annual-tax-emp:checked');
+  var sum = document.getElementById('annualTaxEmpSummary');
+  if (!sum) return;
+  if (!all.length) sum.textContent = 'انتخاب کارکنان — خالی';
+  else if (checked.length === all.length) sum.textContent = 'انتخاب کارکنان — همه (' + all.length + ' نفر)';
+  else if (!checked.length) sum.textContent = 'انتخاب کارکنان — هیچ‌کس انتخاب نشده';
+  else sum.textContent = 'انتخاب کارکنان — ' + checked.length + ' از ' + all.length + ' نفر';
+}
+function filterAnnualTaxEmpList() {
+  var q = ((document.getElementById('annualTaxEmpSearch') || {}).value || '').trim().toLowerCase();
+  document.querySelectorAll('#annualTaxEmpList label[data-search]').forEach(function(lab) {
+    var s = lab.getAttribute('data-search') || '';
+    lab.style.display = (!q || s.indexOf(q) >= 0) ? '' : 'none';
+  });
+}
 function fillAnnualTaxEmpList() {
   const box = document.getElementById('annualTaxEmpList');
   if (!box) return;
   const year = Number(document.getElementById('annualTaxYear').value) || 1405;
   const until = Number(document.getElementById('annualTaxUntilMonth').value) || 12;
+  const prev = {};
+  document.querySelectorAll('.annual-tax-emp').forEach(function(cb) { prev[cb.value] = cb.checked; });
   const codes = {};
   for (let m = 1; m <= until; m++) {
     ((data.payrolls[year + '-' + m]) || []).forEach(function(r) {
@@ -7676,16 +7727,27 @@ function fillAnnualTaxEmpList() {
   const keys = Object.keys(codes).sort();
   if (!keys.length) {
     box.innerHTML = '<div class="empty">برای این بازه محاسبه ماهانه‌ای نیست.</div>';
+    updateAnnualTaxEmpSummary();
     return;
   }
   box.innerHTML = keys.map(function(c) {
-    return '<label class="check-label" style="display:flex;gap:8px;padding:4px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
-      '<input type="checkbox" class="annual-tax-emp" value="' + c + '" checked>' +
-      '<span>' + c + ' — ' + codes[c] + '</span></label>';
+    var ck = (prev[c] === undefined) ? true : !!prev[c];
+    var name = codes[c] || c;
+    return '<label class="check-label" data-search="' + (c + ' ' + name).toLowerCase().replace(/"/g, '') + '" style="display:flex;gap:8px;padding:4px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+      '<input type="checkbox" class="annual-tax-emp" value="' + c + '"' + (ck ? ' checked' : '') + ' onchange="updateAnnualTaxEmpSummary()">' +
+      '<span>' + name + ' — ' + c + '</span></label>';
   }).join('');
+  updateAnnualTaxEmpSummary();
 }
 function annualTaxSelectEmps(on) {
-  document.querySelectorAll('.annual-tax-emp').forEach(function(cb) { cb.checked = !!on; });
+  var q = ((document.getElementById('annualTaxEmpSearch') || {}).value || '').trim().toLowerCase();
+  document.querySelectorAll('#annualTaxEmpList label[data-search]').forEach(function(lab) {
+    var s = lab.getAttribute('data-search') || '';
+    if (q && s.indexOf(q) < 0) return;
+    var cb = lab.querySelector('.annual-tax-emp');
+    if (cb) cb.checked = !!on;
+  });
+  updateAnnualTaxEmpSummary();
 }
 function getAnnualTaxSelectedCodes() {
   const codes = [];
@@ -10162,11 +10224,9 @@ async function syncMergeDoc(name, depth) {
     var conflicts = [];
     var merged = syncMerge3(base.obj, cur, remoteObj, 'remote', '', conflicts);
     if (conflicts.length) {
-      var keepMine = confirm('همزمان با شما، شخص دیگری هم همین مورد را تغییر داده است (' + conflicts.length + ' مورد).\n\nOK = مقدار این دستگاه (شما) نگه داشته شود\nCancel = مقدار سرور (دیگران) نگه داشته شود');
-      if (keepMine) {
-        conflicts = [];
-        merged = syncMerge3(base.obj, cur, remoteObj, 'local', '', conflicts);
-      }
+      // همیشه نسخه سرور در تداخل
+      conflicts = [];
+      merged = syncMerge3(base.obj, cur, remoteObj, 'remote', '', conflicts);
     }
     res = { value: merged, conflicts: conflicts };
   }
@@ -10212,9 +10272,8 @@ async function syncDoc(name, remoteV, editing) {
       return;
     }
     if ((name === 'data' || name === 'settings') && isAdmin && syncHasContent(name, cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
-      var what = name === 'data' ? 'داده‌ای' : 'تنظیماتی (اطلاعات شرکت، حساب‌ها، نرخ‌ها)';
-      var useServer = confirm('روی این کامپیوتر ' + what + ' هست که با نسخه سرور فرق دارد.\n\nOK = نسخه سرور (اصلی) گرفته شود — مقدار این کامپیوتر جایگزین می‌شود (یک نسخه پشتیبان نگه داشته می‌شود)\nCancel = مقدار این کامپیوتر به سرور فرستاده شود — نسخه سرور جایگزین می‌شود');
-      if (!useServer) { await syncPush(name, rd.version, cur); return; }
+      // همیشه نسخه سرور (اصلی) — پشتیبان محلی قبل از اعمال
+      try { syncBackupLocal(); } catch (e) {}
     }
     syncBackupLocal();
     syncApply(name, rd.obj);
