@@ -1923,6 +1923,33 @@ function computeWorkDaysFromMap(dayMap) {
 
 /** کارکرد ماه = روزهای عادی تا آخرین پانچ/مرخصی/مأموریت */
 /** تشخیص مرخصی بدون حقوق از روی نوع/نام */
+
+/** مرخصی/مأموریت ساعتی فقط داخل بازه موظفی (مثلاً 06:45–15:30) */
+function assertHourlyWithinShift(obj, emp, fromTime, toTime) {
+  const cal = getContractCalendar(obj, (emp && emp.contractType) || 'normal');
+  const sched = normalizeWorkSchedule(cal);
+  const start = timeToMinutes(sched.workStart);
+  const end = timeToMinutes(sched.workEnd);
+  const a = timeToMinutes(fromTime);
+  const b = timeToMinutes(toTime);
+  if (start == null || end == null) {
+    return { ok: false, message: 'ساعت موظفی برای نوع قرارداد تعریف نشده است.' };
+  }
+  if (a == null || b == null) {
+    return { ok: false, message: 'ساعت شروع/پایان نامعتبر است.' };
+  }
+  if (b <= a) {
+    return { ok: false, message: 'ساعت پایان باید بعد از ساعت شروع باشد.' };
+  }
+  if (a < start || b > end) {
+    return {
+      ok: false,
+      message: 'مرخصی/مأموریت ساعتی فقط داخل ساعت موظفی (' + (sched.workStart || '') + ' تا ' + (sched.workEnd || '') + ') مجاز است و نمی‌تواند قبل یا بعد از آن باشد.'
+    };
+  }
+  return { ok: true, workStart: sched.workStart, workEnd: sched.workEnd };
+}
+
 function isUnpaidLeaveRequest(obj, req) {
   if (!req || req.kind !== 'leave') return false;
   if (req.unpaid === true || req.isUnpaid === true) return true;
@@ -3505,6 +3532,15 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
           while (d > daysInJalaliMonth(y, m)) { d -= daysInJalaliMonth(y, m); m++; if (m > 12) { m = 1; y++; } }
           endDate = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
         }
+      }
+    }
+    if (mode === 'hourly') {
+      if (!fromTime || !toTime) {
+        return jsonResponse({ ok: false, error: 'bad_request', message: 'ساعت شروع و پایان الزامی است.' }, 400);
+      }
+      const sh = assertHourlyWithinShift(gd.obj, emp, fromTime, toTime);
+      if (!sh.ok) {
+        return jsonResponse({ ok: false, error: 'outside_shift', message: sh.message }, 400);
       }
     }
     if (kind === 'mission' && !place) {
