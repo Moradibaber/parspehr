@@ -1,4 +1,4 @@
-// parspehr gate: personal login + watermark + payroll API + employee self-service portal 
+// parspehr gate: personal login + watermark + payroll API + employee self-service portal
 import { makeEngine } from './engine.js';
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 
