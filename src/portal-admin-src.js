@@ -305,8 +305,7 @@ export default `(function(){
       '<div class="form-group"><label>سال</label><input type="number" id="pspTsYear" value="1405"></div>' +
       '<div class="form-group"><label>ماه</label><select id="pspTsMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspTsCode" placeholder="خالی = همه" autocomplete="off"></div>' +
-      '<div class="form-group"><label>کد مدیر</label><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off"></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
+      '<div class="form-group"><label>کد مدیر</label><div style="display:flex;gap:8px;align-items:center;"><input id="pspTsMgr" placeholder="فیلتر زیرمجموعه" autocomplete="off" style="flex:1;min-width:0;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad" style="white-space:nowrap;flex-shrink:0;">نمایش</button></div></div>' +
       '</div>' +
       '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید.</p>' +
       '<div class="form-grid" style="margin-bottom:10px;align-items:end;">' +
@@ -543,10 +542,12 @@ export default `(function(){
             '<label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">بارگذاری فایل<input type="file" id="pspTsFile" accept=".csv,.txt" style="display:none;"></label>' +
             '<span id="pspTsDayStatus" style="font-size:0.78rem;color:#0f766e;"></span></div>';
           var wdShow = (j.rows && j.rows[0] && j.rows[0].workDays != null) ? j.rows[0].workDays : '—';
-          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> | روز دارای رکورد: <b>' + filled + '</b> | ساعت کار: <b>' + sumWork.toFixed(2) + '</b> | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b>س</p>';
+          var sumAbs = 0;
+          j.daily.days.forEach(function(d){ sumAbs += Number(d.hourlyAbsenceHours)||(Number(d.hourlyAbsenceMin)||0)/60; });
+          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (از ۱ تا آخرین تردد/مرخصی/مأموریت، با تعطیل و پنجشنبه/جمعه) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه: <b>' + sumOt.toFixed(2) + '</b>س | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
           html += '<div style="overflow:auto;"><table style="font-size:0.7rem;min-width:980px;"><thead><tr>' +
             '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
-            '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th>' +
+            '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th><th>غیبت‌س</th>' +
             '<th>مأموریت</th><th>مرخصی</th><th>توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
@@ -559,6 +560,7 @@ export default `(function(){
               '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
               '<td>' + (d.workHours!=null?d.workHours:'') + '</td>' +
               '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
+              '<td>' + (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : (d.hourlyAbsenceMin>0 ? (Math.round(d.hourlyAbsenceMin/60*100)/100) : '')) + '</td>' +
               '<td style="font-size:0.65rem;">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td style="font-size:0.65rem;">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:70px;padding:1px;font-size:0.68rem;"></td></tr>';
