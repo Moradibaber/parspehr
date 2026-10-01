@@ -306,6 +306,7 @@ const PORTAL_ADMIN_JS = `(function(){
     if (window.__pspPortalWired && hasContent) return;
     var existingBtn = document.getElementById('pspPortalTabBtn');
     // محتوا فقط از Worker تزریق می‌شود — index فقط میزبان خالی است
+    try {
 
     // Find tab strip: parent of any existing tab button
     var sample = document.querySelector('button.tab-btn[data-tab], button.tab-btn, .tabs button, [class*="tab"] button[data-tab]');
@@ -1213,7 +1214,14 @@ const PORTAL_ADMIN_JS = `(function(){
       });
     });
     window.__pspPortalWired = true;
-      } catch (e) { console.error('psp portal tab', e); }
+    })(); // end wiring IIFE
+  } catch (e) {
+    console.error('psp portal tab', e);
+    var p = document.getElementById('panel-portalatt');
+    if (p && !document.getElementById('pspSub-ts')) {
+      p.innerHTML = '<div class="card" style="padding:16px;color:#b91c1c;">خطا در ساخت پنل: ' + (e && e.message ? e.message : e) + '</div>';
+    }
+  }
   }
   function bootPortalTab() {
     try { ensurePortalTab(); } catch (e) {
