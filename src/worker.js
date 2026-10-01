@@ -1031,12 +1031,19 @@ async function handleEmpCreateRequest(request, env) {
       }
     }
 
+    const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
+    if (!emp || emp.status === 'inactive') return jsonResponse({ ok: false, error: 'disabled' }, 403);
+
     if (mode === 'hourly' && (!fromTime || !toTime)) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'ساعت شروع و پایان الزامی است.' }, 400);
     }
     if (mode === 'hourly') {
-      const sh = assertHourlyWithinShift(gd.obj, emp, fromTime, toTime);
-      if (!sh.ok) return jsonResponse({ ok: false, error: 'outside_shift', message: sh.message }, 400);
+      try {
+        const sh = assertHourlyWithinShift(gd.obj, emp, fromTime, toTime);
+        if (!sh.ok) return jsonResponse({ ok: false, error: 'outside_shift', message: sh.message }, 400);
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'shift_check', message: 'بررسی ساعت موظفی ناموفق: ' + (e && e.message ? e.message : e) }, 400);
+      }
     }
     if (kind === 'mission' && !place) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'محل مأموریت الزامی است.' }, 400);
@@ -1045,9 +1052,6 @@ async function handleEmpCreateRequest(request, env) {
     if (kind === 'mission' && !reason) {
       return jsonResponse({ ok: false, error: 'bad_request', message: 'توضیح / دلیل مأموریت الزامی است.' }, 400);
     }
-
-    const emp = gd.obj.employees.find(e => String(e.code) === String(sess.code));
-    if (!emp || emp.status === 'inactive') return jsonResponse({ ok: false, error: 'disabled' }, 403);
     const pmeta = (gd.obj.portalMeta && gd.obj.portalMeta[String(emp.code)]) || {};
     const mgrCode1 = pmeta.managerCode || emp.managerCode || '';
     const mgrCode2 = pmeta.managerCode2 || emp.managerCode2 || '';
@@ -1795,9 +1799,21 @@ function computeDayTimesheet(cal, punches, opts) {
     compensated = 0;
   }
 
-  // غیبت ساعتی = کمبود نسبت به موظفی پس از کسر پوشش مرخصی/مأموریت ساعتی
+  // غیبت ساعتی:
+  // - روز مرخصی/مأموریت روزانه (غیر بدون‌حقوق) → صفر
+  // - مرخصی بدون حقوق → کل موظفی
+  // - روز عادی → کمبود پس از حضور + پوشش ساعتی
   const covered = Number(opts.coveredMinutes) || 0;
-  const shortfall = isHoliday ? 0 : Math.max(0, official - present - covered);
+  let shortfall = 0;
+  if (isHoliday) {
+    shortfall = 0;
+  } else if (opts.unpaidLeave) {
+    shortfall = official; // کل روز غیبت
+  } else if (opts.fullDayLeaveOrMission) {
+    shortfall = 0; // مرخصی/مأموریت روزانه جایگزین کارکرد است
+  } else {
+    shortfall = Math.max(0, official - present - covered);
+  }
 
   return {
     officialMinutes: official,
@@ -1980,6 +1996,34 @@ function isUnpaidLeaveRequest(obj, req) {
  * مرخصی بدون حقوق از این جمع کسر می‌شود
  * تعطیلات رسمی/غیرکاری هفته شمرده نمی‌شوند
  */
+
+
+/** وضعیت مرخصی/مأموریت روزانه تأییدشده در یک روز */
+function dailyLeaveMissionFlags(obj, code, year, month, day) {
+  const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
+  const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+  let fullDay = false, unpaid = false;
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (x.mode !== 'daily') return;
+    if (x.kind !== 'leave' && x.kind !== 'mission') return;
+    const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
+    let hit = false;
+    keys.forEach(function (k) {
+      const parts = String(k).split(/[-\/]/);
+      if (parts.length < 3) return;
+      if (Number(parts[0]) === Number(year) && Number(parts[1]) === Number(month) && Number(parts[2]) === Number(day)) hit = true;
+    });
+    if (!hit) {
+      const sk = String(x.startDate || '').replace(/-/g, '/');
+      if (sk === dateFa || dateKey(x.startDate) === dateDash) hit = true;
+    }
+    if (!hit) return;
+    fullDay = true;
+    if (x.kind === 'leave' && isUnpaidLeaveRequest(obj, x)) unpaid = true;
+  });
+  return { fullDayLeaveOrMission: fullDay, unpaidLeave: unpaid };
+}
 
 function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
   const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
@@ -2443,10 +2487,11 @@ async function handleEmpTimesheet(request, env) {
     const punch = punchStore[dk] || punchStore[dateFa] || {};
     const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
     const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
+    const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
     const calc = computeDayTimesheet(cal, {
       in1: punch.in1 || '', out1: punch.out1 || '',
       in2: punch.in2 || '', out2: punch.out2 || ''
-    }, { isHoliday: nonWork, coveredMinutes: coveredMin });
+    }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -2664,10 +2709,11 @@ async function handleAdminTimesheet(request, who, env) {
       const punch = punchStore[dk] || punchStore[dateFa] || {};
       const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const coveredMin = hourlyCoverMinutesOnDay(gd.obj, filterCode, year, month, d);
+      const dlm = dailyLeaveMissionFlags(gd.obj, filterCode, year, month, d);
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
         in2: punch.in2 || '', out2: punch.out2 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin });
+      }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -5080,17 +5126,18 @@ async function submitRequest(){
 
   try{
     var r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
-    var j=await r.json();
+    var j=null;
+    try{ j=await r.json(); }catch(pe){ err.textContent='پاسخ نامعتبر از سرور ('+r.status+')'; return; }
     if(!j.ok && j.error==='need_prior_years_confirm'){
       if(confirm(j.message||'مانده امسال کافی نیست. از ذخیره سال‌های قبل استفاده شود؟')){
         body.usePriorYears=true;
         r=await fetch('/api/emp/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
-        j=await r.json();
+        try{ j=await r.json(); }catch(pe2){ err.textContent='پاسخ نامعتبر ('+r.status+')'; return; }
       } else { err.textContent='ثبت لغو شد.'; return; }
     }
-    if(!j.ok){err.textContent=j.message||j.error||'خطا';return}
+    if(!j.ok){err.textContent=j.message||j.error||('خطا '+r.status);return}
     err.classList.add('okmsg'); err.textContent='درخواست ثبت و برای مدیر ارسال شد.'+(body.usePriorYears?' (از ذخیره سال‌های قبل)':''); loadRequests();
-  }catch(e){err.textContent='خطا در ارتباط'}
+  }catch(e){err.textContent='خطا در ارتباط: '+(e&&e.message?e.message:e)}
 }
 function statusBadge(s){if(s==='approved')return'<span class="badge b-approved">تأیید نهایی</span>';if(s==='approved_l1')return'<span class="badge b-pending">تأیید سطح ۱ — منتظر سطح ۲</span>';if(s==='rejected')return'<span class="badge b-rejected">رد شده</span>';return'<span class="badge b-pending">در انتظار</span>'}
 function reqHtml(x,forManager){
