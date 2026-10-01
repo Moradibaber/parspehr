@@ -370,16 +370,16 @@ async function stamp(html, user, env) {
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspTsLoad">نمایش</button></div>' +
       '</div>' +
       '<p style="font-size:0.78rem;color:#64748b;margin:6px 0 10px;">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید.</p>' +
-      '<div class="form-grid" style="margin-bottom:10px;">' +
+      '<div class="form-grid" style="margin-bottom:10px;align-items:end;">' +
       '<div class="form-group"><label>ماه جاری درخواست‌ها</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
+      '<div class="form-group"><label>نوع قرارداد (تقویم)</label><select id="pspCalContractType"></select></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری و روزهای کاری</button></div>' +
-      '<div class="form-group"><label>نوع قرارداد (تقویم کاری)</label>' +
-      '<select id="pspCalContractType"></select></div>' +
-      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
-      '<input id="pspNewCtId" placeholder="شناسه انگلیسی مثلاً shift" style="width:120px;" dir="ltr">' +
-      '<input id="pspNewCtName" placeholder="نام فارسی مثلاً شیفتی" style="width:120px;">' +
-      '<button type="button" class="btn btn-outline btn-sm" id="pspAddCtBtn">+ نوع قرارداد</button></div>' +
+      '</div>' +
+      '<div class="form-grid" style="margin-bottom:10px;align-items:end;">' +
+      '<div class="form-group"><label>شناسه نوع جدید</label><input id="pspNewCtId" placeholder="مثلاً shift" dir="ltr"></div>' +
+      '<div class="form-group"><label>نام فارسی</label><input id="pspNewCtName" placeholder="مثلاً شیفتی"></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspAddCtBtn">+ نوع قرارداد</button></div>' +
       '<div class="form-group" style="grid-column:1/-1;"><label>روزهای کاری هفته <span style="color:#64748b;font-weight:400;">(برای نوع انتخاب‌شده)</span></label>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:0.78rem;">' +
       '<label><input type="checkbox" class="psp-wd" value="6" checked> شنبه</label>' +
@@ -413,8 +413,8 @@ async function stamp(html, user, env) {
       '<span id="pspTypeStatus" style="font-size:0.8rem;color:#0f766e;"></span></div></div>' +
       '<div class="psp-subpanel" id="pspSub-grants" style="display:none;">' +
       '<div class="section-title">مجوز مرخصی خاص برای کارمند</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">مجوز برای انواعی که «فقط مجوز ادمین» دارند (مثل ازدواج). برای استحقاقی از بخش <b>تعدیل +/−</b> پایین استفاده کنید.</p>' +
-      '<div class="form-grid">' +
+      
+      '<div class="form-grid" style="align-items:end;">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspGrantCode" autocomplete="off" placeholder="کد کارمند"></div>' +
       '<div class="form-group"><label>نوع</label><select id="pspGrantType"></select></div>' +
       '<div class="form-group"><label>از تاریخ</label><input id="pspGrantFrom" placeholder="1405/02/01" dir="ltr"></div>' +
@@ -422,8 +422,8 @@ async function stamp(html, user, env) {
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-primary btn-sm" id="pspGrantBtn">صدور مجوز</button></div>' +
       '</div><span id="pspGrantStatus" style="font-size:0.8rem;color:#0f766e;"></span>' +
       '<div class="section-title" style="margin-top:18px;">تعدیل مانده مرخصی استحقاقی (+ / −)</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">فقط در این بخش. <b>+</b> افزایش مانده / <b>−</b> کاهش. منبع: سال جاری یا ذخیره سال‌های قبل.</p>' +
-      '<div class="form-grid" style="margin-bottom:10px;">' +
+      
+      '<div class="form-grid" style="margin-bottom:10px;align-items:end;">' +
       '<div class="form-group"><label>کد پرسنلی</label><input id="pspAdjCode" placeholder="کد"></div>' +
       '<div class="form-group"><label>سال هدف</label><input id="pspAdjYear" placeholder="1405" dir="ltr"></div>' +
       '<div class="form-group"><label>منبع مانده</label><select id="pspAdjSource"><option value="current">مرخصی سال جاری</option><option value="prior">ذخیره سال‌های قبل</option></select></div>' +
