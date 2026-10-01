@@ -1879,6 +1879,22 @@ function countWorkingDaysInMonth(startStr, endStr, year, month, obj, contractTyp
   return n;
 }
 
+/** همه روزهای تقویمی در بازه (با تعطیل) — برای مأموریت */
+function countAllDaysInMonth(startStr, endStr, year, month) {
+  if (typeof listDayKeys !== 'function') return 0;
+  const keys = listDayKeys(startStr, endStr || startStr);
+  let n = 0;
+  keys.forEach(function (k) {
+    const parts = String(k).split(/[-\/]/);
+    if (parts.length < 3) return;
+    const yy = Number(parts[0]), mm = Number(parts[1]);
+    if (year != null && yy !== Number(year)) return;
+    if (month != null && mm !== Number(month)) return;
+    n++;
+  });
+  return n;
+}
+
 function lastActivityDayInMonth(dayMap) {
   let last = 0;
   Object.keys(dayMap || {}).forEach(function (k) {
@@ -2324,7 +2340,7 @@ async function handleEmpTimesheet(request, env) {
       const p = parseJalaliYMD(x.startDate);
       if (p && p.y === year && p.m === month) reHourlyLeave += hoursBetween(x.fromTime, x.toTime);
     } else if (x.kind === 'mission' && x.mode === 'daily') {
-      reMissionDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
+      reMissionDays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
     } else if (x.kind === 'mission' && x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
       if (p && p.y === year && p.m === month) reMissionHours += hoursBetween(x.fromTime, x.toTime);
@@ -2524,7 +2540,7 @@ async function handleAdminTimesheet(request, who, env) {
       else if (x.kind === 'leave' && x.mode === 'hourly') {
         const p = parseJalaliYMD(x.startDate);
         if (p && p.y === year && p.m === month) aHourly += hoursBetween(x.fromTime, x.toTime);
-      } else if (x.kind === 'mission' && x.mode === 'daily') aMission += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      } else if (x.kind === 'mission' && x.mode === 'daily') aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
       else if (x.kind === 'mission' && x.mode === 'hourly') {
         const p = parseJalaliYMD(x.startDate);
         if (p && p.y === year && p.m === month) aMissionH += hoursBetween(x.fromTime, x.toTime);
@@ -2618,7 +2634,7 @@ async function handleAdminTimesheet(request, who, env) {
       let n=0; empReqs.forEach(function(x){ if(x.kind==='leave'&&x.mode==='hourly'){ const p=parseJalaliYMD(x.startDate); if(p&&p.y===year&&p.m===month) n+=hoursBetween(x.fromTime,x.toTime);} }); return n;
     })()*100)/100;
     rows[0].missions = Math.round((function(){
-      let n=0; empReqs.forEach(function(x){ if(x.kind==='mission'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,(emp0&&emp0.contractType)||'normal'); }); return n;
+      let n=0; empReqs.forEach(function(x){ if(x.kind==='mission'&&x.mode==='daily') n+=countAllDaysInMonth(x.startDate,x.endDate||x.startDate,year,month); }); return n;
     })()*100)/100;
     rows[0].leaves = rows[0].leaveDays;
     daily = {
@@ -2737,7 +2753,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
             if (p && p.y === year && p.m === month) md.hourlyLeave += hoursBetween(x.fromTime, x.toTime);
           }
           if (x.kind === 'mission' && x.mode === 'daily')
-            md.missionDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+            md.missionDays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
         });
         md.leaveDays = Math.round(md.leaveDays * 100) / 100;
         md.hourlyLeave = Math.round(md.hourlyLeave * 100) / 100;
