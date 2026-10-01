@@ -1731,8 +1731,10 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  // Inject employee-portal admin UI (external script from Worker — not in index)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js" defer><\/script>';
+  // Inject employee-portal admin UI inline (پس از لاگین؛ در index نیست)
+  const portalAdminScript = '<script>
+' + PORTAL_ADMIN_JS + '
+<\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
