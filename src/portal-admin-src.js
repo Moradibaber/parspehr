@@ -508,6 +508,8 @@ export default `(function(){
 
     var __tsLoad = document.getElementById('pspTsLoad');
     if (__tsLoad) __tsLoad.onclick = function() {
+      var out0 = document.getElementById('pspTsOut');
+      if (out0) out0.innerHTML = '<p style="color:#64748b;font-size:0.85rem;">در حال بارگذاری تایم‌شیت…</p>';
       fetch('/api/admin/timesheet', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
         body: JSON.stringify({
@@ -516,9 +518,12 @@ export default `(function(){
           code: document.getElementById('pspTsCode').value.trim(),
           managerCode: document.getElementById('pspTsMgr').value.trim()
         })
-      }).then(function(r){ return r.json(); }).then(function(j){
+      }).then(function(r){
+        if (!r.ok) throw new Error('HTTP '+r.status);
+        return r.json();
+      }).then(function(j){
         var out = document.getElementById('pspTsOut');
-        if (!j.ok) { out.innerHTML = '<p style="color:#b91c1c">' + (j.error || 'خطا') + '</p>'; return; }
+        if (!j.ok) { out.innerHTML = '<p style="color:#b91c1c">خطا: ' + (j.message || j.error || 'نامشخص') + '</p>'; return; }
         var html = '';
         if (j.daily && j.daily.days) {
           var sch = j.daily.schedule || {};
@@ -670,6 +675,9 @@ export default `(function(){
         }).join('');
         html += '<h4 style="margin-top:14px;">خلاصه ماه</h4><table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد (روز)</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th></tr></thead><tbody>' + rows + '</tbody></table>';
         out.innerHTML = html;
+      }).catch(function(err){
+        var out = document.getElementById('pspTsOut');
+        if (out) out.innerHTML = '<p style="color:#b91c1c">خطا در دریافت تایم‌شیت: '+(err && err.message ? err.message : err)+'</p>';
       });
     };
 
