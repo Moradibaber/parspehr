@@ -1732,9 +1732,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
   // Inject employee-portal admin UI inline (پس از لاگین؛ در index نیست)
-  const portalAdminScript = '<script>
-' + PORTAL_ADMIN_JS + '
-<\/script>';
+  const portalAdminScript = '<script>\n' + PORTAL_ADMIN_JS + '\n<\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
