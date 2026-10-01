@@ -1922,6 +1922,30 @@ function computeWorkDaysFromMap(dayMap) {
 }
 
 /** کارکرد ماه = روزهای عادی تا آخرین پانچ/مرخصی/مأموریت */
+/** تشخیص مرخصی بدون حقوق از روی نوع/نام */
+function isUnpaidLeaveRequest(obj, req) {
+  if (!req || req.kind !== 'leave') return false;
+  if (req.unpaid === true || req.isUnpaid === true) return true;
+  const id = String(req.typeId || '').toLowerCase();
+  const name = String(req.typeName || '');
+  if (id.indexOf('unpaid') >= 0 || id.indexOf('without_pay') >= 0 || id.indexOf('no_pay') >= 0) return true;
+  if (name.indexOf('بدون حقوق') >= 0 || name.indexOf('بدون‌حقوق') >= 0) return true;
+  // از تعریف انواع در settings
+  try {
+    const types = (obj && obj.settings && obj.settings.attendanceTypes) || [];
+    const t = types.find(function (x) { return String(x.id) === String(req.typeId); });
+    if (t && (t.unpaid === true || t.isUnpaid === true || String(t.name || '').indexOf('بدون حقوق') >= 0)) return true;
+  } catch (e) {}
+  return false;
+}
+
+/**
+ * کارکرد ماه:
+ * از روز ۱ تا آخرین روزی که تردد / مرخصی روزانه / مأموریت روزانه دارد
+ * همه روزهای کاری آن بازه شمرده می‌شوند
+ * مرخصی بدون حقوق از این جمع کسر می‌شود
+ * تعطیلات رسمی/غیرکاری هفته شمرده نمی‌شوند
+ */
 function recountEmpMonthWorkDays(obj, year, month, code) {
   const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(code); });
   const ct = (emp && emp.contractType) || 'normal';
@@ -1929,16 +1953,21 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
   const flags = {};
   for (let d = 1; d <= dim; d++) {
-    flags[d] = { punch: false, leave: false, mission: false, nonWork: isHolidayOrNonWork(obj, year, month, d, ct) };
+    flags[d] = {
+      activity: false,
+      unpaid: false,
+      nonWork: isHolidayOrNonWork(obj, year, month, d, ct)
+    };
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    if (punch.in1 || punch.out1 || punch.in2 || punch.out2) flags[d].punch = true;
+    if (punch.in1 || punch.out1 || punch.in2 || punch.out2) flags[d].activity = true;
   }
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
     if (x.mode !== 'daily') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
+    const unpaid = isUnpaidLeaveRequest(obj, x);
     const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
     keys.forEach(function (k) {
       const parts = String(k).split(/[-\/]/);
@@ -1946,19 +1975,21 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
       const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
       if (yy !== Number(year) || mm !== Number(month)) return;
       if (!flags[dd]) return;
-      if (x.kind === 'leave') flags[dd].leave = true;
-      if (x.kind === 'mission') flags[dd].mission = true;
+      flags[dd].activity = true; // مرخصی/مأموریت روزانه = فعالیت برای تعیین انتهای بازه
+      if (unpaid) flags[dd].unpaid = true;
     });
   });
   let last = 0;
   for (let d = 1; d <= dim; d++) {
-    if (flags[d].punch || flags[d].leave || flags[d].mission) last = d;
+    if (flags[d].activity) last = d;
   }
   if (!last) return 0;
+  // همه روزهای کاری از ۱ تا last، منهای مرخصی بدون حقوق
   let n = 0;
   for (let d = 1; d <= last; d++) {
     if (flags[d].nonWork) continue;
-    if (flags[d].punch || flags[d].leave || flags[d].mission) n++;
+    if (flags[d].unpaid) continue; // کسر مرخصی بدون حقوق
+    n++;
   }
   return n;
 }
@@ -2784,6 +2815,7 @@ function defaultAttendanceTypes() {
     { id: 'leave_birth', name: 'مرخصی تولد فرزند', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'once_year', requiresAdminGrant: false },
     { id: 'leave_death', name: 'مرخصی فوت بستگان', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: 3, frequency: 'throughout_year', requiresAdminGrant: false },
     { id: 'leave_special', name: 'مرخصی خاص (با مجوز ادمین)', kind: 'leave', mode: 'daily', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: true },
+    { id: 'leave_unpaid', name: 'مرخصی بدون حقوق', kind: 'leave', mode: 'daily', deductFromEntitlement: false, unpaid: true, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
     { id: 'mission_daily', name: 'مأموریت روزانه', kind: 'mission', mode: 'daily', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false },
     { id: 'mission_hourly', name: 'مأموریت ساعتی', kind: 'mission', mode: 'hourly', deductFromEntitlement: false, fixedDays: null, frequency: 'throughout_year', requiresAdminGrant: false }
   ];
@@ -2897,7 +2929,8 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
       deductFromEntitlement: kind === 'leave' ? !!t.deductFromEntitlement : false,
       fixedDays: fixedDays,
       frequency: normalizeFreq(t.frequency),
-      requiresAdminGrant: !!t.requiresAdminGrant
+      requiresAdminGrant: !!t.requiresAdminGrant,
+      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0))
     };
   }).filter(function (t) { return t.name; });
 
