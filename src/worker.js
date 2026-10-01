@@ -64,22 +64,17 @@ async function authenticate(request, users) {
   return found;
 }
 
-async function stamp(html, user, env) {
-  const key = env.WM_KEY || env.SITE_USERS || env.SITE_PASSWORD || 'parspehr';
-  const tag = (await hmacHex(key, 'psp:' + user)).slice(0, 16);
-  const safe = user.replace(/[^A-Za-z0-9_.@-]/g, '_') + '.' + tag;
-  const top =
-    '<!-- Proprietary software of ' + OWNER + '. Licensed to: ' + safe +
-    '. Copying, sharing or reselling is prohibited. -->' +
-    '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
-    '<meta name="psp-license" content="' + safe + '">' +
-    '<script>window.__psp="' + safe + '";</script>';
-  // Inject employee-portal admin UI into the main app (no need to edit index.html)
-  const portalAdminScript = `
-<script>
-(function(){
+
+// Portal admin UI (served only via /api/admin/portal-boot.js after login)
+const PORTAL_ADMIN_JS = `(function(){
   if (window.__pspPortalAdmin) return;
   window.__pspPortalAdmin = true;
+  if (!document.getElementById('pspPortalStyle')) {
+    var st = document.createElement('style');
+    st.id = 'pspPortalStyle';
+    st.textContent = '#panel-portalatt.active{display:block!important;} #panel-portalatt .card{padding:12px 14px;}';
+    document.head.appendChild(st);
+  }
 
   function ensurePortalBox() {
     if (document.getElementById('pspPortalBox')) return;
@@ -208,7 +203,7 @@ async function stamp(html, user, env) {
           } catch (e) {}
           function fillMgrSelect(sel, selected) {
             if (!sel) return;
-            sel.innerHTML = '<option value=\"\">— بدون —</option>';
+            sel.innerHTML = '<option value=\\"\\">— بدون —</option>';
             try {
               if (typeof data !== 'undefined' && data.employees) {
                 data.employees.slice().sort(function(a,b){
@@ -306,9 +301,10 @@ async function stamp(html, user, env) {
 
 
   function ensurePortalTab() {
-    if (window.__pspPortalWired) return;
-    var existingBtn = document.getElementById('pspPortalTabBtn');
     var existingPanel = document.getElementById('panel-portalatt');
+    var hasContent = !!(document.getElementById('pspSub-ts') && document.getElementById('pspSubTabs'));
+    if (window.__pspPortalWired && hasContent) return;
+    var existingBtn = document.getElementById('pspPortalTabBtn');
     // محتوا فقط از Worker تزریق می‌شود — index فقط میزبان خالی است
 
     // Find tab strip: parent of any existing tab button
@@ -573,7 +569,7 @@ async function stamp(html, user, env) {
 
       var sample = document.getElementById('pspUpSample');
       if (sample) sample.onclick = function(){
-        alert('نمونه:\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
+        alert('نمونه:\\\\nکد پرسنلی | تاریخ | ورود۱ | خروج۱ | ورود۲ | خروج۲ | اضافه‌کار | شب‌کاری | توضیح');
       };
 
       window.__pspPortalViewData = null;
@@ -872,9 +868,9 @@ async function stamp(html, user, env) {
       }
       function parseCodesFromText(text){
         var codes = [];
-        var lines = String(text||'').split(/\\r?\\n/);
+        var lines = String(text||'').split(/\\\\r?\\\\n/);
         lines.forEach(function(line, idx){
-          var cells = line.split(/[,;\\t]/);
+          var cells = line.split(/[,;\\\\t]/);
           if (!cells.length) return;
           // header skip
           var first = (cells[0]||'').trim().replace(/^["']|["']$/g,'');
@@ -1090,7 +1086,7 @@ async function stamp(html, user, env) {
                 var ds = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
                 lines.push(ds + ',08:00,12:00,13:00,17:05,');
               }
-              var blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8'});
+              var blob = new Blob([lines.join('\\n')], {type:'text/csv;charset=utf-8'});
               var a = document.createElement('a');
               a.href = URL.createObjectURL(blob);
               a.download = 'timesheet-sample.csv';
@@ -1103,13 +1099,13 @@ async function stamp(html, user, env) {
               var reader = new FileReader();
               reader.onload = function(){
                 var text = String(reader.result||'');
-                var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
+                var lines = text.split(/\\r?\\n/).filter(function(l){ return l.trim(); });
                 var map = {};
                 lines.forEach(function(line, li){
-                  var parts = line.split(/[,;\t|]/);
+                  var parts = line.split(/[,;\\t|]/);
                   if (!parts.length) return;
                   var date = (parts[0]||'').trim().replace(/-/g,'/');
-                  if (!/\d{4}\/\d{1,2}\/\d{1,2}/.test(date)) return;
+                  if (!/\\d{4}\\/\\d{1,2}\\/\\d{1,2}/.test(date)) return;
                   // normalize pad
                   var p = date.split('/');
                   date = p[0] + '/' + String(Number(p[1])).padStart(2,'0') + '/' + String(Number(p[2])).padStart(2,'0');
@@ -1629,17 +1625,47 @@ async function stamp(html, user, env) {
       } catch (e) { console.error('psp portal tab', e); }
   }
   function bootPortalTab() {
-    try { ensurePortalTab(); } catch (e) { console.error('psp ensurePortalTab', e); }
+    try { ensurePortalTab(); } catch (e) {
+      console.error('psp ensurePortalTab', e);
+      var p = document.getElementById('panel-portalatt');
+      if (p && !document.getElementById('pspSub-ts')) {
+        p.innerHTML = '<div class="card" style="padding:16px;color:#b91c1c;font-size:0.85rem;">خطا در بارگذاری پنل مأموریت/مرخصی. کنسول مرورگر را ببینید.<br><small>' + (e && e.message ? e.message : e) + '</small></div>';
+      }
+    }
   }
+  function activatePortalPanel() {
+    try { ensurePortalTab(); } catch (e) { console.error(e); }
+    document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+    var btn = document.getElementById('pspPortalTabBtn');
+    var panel = document.getElementById('panel-portalatt');
+    if (btn) btn.classList.add('active');
+    if (panel) {
+      panel.classList.add('active');
+      panel.style.display = '';
+    }
+  }
+  // کلیک روی تب — حتی اگر handler ایندکس زودتر اجرا شود
+  document.addEventListener('click', function(ev) {
+    var t = ev.target;
+    if (!t) return;
+    var b = t.closest ? t.closest('#pspPortalTabBtn, button[data-tab="portalatt"]') : null;
+    if (!b) return;
+    setTimeout(activatePortalPanel, 0);
+    setTimeout(activatePortalPanel, 100);
+  }, true);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootPortalTab);
   }
   bootPortalTab();
-  setTimeout(bootPortalTab, 500);
+  setTimeout(bootPortalTab, 300);
+  setTimeout(bootPortalTab, 800);
   setTimeout(bootPortalTab, 1500);
   setTimeout(bootPortalTab, 3000);
   setTimeout(bootPortalTab, 6000);
-  setInterval(bootPortalTab, 8000);
+  setInterval(function(){
+    if (!document.getElementById('pspSub-ts')) bootPortalTab();
+  }, 5000);
   try {
     var obs = new MutationObserver(function() { bootPortalTab(); });
     obs.observe(document.documentElement, { childList: true, subtree: true });
@@ -1693,8 +1719,20 @@ async function stamp(html, user, env) {
   }
   setTimeout(pspRegisterAccessItems, 1500);
   setTimeout(pspRegisterAccessItems, 3500);
-})();
-</script>`;
+})();`;
+
+async function stamp(html, user, env) {
+  const key = env.WM_KEY || env.SITE_USERS || env.SITE_PASSWORD || 'parspehr';
+  const tag = (await hmacHex(key, 'psp:' + user)).slice(0, 16);
+  const safe = user.replace(/[^A-Za-z0-9_.@-]/g, '_') + '.' + tag;
+  const top =
+    '<!-- Proprietary software of ' + OWNER + '. Licensed to: ' + safe +
+    '. Copying, sharing or reselling is prohibited. -->' +
+    '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
+    '<meta name="psp-license" content="' + safe + '">' +
+    '<script>window.__psp="' + safe + '";</script>';
+  // Inject employee-portal admin UI (external script from Worker — not in index)
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -5097,6 +5135,16 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
+  if (path === '/api/admin/portal-boot.js') {
+    return new Response(PORTAL_ADMIN_JS, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff'
+      }
+    });
+  }
   if (path === '/api/admin/attendance-types') {
     if (request.method === 'GET') return handleAdminGetAttendanceTypes(env);
     return handleAdminSaveAttendanceTypes(request, who, env);
