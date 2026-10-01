@@ -374,7 +374,13 @@ async function stamp(html, user, env) {
       '<div class="form-group"><label>ماه جاری درخواست‌ها</label><select id="pspCurMonth"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></div>' +
       '<div class="form-group"><label>سال جاری</label><input type="number" id="pspCurYear" value="1405"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;"><button type="button" class="btn btn-outline btn-sm" id="pspCurSave">ثبت ماه جاری و روزهای کاری</button></div>' +
-      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای کاری هفته</label>' +
+      '<div class="form-group"><label>نوع قرارداد (تقویم کاری)</label>' +
+      '<select id="pspCalContractType"></select></div>' +
+      '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
+      '<input id="pspNewCtId" placeholder="شناسه انگلیسی مثلاً shift" style="width:120px;" dir="ltr">' +
+      '<input id="pspNewCtName" placeholder="نام فارسی مثلاً شیفتی" style="width:120px;">' +
+      '<button type="button" class="btn btn-outline btn-sm" id="pspAddCtBtn">+ نوع قرارداد</button></div>' +
+      '<div class="form-group" style="grid-column:1/-1;"><label>روزهای کاری هفته <span style="color:#64748b;font-weight:400;">(برای نوع انتخاب‌شده)</span></label>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:0.78rem;">' +
       '<label><input type="checkbox" class="psp-wd" value="6" checked> شنبه</label>' +
       '<label><input type="checkbox" class="psp-wd" value="0" checked> یکشنبه</label>' +
@@ -388,7 +394,7 @@ async function stamp(html, user, env) {
       '<select id="pspCountNonWorkAsLeave"><option value="no">خیر — فقط روزهای کاری شمرده شوند</option><option value="yes">بلی — تعطیلات و روزهای غیرکاری هم جزو مرخصی</option></select></div>' +
       '<div class="form-group" style="grid-column:1/-1;"><span id="pspCurStatus" style="font-size:0.8rem;color:#0f766e;"></span></div>' +
       '</div>' +      '<div class="section-title" style="margin-top:16px;">تقویم تعطیلات سال</div>' +
-      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">روزها را کلیک کنید تا تعطیل/غیرتعطیل شوند. پنجشنبه و جمعه طبق «روزهای کاری» بالا از قبل غیرکاری‌اند. این تعطیلات در شمارش مرخصی (وقتی گزینه «خیر» باشد) لحاظ می‌شوند.</p>' +
+      '<p style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">تقویم تعطیلات برای <b>نوع قرارداد انتخاب‌شده</b>. روز قرمز = تعطیل. روزهای غیرکاری هفته طبق تیک‌های بالا برای همان نوع قرارداد اعمال می‌شود.</p>' +
       '<div class="form-grid" style="margin-bottom:8px;">' +
       '<div class="form-group"><label>سال تقویم</label><input type="number" id="pspCalYear" value="1405"></div>' +
       '<div class="form-group" style="display:flex;align-items:flex-end;gap:6px;">' +
@@ -978,6 +984,38 @@ async function stamp(html, user, env) {
       });
     };
 
+    function pspSelectedCt() {
+      var el = document.getElementById('pspCalContractType');
+      return (el && el.value) ? el.value : 'normal';
+    }
+    function pspFillContractTypes(list, selected) {
+      var sel = document.getElementById('pspCalContractType');
+      if (!sel) return;
+      var cur = selected || sel.value || 'normal';
+      sel.innerHTML = (list || []).map(function(t){
+        return '<option value="'+t.id+'"'+(t.id===cur?' selected':'')+'>'+(t.name||t.id)+'</option>';
+      }).join('');
+      if (!sel.value && list && list[0]) sel.value = list[0].id;
+    }
+    function pspLoadCalForCt() {
+      var ct = pspSelectedCt();
+      fetch('/api/admin/get-current-month?contractType='+encodeURIComponent(ct), { credentials:'same-origin' })
+        .then(function(r){return r.json()}).then(function(j){
+          if (!j || !j.ok) return;
+          if (j.year) { var y=document.getElementById('pspCurYear'); if(y) y.value=j.year; }
+          if (j.month) { var m=document.getElementById('pspCurMonth'); if(m) m.value=String(j.month); }
+          if (Array.isArray(j.workWeekDays)) {
+            document.querySelectorAll('.psp-wd').forEach(function(c){
+              c.checked = j.workWeekDays.indexOf(Number(c.value)) >= 0;
+            });
+          }
+          var nw=document.getElementById('pspCountNonWorkAsLeave');
+          if (nw) nw.value = j.countNonWorkDaysAsLeave ? 'yes' : 'no';
+          pspFillContractTypes(j.contractTypesList || [], ct);
+          var st=document.getElementById('pspCurStatus');
+          if (st && j.month) { st.style.color='#0f766e'; st.textContent='ماه جاری: '+j.year+'/'+j.month+' | تقویم: '+(j.contractTypeName||ct); }
+        }).catch(function(){});
+    }
     document.getElementById('pspCurSave').onclick = function(){
       var wds = [];
       document.querySelectorAll('.psp-wd:checked').forEach(function(c){ wds.push(Number(c.value)); });
@@ -988,14 +1026,16 @@ async function stamp(html, user, env) {
         body: JSON.stringify({
           year: Number(document.getElementById('pspCurYear').value),
           month: Number(document.getElementById('pspCurMonth').value),
+          contractType: pspSelectedCt(),
           workWeekDays: wds,
           countNonWorkDaysAsLeave: (document.getElementById('pspCountNonWorkAsLeave')||{}).value === 'yes'
         })
       }).then(function(r){return r.json()}).then(function(j){
         if (j.ok) {
-          var msg = 'ثبت شد: ماه جاری '+j.year+'/'+j.month+' (دیگر نیازی به ثبت مجدد تا تغییر ماه نیست)';
+          var msg = 'ثبت شد: ماه '+j.year+'/'+j.month+' + روزهای کاری نوع «'+(j.contractType||'')+'»';
           if (st) { st.style.color='#16a34a'; st.textContent = msg; }
           else alert(msg);
+          if (j.contractTypesList) pspFillContractTypes(j.contractTypesList, j.contractType);
         } else {
           var err = j.message||j.error||'خطا';
           if (st) { st.style.color='#b91c1c'; st.textContent = err; }
@@ -1003,21 +1043,36 @@ async function stamp(html, user, env) {
         }
       }).catch(function(){ if(st){ st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; }});
     };
-    // بارگذاری تنظیمات ذخیره‌شده ماه جاری
+    var ctSel = document.getElementById('pspCalContractType');
+    if (ctSel) ctSel.onchange = function(){ pspLoadCalForCt(); var y=document.getElementById('pspCalYear'); if(y){ /* auto reload holidays */ var b=document.getElementById('pspCalLoad'); if(b) b.click(); } };
+    var addCt = document.getElementById('pspAddCtBtn');
+    if (addCt) addCt.onclick = function(){
+      var id = ((document.getElementById('pspNewCtId')||{}).value||'').trim();
+      var name = ((document.getElementById('pspNewCtName')||{}).value||'').trim();
+      if (!id || !name) { alert('شناسه و نام نوع قرارداد الزامی است'); return; }
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(id)) { alert('شناسه باید انگلیسی باشد (حروف و عدد)'); return; }
+      fetch('/api/admin/contract-types', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({ id: id, name: name })
+      }).then(function(r){return r.json()}).then(function(j){
+        if (!j.ok) { alert(j.message||j.error||'خطا'); return; }
+        pspFillContractTypes(j.contractTypesList || [], id);
+        var st=document.getElementById('pspCurStatus');
+        if (st) { st.style.color='#16a34a'; st.textContent='نوع قرارداد «'+name+'» اضافه شد و در کارت کارمند قابل انتخاب است'; }
+        pspLoadCalForCt();
+      });
+    };
+    // بارگذاری ماه جاری + لیست نوع قرارداد + تقویم نوع انتخابی
     fetch('/api/admin/get-current-month', { credentials:'same-origin' }).then(function(r){return r.json()}).then(function(j){
       if (!j || !j.ok) return;
-      if (j.year) { var y=document.getElementById('pspCurYear'); if(y) y.value=j.year; }
-      if (j.month) { var m=document.getElementById('pspCurMonth'); if(m) m.value=String(j.month); }
-      if (Array.isArray(j.workWeekDays)) {
-        document.querySelectorAll('.psp-wd').forEach(function(c){
-          c.checked = j.workWeekDays.indexOf(Number(c.value)) >= 0;
-        });
+      pspFillContractTypes(j.contractTypesList || defaultContractTypesClient(), j.contractType || 'normal');
+      if (typeof pspLoadCalForCt === 'function') pspLoadCalForCt();
+      else {
+        if (j.year) { var y=document.getElementById('pspCurYear'); if(y) y.value=j.year; }
+        if (j.month) { var m=document.getElementById('pspCurMonth'); if(m) m.value=String(j.month); }
       }
-      var nw=document.getElementById('pspCountNonWorkAsLeave');
-      if (nw) nw.value = j.countNonWorkDaysAsLeave ? 'yes' : 'no';
-      var st=document.getElementById('pspCurStatus');
-      if (st && j.month) { st.style.color='#0f766e'; st.textContent='ماه جاری فعال: '+j.year+'/'+j.month; }
     }).catch(function(){});
+    function defaultContractTypesClient(){ return [{id:'normal',name:'عادی'},{id:'daily',name:'روزمزد'},{id:'hourly',name:'ساعتی'}]; }
 
     window.__pspHolidays = {};
     function renderHolidayCal() {
@@ -1058,7 +1113,7 @@ async function stamp(html, user, env) {
     var calLoad = document.getElementById('pspCalLoad');
     if (calLoad) calLoad.onclick = function(){
       var year = Number(document.getElementById('pspCalYear').value)||1405;
-      fetch('/api/admin/holidays?year='+year, {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
+      fetch('/api/admin/holidays?year='+year+'&contractType='+encodeURIComponent(pspSelectedCt()), {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){
         if (j.ok) {
           window.__pspHolidays[String(year)] = j.days || [];
           renderHolidayCal();
@@ -1073,7 +1128,7 @@ async function stamp(html, user, env) {
       var st=document.getElementById('pspCalStatus'); if(st) st.textContent='ذخیره…';
       fetch('/api/admin/holidays', {
         method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-        body: JSON.stringify({ year: year, days: days })
+        body: JSON.stringify({ year: year, days: days, contractType: pspSelectedCt() })
       }).then(function(r){return r.json()}).then(function(j){
         if (st) {
           if (j.ok) { st.style.color='#16a34a'; st.textContent='تعطیلات سال '+year+' ذخیره شد ('+days.length+' روز)'; }
@@ -2470,11 +2525,37 @@ async function handleEmpCreateRequest(request, env) {
       }, 400);
     }
 
+
+    // رد مرخصی روزانه در روزهای تعطیل/غیرکاری (تقویم نوع قرارداد کارمند)
+    if (kind === 'leave' && mode === 'daily' && startDate) {
+      const empCt = emp.contractType || 'normal';
+      const ws = getWorkWeekSettings(gd.obj, empCt);
+      if (!ws.countNonWorkDaysAsLeave) {
+        const nonWork = listNonWorkDaysInRange(gd.obj, startDate, endDate || startDate, empCt);
+        if (nonWork.length) {
+          return jsonResponse({
+            ok: false,
+            error: 'holiday_not_leave',
+            message: 'روز تعطیل/غیرکاری به‌عنوان مرخصی محسوب نمی‌شود: ' + nonWork.join('، ') + '. فقط روزهای کاری تقویم نوع قرارداد «' + empCt + '» قابل ثبت است.',
+            nonWorkDays: nonWork
+          }, 400);
+        }
+      }
+      const daysNeeded0 = countLeaveDays({ mode: 'daily', startDate: startDate, endDate: endDate || startDate, fixedDays: fixedDays }, gd.obj, empCt);
+      if (!fixedDays && daysNeeded0 <= 0) {
+        return jsonResponse({
+          ok: false,
+          error: 'holiday_not_leave',
+          message: 'در بازه انتخاب‌شده هیچ روز کاری وجود ندارد؛ روز تعطیل به‌عنوان مرخصی محسوب نمی‌شود.'
+        }, 400);
+      }
+    }
+
     // بررسی مانده مرخصی استحقاقی (سال جاری / ذخیره سال‌های قبل)
     let usePriorYears = !!b.usePriorYears;
     if (kind === 'leave' && deductFromEntitlement) {
       const fakeReq = { mode: mode, startDate: startDate, endDate: endDate, fromTime: fromTime, toTime: toTime, fixedDays: fixedDays };
-      const daysNeeded = countLeaveDays(fakeReq, gd.obj);
+      const daysNeeded = countLeaveDays(fakeReq, gd.obj, emp.contractType);
       const avail = leaveAvailabilityForEmp(gd.obj, emp, daysNeeded);
       const tAllowAdv = !!(tdef && tdef.allowAdvance);
       let grantAllowAdv = false;
@@ -2792,41 +2873,101 @@ function jalaliWeekday(jy, jm, jd) {
 }
 
 
-function getHolidaySet(obj, year) {
+function defaultContractTypesList() {
+  return [
+    { id: 'normal', name: 'عادی' },
+    { id: 'daily', name: 'روزمزد' },
+    { id: 'hourly', name: 'ساعتی' }
+  ];
+}
+
+function ensureContractCalendars(obj) {
+  if (!obj.settings) obj.settings = {};
+  const s = obj.settings;
+  if (!Array.isArray(s.contractTypesList) || !s.contractTypesList.length) {
+    s.contractTypesList = defaultContractTypesList();
+  }
+  if (!s.contractCalendars || typeof s.contractCalendars !== 'object') s.contractCalendars = {};
+  // مهاجرت از تنظیمات سراسری قدیمی به نوع «عادی»
+  if (!s.contractCalendars.normal) {
+    s.contractCalendars.normal = {
+      workWeekDays: Array.isArray(s.workWeekDays) ? s.workWeekDays.slice() : [6, 0, 1, 2, 3],
+      countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave,
+      holidaysByYear: s.holidaysByYear && typeof s.holidaysByYear === 'object' ? s.holidaysByYear : {}
+    };
+  }
+  s.contractTypesList.forEach(function (t) {
+    if (!t || !t.id) return;
+    if (!s.contractCalendars[t.id]) {
+      s.contractCalendars[t.id] = {
+        workWeekDays: [6, 0, 1, 2, 3],
+        countNonWorkDaysAsLeave: false,
+        holidaysByYear: {}
+      };
+    }
+  });
+  return s;
+}
+
+function getContractCalendar(obj, contractType) {
+  ensureContractCalendars(obj || {});
   const s = (obj && obj.settings) || {};
-  const by = s.holidaysByYear || {};
-  const list = by[String(year)] || by[year] || [];
+  const ct = String(contractType || 'normal').trim() || 'normal';
+  const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
+  return {
+    workWeekDays: Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3],
+    countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
+    holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {}
+  };
+}
+
+function getHolidaySet(obj, year, contractType) {
+  const cal = getContractCalendar(obj, contractType);
+  const list = cal.holidaysByYear[String(year)] || cal.holidaysByYear[year] || [];
   const set = {};
   (list || []).forEach(function (d) {
     const k = String(d).replace(/\//g, '-');
     set[k] = true;
-    // also slash form
     set[String(d)] = true;
   });
   return set;
 }
 
-function isHolidayOrNonWork(obj, y, m, d) {
+function isHolidayOrNonWork(obj, y, m, d, contractType) {
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
-  const hol = getHolidaySet(obj, y);
+  const hol = getHolidaySet(obj, y, contractType);
   if (hol[keyDash] || hol[keySlash]) return true;
-  const ws = getWorkWeekSettings(obj);
+  const cal = getContractCalendar(obj, contractType);
   const wd = jalaliWeekday(y, m, d);
-  if (ws.workWeekDays.indexOf(wd) < 0) return true; // not a work day
+  if (cal.workWeekDays.indexOf(wd) < 0) return true;
   return false;
 }
 
-function getWorkWeekSettings(obj) {
-  const s = (obj && obj.settings) || {};
-  const days = Array.isArray(s.workWeekDays) ? s.workWeekDays.map(Number) : [6, 0, 1, 2, 3];
+function getWorkWeekSettings(obj, contractType) {
+  const cal = getContractCalendar(obj, contractType);
   return {
-    workWeekDays: days,
-    countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave
+    workWeekDays: cal.workWeekDays,
+    countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave
   };
 }
 
-function countLeaveDays(req, obj) {
+function listNonWorkDaysInRange(obj, startStr, endStr, contractType) {
+  if (typeof listDayKeys !== 'function') return [];
+  const keys = listDayKeys(startStr, endStr || startStr);
+  const out = [];
+  keys.forEach(function (k) {
+    const parts = String(k).split(/[-\/]/);
+    if (parts.length < 3) return;
+    const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
+    if (isHolidayOrNonWork(obj, yy, mm, dd, contractType)) {
+      out.push(yy + '/' + String(mm).padStart(2, '0') + '/' + String(dd).padStart(2, '0'));
+    }
+  });
+  return out;
+}
+
+function countLeaveDays(req, obj, contractType) {
   if (!req) return 0;
   if (req.mode === 'hourly') {
     const ft = String(req.fromTime || '00:00').split(':');
@@ -2838,17 +2979,18 @@ function countLeaveDays(req, obj) {
     return Math.round((hrs / 8) * 100) / 100;
   }
   if (req.fixedDays) return Number(req.fixedDays) || 1;
+  const ct = contractType || (req && req.contractType) || 'normal';
   if (typeof listDayKeys === 'function' && req.startDate) {
     try {
       const keys = listDayKeys(req.startDate, req.endDate || req.startDate);
-      const ws = getWorkWeekSettings(obj || {});
+      const ws = getWorkWeekSettings(obj || {}, ct);
       if (ws.countNonWorkDaysAsLeave) return keys.length || 1;
       let n = 0;
       keys.forEach(function (k) {
         const parts = String(k).split(/[-\/]/);
         if (parts.length < 3) { n++; return; }
         const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
-        if (isHolidayOrNonWork(obj, yy, mm, dd)) return; // تعطیل یا غیرکاری — شمارش نشود
+        if (isHolidayOrNonWork(obj, yy, mm, dd, ct)) return;
         n++;
       });
       return n || 0;
@@ -2868,7 +3010,7 @@ function applyLeaveDeduction(obj, req) {
   if (!emp) return;
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
-  const days = countLeaveDays(req, obj);
+  const days = countLeaveDays(req, obj, emp.contractType);
   let left = days;
   const detail = [];
   const annual = getAnnualLeaveDaysForEmp(obj, emp);
@@ -3803,28 +3945,92 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     gd.obj.settings.currentYear = year;
     gd.obj.settings.currentMonth = month;
+    ensureContractCalendars(gd.obj);
+    const ct = String(r.body.contractType || 'normal').trim() || 'normal';
+    if (!gd.obj.settings.contractCalendars[ct]) {
+      gd.obj.settings.contractCalendars[ct] = { workWeekDays: [6,0,1,2,3], countNonWorkDaysAsLeave: false, holidaysByYear: {} };
+    }
+    const cal = gd.obj.settings.contractCalendars[ct];
     if (Array.isArray(r.body.workWeekDays)) {
-      gd.obj.settings.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
-    } else if (!Array.isArray(gd.obj.settings.workWeekDays)) {
-      gd.obj.settings.workWeekDays = [6, 0, 1, 2, 3]; // پیش‌فرض شنبه تا چهارشنبه
+      cal.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
     }
     if (r.body.countNonWorkDaysAsLeave != null) {
-      gd.obj.settings.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
+      cal.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
+    }
+    // سازگاری با فیلدهای قدیمی
+    if (ct === 'normal') {
+      gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
+      gd.obj.settings.countNonWorkDaysAsLeave = cal.countNonWorkDaysAsLeave;
     }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
+    const tdef = (gd.obj.settings.contractTypesList || []).find(function (t) { return t.id === ct; });
     return jsonResponse({
       ok: true,
       year: year,
       month: month,
-      workWeekDays: gd.obj.settings.workWeekDays,
-      countNonWorkDaysAsLeave: !!gd.obj.settings.countNonWorkDaysAsLeave
+      contractType: ct,
+      contractTypeName: tdef ? tdef.name : ct,
+      workWeekDays: cal.workWeekDays,
+      countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
+      contractTypesList: gd.obj.settings.contractTypesList
     });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
+
+
+async function handleAdminContractTypes(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) gd.obj = {};
+    ensureContractCalendars(gd.obj);
+    return jsonResponse({ ok: true, contractTypesList: gd.obj.settings.contractTypesList });
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const id = String(r.body.id || '').trim();
+  const name = String(r.body.name || '').trim();
+  if (!id || !name) return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه و نام الزامی است.' }, 400);
+  if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(id)) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه باید با حرف انگلیسی شروع شود.' }, 400);
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    ensureContractCalendars(gd.obj);
+    const list = gd.obj.settings.contractTypesList;
+    if (list.some(function (t) { return t.id === id; })) {
+      return jsonResponse({ ok: false, error: 'exists', message: 'این شناسه قبلاً ثبت شده است.' }, 400);
+    }
+    list.push({ id: id, name: name });
+    gd.obj.settings.contractCalendars[id] = {
+      workWeekDays: [6, 0, 1, 2, 3],
+      countNonWorkDaysAsLeave: false,
+      holidaysByYear: {}
+    };
+    // leave policy byContractType slot
+    if (!gd.obj.settings.leavePolicy) gd.obj.settings.leavePolicy = {};
+    if (!gd.obj.settings.leavePolicy.byContractType) gd.obj.settings.leavePolicy.byContractType = {};
+    if (gd.obj.settings.leavePolicy.byContractType[id] == null) {
+      gd.obj.settings.leavePolicy.byContractType[id] = Number(gd.obj.settings.leavePolicy.annualDays) || 26;
+    }
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, contractTypesList: list, id: id, name: name });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
 
 async function handleAdminGetHolidays(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
@@ -3836,8 +4042,13 @@ async function handleAdminGetHolidays(request, who, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const by = ((gd.obj && gd.obj.settings) || {}).holidaysByYear || {};
-  return jsonResponse({ ok: true, year: year, days: by[String(year)] || [] });
+  if (!gd.obj) gd.obj = {};
+  ensureContractCalendars(gd.obj);
+  const urlCt = new URL(request.url);
+  const ct = String(urlCt.searchParams.get('contractType') || 'normal').trim() || 'normal';
+  const cal = getContractCalendar(gd.obj, ct);
+  const by = cal.holidaysByYear || {};
+  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [] });
 }
 
 async function handleAdminSaveHolidays(request, who, env) {
@@ -3856,12 +4067,21 @@ async function handleAdminSaveHolidays(request, who, env) {
     if (gd.fail) return storeFailResponse(gd.fail);
     if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
     if (!gd.obj.settings) gd.obj.settings = {};
-    if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
-    gd.obj.settings.holidaysByYear[String(year)] = days;
+    ensureContractCalendars(gd.obj);
+    const ct = String(r.body.contractType || 'normal').trim() || 'normal';
+    if (!gd.obj.settings.contractCalendars[ct]) {
+      gd.obj.settings.contractCalendars[ct] = { workWeekDays: [6,0,1,2,3], countNonWorkDaysAsLeave: false, holidaysByYear: {} };
+    }
+    if (!gd.obj.settings.contractCalendars[ct].holidaysByYear) gd.obj.settings.contractCalendars[ct].holidaysByYear = {};
+    gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days;
+    if (ct === 'normal') {
+      if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
+      gd.obj.settings.holidaysByYear[String(year)] = days;
+    }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
-    return jsonResponse({ ok: true, year: year, count: days.length });
+    return jsonResponse({ ok: true, year: year, contractType: ct, count: days.length });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -3874,13 +4094,22 @@ async function handleAdminGetCurrentMonth(request, who, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const s = (gd.obj && gd.obj.settings) || {};
+  if (!gd.obj) gd.obj = {};
+  ensureContractCalendars(gd.obj);
+  const s = gd.obj.settings || {};
+  const url = new URL(request.url);
+  const ct = String(url.searchParams.get('contractType') || 'normal').trim() || 'normal';
+  const cal = getContractCalendar(gd.obj, ct);
+  const tdef = (s.contractTypesList || []).find(function (t) { return t.id === ct; });
   return jsonResponse({
     ok: true,
     year: Number(s.currentYear) || 1405,
     month: Number(s.currentMonth) || Number(s.activeMonth) || 0,
-    workWeekDays: Array.isArray(s.workWeekDays) ? s.workWeekDays : [6, 0, 1, 2, 3],
-    countNonWorkDaysAsLeave: !!s.countNonWorkDaysAsLeave
+    contractType: ct,
+    contractTypeName: tdef ? tdef.name : ct,
+    workWeekDays: cal.workWeekDays,
+    countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave,
+    contractTypesList: s.contractTypesList || defaultContractTypesList()
   });
 }
 
@@ -4243,6 +4472,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
+  if (path === '/api/admin/contract-types') return handleAdminContractTypes(request, who, env);
   if (path === '/api/admin/holidays') {
     if (request.method === 'POST') return handleAdminSaveHolidays(request, who, env);
     return handleAdminGetHolidays(request, who, env);
