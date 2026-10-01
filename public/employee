@@ -66,6 +66,8 @@
       <button class="tab" data-tab="timesheet" onclick="showTab('timesheet')">تایم‌شیت</button>
       <button class="tab" data-tab="decree" id="tabDecree" onclick="showTab('decree')">حکم</button>
       <button class="tab" data-tab="profile" id="tabProfile" onclick="showTab('profile')">مشخصات پرسنلی</button>
+      <button class="tab" data-tab="contracts" id="tabContracts" onclick="showTab('contracts')">قراردادها</button>
+      <button class="tab" data-tab="balances" id="tabBalances" onclick="showTab('balances')">مانده مرخصی و وام</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
     </div>
   </div>
@@ -118,6 +120,16 @@
     <p class="sub" style="text-align:right;margin-bottom:10px;">اطلاعات کارت پرسنلی</p>
     <div id="profileBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
+  <div class="card panel hidden" id="panel-balances">
+    <h2>مانده مرخصی و وام</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">مانده مرخصی استحقاقی پس از تأیید مدیر به‌روز می‌شود.</p>
+    <div id="balancesBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
+  <div class="card panel hidden" id="panel-contracts">
+    <h2>قراردادهای من</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">در صورت مجاز بودن، مدت قرارداد نمایش داده می‌شود.</p>
+    <div id="contractsBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
   <div class="card panel hidden" id="panel-password">
     <h2>تغییر رمز عبور</h2>
     <label>رمز فعلی</label><input id="oldPass" type="password">
@@ -139,7 +151,122 @@ function showTab(name){
   if(name==='timesheet') loadTimesheet();
   if(name==='decree') loadDecree();
   if(name==='profile') loadProfile();
+  if(name==='contracts') loadContractsEmp();
+  if(name==='balances') loadBalancesEmp();
+  if(name==='payslip') loadPayslipArchive();
 }
+async function loadBalancesEmp(){
+  var box=document.getElementById('balancesBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/balances',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var L=j.leave||{}, Ln=j.loan||{};
+    var html='<div class="box"><table>';
+    html+='<tr><td><b>مانده مرخصی استحقاقی</b></td><td>'+(L.balance!=null?L.balance:'—')+' روز</td></tr>';
+    html+='<tr><td><b>استفاده‌شده امسال</b></td><td>'+(L.usedYear!=null?L.usedYear:'—')+' روز</td></tr>';
+    html+='<tr><td><b>سقف سالانه (بر اساس نوع/گروه شما)</b></td><td>'+(L.annualDays!=null?L.annualDays:'—')+' روز</td></tr>';
+    html+='<tr><td><b>باقی‌مانده وام</b></td><td>'+(Ln.remaining!=null?Number(Ln.remaining).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
+    html+='<tr><td><b>قسط ماهانه</b></td><td>'+(Ln.monthly?Number(Ln.monthly).toLocaleString('fa-IR'):'—')+' ریال</td></tr>';
+    html+='</table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت اطلاعات.</div>'; }
+}
+
+
+async function loadPayslipArchive(){
+  var box=document.getElementById('payslipArchiveBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری آرشیو…</div>';
+  try{
+    var r=await fetch('/api/emp/payslip-archive',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">آرشیو در دسترس نیست.</div>'; return; }
+    var list=j.months||[];
+    if(!list.length){ box.innerHTML='<div class="sub">هنوز فیش محاسبه‌شده‌ای برای شما ثبت نشده.</div>'; return; }
+    var monthNames=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+    var html='<div class="box"><table><thead><tr><th>دوره</th><th>ناخالص</th><th>خالص</th><th></th></tr></thead><tbody>';
+    list.forEach(function(m){
+      var label=(monthNames[m.month]||m.month)+' '+m.year;
+      html+='<tr><td>'+label+'</td><td>'+(m.gross!=null?Number(m.gross).toLocaleString('fa-IR'):'—')+'</td><td>'+(m.net!=null?Number(m.net).toLocaleString('fa-IR'):'—')+'</td>';
+      html+='<td><button type="button" class="primary" style="padding:4px 8px;font-size:0.75rem;" onclick="openArchivedPayslip('+m.year+','+m.month+')">نمایش</button></td></tr>';
+    });
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت آرشیو.</div>'; }
+}
+function openArchivedPayslip(y,m){
+  var ye=document.getElementById('year')||document.getElementById('psYear');
+  var me=document.getElementById('month')||document.getElementById('psMonth');
+  if(ye) ye.value=y; if(me) me.value=m;
+  if(typeof loadPayslip==='function') loadPayslip();
+}
+
+async function loadContractsEmp(){
+  var box=document.getElementById('contractsBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/contracts',{credentials:'same-origin'});
+    var j=await r.json();
+    if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var list=j.contracts||[];
+    if(!list.length){ box.innerHTML='<div class="sub">قراردادی برای شما ثبت نشده.</div>'; return; }
+    var typeFa={fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'};
+    var ordinals=['اول','دوم','سوم','چهارم','پنجم','ششم','هفتم','هشتم','نهم','دهم'];
+    function monthsBetween(a,b){
+      if(!a||!b) return null;
+      var ma=String(a).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      var mb=String(b).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if(!ma||!mb) return null;
+      var months=(+mb[1]-+ma[1])*12+(+mb[2]-+ma[2]);
+      if(+mb[3]>=+ma[3]) months+=1; // inclusive rough
+      if(months<1) months=1;
+      return months;
+    }
+    // oldest first for ordinal numbering
+    var sorted=list.slice().sort(function(a,b){
+      return String(a.startDate||'').localeCompare(String(b.startDate||''));
+    });
+    var orderMap={};
+    sorted.forEach(function(c,i){ orderMap[c.id]=i; });
+    function fmtDate(d){
+      if(!d) return '';
+      var m=String(d).trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if(!m) return String(d);
+      return String(m[3]).padStart(2,'0')+'/'+String(m[2]).padStart(2,'0')+'/'+m[1];
+    }
+    var html='<div class="box" style="overflow:auto;"><table style="width:100%;font-size:0.82rem;">';
+    html+='<thead><tr>';
+    html+='<th style="text-align:right;">نوع</th>';
+    html+='<th style="text-align:center;">دوره قرارداد</th>';
+    html+='<th style="text-align:center;">مدت قرارداد</th>';
+    html+='<th style="text-align:center;">نوبت قرارداد</th>';
+    html+='</tr></thead><tbody>';
+    list.forEach(function(c){
+      var typ=typeFa[c.type]||c.type||'—';
+      var period='—';
+      var dur='—';
+      if(c.showDuration){
+        var a=fmtDate(c.startDate), b=fmtDate(c.endDate);
+        if(a&&b) period=a+'-'+b;
+        else if(a||b) period=a||b;
+        var m=c.durationMonths!=null?c.durationMonths:monthsBetween(c.startDate,c.endDate);
+        if(m!=null) dur=m+'ماه';
+      }
+      var oi=c.orderIndex!=null?c.orderIndex:orderMap[c.id];
+      var nob=oi!=null?(oi<ordinals.length?'قرارداد '+ordinals[oi]:'قرارداد '+(oi+1)):'—';
+      html+='<tr>';
+      html+='<td style="text-align:right;"><b>'+typ+'</b></td>';
+      html+='<td style="text-align:center;direction:ltr;">'+period+'</td>';
+      html+='<td style="text-align:center;">'+dur+'</td>';
+      html+='<td style="text-align:center;">'+nob+'</td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table></div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
+}
+
 async function loadDecree(){
   var box=document.getElementById('decreeBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
@@ -329,15 +456,22 @@ async function loadTimesheet(){
     html+='<tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      html+='<div style="overflow:auto"><table style="font-size:0.78rem;min-width:720px"><thead><tr>';
+      html+='<div style="overflow:auto"><table style="font-size:0.7rem;min-width:100%;width:100%"><thead><tr>';
       html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>';
-      html+='<th>مأموریت ساعتی</th><th>مأموریت روزانه</th><th>مرخصی ساعتی</th><th>مرخصی روزانه</th><th>توضیح</th>';
+      html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
-        html+='<tr><td>'+d.date+'</td><td></td><td></td><td></td><td></td>';
-        html+='<td>'+(d.missionHourly||'')+'</td><td>'+(d.missionDaily||'')+'</td>';
-        html+='<td>'+(d.leaveHourly||'')+'</td><td>'+(d.leaveDaily||'')+'</td>';
-        html+='<td>'+(d.note||'')+'</td></tr>';
+        var bg=d.isNonWork?'background:#fef2f2;':'';
+        html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in1||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out1||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in2||''))+'</td>';
+        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out2||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.missionHourly||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.missionDaily||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.leaveHourly||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.leaveDaily||''))+'</td>';
+        html+='<td style="font-size:0.65rem">'+((d.note||''))+'</td></tr>';
       });
       html+='</tbody></table></div>';
     }
