@@ -1475,7 +1475,6 @@
   
     <!-- پنل مأموریت/مرخصی توسط Worker تزریق می‌شود (امنیت) -->
   <div class="panel" id="panel-portalatt" data-psp-host="1"></div>
-
   <div class="panel" id="panel-permissions">
     <div class="card">
       <div class="section-title">مدیریت کاربران و دسترسی‌ها</div>
@@ -11117,5 +11116,31 @@ function insertFormulaVar(idx, varName) {
 }
 
 </script>
+
+<script>
+/* PSP: فقط بارگذاری اسکریپت پنل از Worker — منطق در index نیست */
+(function(){
+  if (window.__pspPortalBootLoading || window.__pspPortalAdmin) return;
+  window.__pspPortalBootLoading = true;
+  function fail(msg){
+    var p = document.getElementById('panel-portalatt');
+    if (!p) return;
+    if (document.getElementById('pspSub-ts')) return;
+    p.innerHTML = '<div class="card" style="padding:14px;color:#b91c1c;font-size:0.85rem;line-height:1.6;">'
+      + (msg || 'بارگذاری پنل مأموریت/مرخصی ناموفق.')
+      + '<br><small style="color:#64748b">Worker را دیپلوی کنید و بعد از ورود، این صفحه را سخت‌رفرش کنید (Ctrl+Shift+R).</small></div>';
+  }
+  var s = document.createElement('script');
+  s.src = '/api/admin/portal-boot.js?t=' + Date.now();
+  s.async = true;
+  s.onload = function(){ console.log('[psp] portal-boot.js loaded'); };
+  s.onerror = function(){ console.error('[psp] portal-boot.js failed'); fail('درخواست /api/admin/portal-boot.js ناموفق (401/404/شبکه).'); };
+  document.head.appendChild(s);
+  setTimeout(function(){
+    if (!window.__pspPortalAdmin) fail('اسکریپت پنل اجرا نشد. کنسول و Network را برای portal-boot.js ببینید.');
+  }, 8000);
+})();
+</script>
+
 </body>
 </html>
