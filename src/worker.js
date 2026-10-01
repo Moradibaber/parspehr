@@ -997,11 +997,22 @@ async function stamp(html, user, env) {
         var html = '';
         if (j.daily && j.daily.days) {
           var sch = j.daily.schedule || {};
+          var sumWork = 0, sumDelay = 0, sumOt = 0, sumEarly = 0, filled = 0;
+          j.daily.days.forEach(function(d){
+            if (d.in1 || d.out1 || d.in2 || d.out2) filled++;
+            sumWork += Number(d.workHours) || 0;
+            sumDelay += Number(d.delayMin) || 0;
+            sumEarly += Number(d.earlyMin) || 0;
+            sumOt += Number(d.otHours) || 0;
+          });
           html += '<p style="font-size:0.85rem;margin-bottom:6px;"><b>' + (j.daily.fullName||'') + '</b> — کد ' + j.daily.code + ' — ' + j.year + '/' + j.month;
-          html += ' <span style="color:#64748b;font-size:0.75rem;">| شیفت ' + (sch.workStart||'') + '–' + (sch.workEnd||'') + (sch.hasBreak?(' وقفه '+sch.breakStart+'-'+sch.breakEnd):' بدون وقفه') + '</span></p>';
+          html += ' <span style="color:#64748b;font-size:0.75rem;">| شیفت ' + (sch.workStart||'') + '–' + (sch.workEnd||'') + (sch.hasBreak?(' وقفه '+sch.breakStart+'-'+sch.breakEnd):' بدون وقفه') + ' | رسمی ' + ((sch.officialMinutes||0)/60).toFixed(1) + 'س</span></p>';
           html += '<div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
             '<button type="button" class="btn btn-primary btn-sm" id="pspTsSaveDays">ذخیره ورود/خروج ماه</button>' +
+            '<button type="button" class="btn btn-outline btn-sm" id="pspTsSample">نمونه اکسل</button>' +
+            '<label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">بارگذاری فایل<input type="file" id="pspTsFile" accept=".csv,.txt,.xlsx" style="display:none;"></label>' +
             '<span id="pspTsDayStatus" style="font-size:0.78rem;color:#0f766e;"></span></div>';
+          html += '<p style="font-size:0.75rem;color:#0f766e;margin-bottom:6px;">روزهای دارای رکورد: <b>' + filled + '</b> | جمع کار: <b>' + sumWork.toFixed(2) + '</b> س | تأخیر: <b>' + sumDelay + '</b> د | تعجیل: <b>' + sumEarly + '</b> د | اضافه‌کار: <b>' + sumOt.toFixed(2) + '</b> س</p>';
           html += '<div style="overflow:auto;"><table style="font-size:0.72rem;min-width:1100px;"><thead><tr>' +
             '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
             '<th>کار(س)</th><th>تأخیر(د)</th><th>تعجیل(د)</th><th>اضافه(س)</th>' +
@@ -1026,9 +1037,7 @@ async function stamp(html, user, env) {
           window.__pspTsYear = j.year;
           window.__pspTsMonth = j.month;
           setTimeout(function(){
-            var btn = document.getElementById('pspTsSaveDays');
-            if (!btn) return;
-            btn.onclick = function(){
+            function collectDays(){
               var days = [];
               document.querySelectorAll('#pspTsOut tr[data-ts-day]').forEach(function(tr){
                 var date = (tr.querySelector('[data-date]')||{}).getAttribute('data-date');
@@ -1042,9 +1051,13 @@ async function stamp(html, user, env) {
                   note: (tr.querySelector('.ts-note')||{}).value || ''
                 });
               });
+              return days;
+            }
+            function saveDays(thenReload){
+              var days = collectDays();
               var st = document.getElementById('pspTsDayStatus');
               if (st) st.textContent = 'ذخیره…';
-              fetch('/api/admin/timesheet-days', {
+              return fetch('/api/admin/timesheet-days', {
                 method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
                 body: JSON.stringify({
                   code: (window.__pspTsDaily||{}).code,
@@ -1055,13 +1068,76 @@ async function stamp(html, user, env) {
                 })
               }).then(function(r){return r.json()}).then(function(res){
                 if (st) {
-                  if (res.ok) { st.style.color='#16a34a'; st.textContent = 'ذخیره شد ('+(res.saved||0)+' روز). برای محاسبه مجدد «نمایش» را بزنید.'; }
-                  else { st.style.color='#b91c1c'; st.textContent = res.message||res.error||'خطا'; }
+                  if (res.ok) {
+                    st.style.color='#16a34a';
+                    st.textContent = 'ذخیره شد ('+(res.saved||0)+' روز).';
+                    if (thenReload) setTimeout(function(){ var b=document.getElementById('pspTsLoad'); if(b) b.click(); }, 400);
+                  } else { st.style.color='#b91c1c'; st.textContent = res.message||res.error||'خطا'; }
                 }
+                return res;
               }).catch(function(){ if(st){ st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; }});
+            }
+            var btn = document.getElementById('pspTsSaveDays');
+            if (btn) btn.onclick = function(){ saveDays(true); };
+            var sample = document.getElementById('pspTsSample');
+            if (sample) sample.onclick = function(){
+              var lines = ['تاریخ,ورود1,خروج1,ورود2,خروج2,توضیح'];
+              var y = window.__pspTsYear, m = window.__pspTsMonth;
+              for (var d=1; d<=3; d++) {
+                var ds = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
+                lines.push(ds + ',08:00,12:00,13:00,17:05,');
+              }
+              var blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8'});
+              var a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = 'timesheet-sample.csv';
+              a.click();
+            };
+            var finp = document.getElementById('pspTsFile');
+            if (finp) finp.onchange = function(){
+              var f = finp.files && finp.files[0];
+              if (!f) return;
+              var reader = new FileReader();
+              reader.onload = function(){
+                var text = String(reader.result||'');
+                var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
+                var map = {};
+                lines.forEach(function(line, li){
+                  var parts = line.split(/[,;\t|]/);
+                  if (!parts.length) return;
+                  var date = (parts[0]||'').trim().replace(/-/g,'/');
+                  if (!/\d{4}\/\d{1,2}\/\d{1,2}/.test(date)) return;
+                  // normalize pad
+                  var p = date.split('/');
+                  date = p[0] + '/' + String(Number(p[1])).padStart(2,'0') + '/' + String(Number(p[2])).padStart(2,'0');
+                  map[date] = {
+                    in1: (parts[1]||'').trim(),
+                    out1: (parts[2]||'').trim(),
+                    in2: (parts[3]||'').trim(),
+                    out2: (parts[4]||'').trim(),
+                    note: (parts[5]||'').trim()
+                  };
+                });
+                var n = 0;
+                document.querySelectorAll('#pspTsOut tr[data-ts-day]').forEach(function(tr){
+                  var date = (tr.querySelector('[data-date]')||{}).getAttribute('data-date');
+                  if (!date || !map[date]) return;
+                  var r = map[date];
+                  var el;
+                  el = tr.querySelector('.ts-in1'); if (el) el.value = r.in1;
+                  el = tr.querySelector('.ts-out1'); if (el) el.value = r.out1;
+                  el = tr.querySelector('.ts-in2'); if (el) el.value = r.in2;
+                  el = tr.querySelector('.ts-out2'); if (el) el.value = r.out2;
+                  el = tr.querySelector('.ts-note'); if (el && r.note) el.value = r.note;
+                  n++;
+                });
+                var st = document.getElementById('pspTsDayStatus');
+                if (st) { st.style.color='#0f766e'; st.textContent = n + ' روز از فایل در جدول قرار گرفت. «ذخیره» را بزنید.'; }
+              };
+              reader.readAsText(f);
             };
           }, 50);
-        } else if (!document.getElementById('pspTsCode').value.trim()) {
+                } else if (!document.getElementById('pspTsCode').value.trim()) {
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:8px;">برای جدول روزبه‌روز و ثبت ورود/خروج، یک کد پرسنلی وارد کنید.</p>';
         }
         var rows = (j.rows || []).map(function(x){
