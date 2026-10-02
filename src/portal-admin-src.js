@@ -461,6 +461,104 @@ export default `(function(){
       if (oldFab && oldFab.parentNode) oldFab.parentNode.removeChild(oldFab);
     } catch (e) {}
 
+
+    function loadPortalViewCfg(){
+      var body = document.getElementById('pspPortalViewBody');
+      var st = document.getElementById('pspPortalViewStatus');
+      if (body) body.innerHTML = '<div style="color:#64748b;font-size:0.85rem;">در حال بارگذاری تنظیمات…</div>';
+      fetch('/api/admin/portal-view', { credentials: 'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if (!j.ok) {
+            if (body) body.innerHTML = '<div style="color:#b91c1c;">خطا: '+(j.message||j.error||'نامشخص')+'</div>';
+            return;
+          }
+          window.__pspPortalView = j;
+          renderPortalViewCfg(j);
+        })
+        .catch(function(){
+          if (body) body.innerHTML = '<div style="color:#b91c1c;">خطا در ارتباط</div>';
+        });
+    }
+    function renderPortalViewCfg(j){
+      var body = document.getElementById('pspPortalViewBody');
+      if (!body) return;
+      var c = j.config || {};
+      var decreeOpts = j.decreeOptions || [];
+      var profileOpts = j.profileOptions || [];
+      var emps = j.employees || [];
+      function modeOpts(sel){
+        return ['self','self_and_manager','all','selected'].map(function(m){
+          var lab = m==='self'?'فقط خود فرد':(m==='self_and_manager'?'خود فرد و مدیر':(m==='all'?'همه':'انتخابی با تیک'));
+          return '<option value="'+m+'"'+(sel===m?' selected':'')+'>'+lab+'</option>';
+        }).join('');
+      }
+      function fieldChecks(opts, selected, prefix, idKey, labelKey){
+        var sel = Array.isArray(selected) ? selected.map(String) : [];
+        var all = !sel.length;
+        return opts.map(function(o){
+          var id = String(o[idKey] || o.id || o.key || '');
+          var lab = String(o[labelKey] || o.name || o.label || id);
+          var on = all || sel.indexOf(id) >= 0 || sel.indexOf(lab) >= 0;
+          return '<label style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:0.78rem;white-space:nowrap;"><input type="checkbox" class="'+prefix+'" value="'+id.replace(/"/g,'&quot;')+'"'+(on?' checked':'')+'> '+lab+'</label>';
+        }).join('');
+      }
+      function empChecks(selected, prefix){
+        var sel = Array.isArray(selected) ? selected.map(String) : [];
+        var html = '<div style="max-height:160px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;padding:6px;background:#fff;">';
+        emps.forEach(function(e){
+          var on = sel.indexOf(String(e.code)) >= 0;
+          html += '<label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;padding:2px 0;"><input type="checkbox" class="'+prefix+'" value="'+e.code+'"'+(on?' checked':'')+'> '+(e.fullName||'')+' <span style="color:#94a3b8;font-size:0.72rem;">('+e.code+')</span></label>';
+        });
+        html += '</div>';
+        return html;
+      }
+      var html = '';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">';
+      html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#f0fdfa;">';
+      html += '<label style="font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:8px;"><input type="checkbox" id="pspPvShowDecree"'+(c.showDecree!==false?' checked':'')+'> نمایش تب حکم</label>';
+      html += '<div class="form-group" style="margin-bottom:8px;"><label>چه کسانی ببینند</label><select id="pspPvDecreeMode">'+modeOpts(c.decreeMode||'self')+'</select></div>';
+      html += '<div id="pspPvDecreeEmpBox" style="margin-bottom:8px;'+(c.decreeMode==='selected'?'':'display:none;')+'"><label style="font-size:0.8rem;">انتخاب افراد</label>'+empChecks(c.decreeSelectedCodes,'psp-pv-decree-emp')+'</div>';
+      html += '<div style="margin-top:8px;"><label style="font-size:0.8rem;font-weight:600;">آیتم‌های حکم</label><div style="max-height:180px;overflow:auto;margin-top:4px;">'+fieldChecks(decreeOpts, c.decreeFields, 'psp-pv-decree-f', 'id', 'name')+'</div></div>';
+      html += '</div>';
+      html += '<div style="border:1px solid #99f6e4;border-radius:10px;padding:12px;background:#f0fdfa;">';
+      html += '<label style="font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:8px;"><input type="checkbox" id="pspPvShowProfile"'+(c.showProfile!==false?' checked':'')+'> نمایش تب مشخصات پرسنلی</label>';
+      html += '<div class="form-group" style="margin-bottom:8px;"><label>چه کسانی ببینند</label><select id="pspPvProfileMode">'+modeOpts(c.profileMode||'self')+'</select></div>';
+      html += '<div id="pspPvProfileEmpBox" style="margin-bottom:8px;'+(c.profileMode==='selected'?'':'display:none;')+'"><label style="font-size:0.8rem;">انتخاب افراد</label>'+empChecks(c.profileSelectedCodes,'psp-pv-profile-emp')+'</div>';
+      html += '<div style="margin-top:8px;"><label style="font-size:0.8rem;font-weight:600;">فیلدهای مشخصات</label><div style="max-height:180px;overflow:auto;margin-top:4px;">'+fieldChecks(profileOpts, c.profileFields, 'psp-pv-profile-f', 'key', 'label')+'</div></div>';
+      html += '</div></div>';
+      body.innerHTML = html;
+      var dm = document.getElementById('pspPvDecreeMode');
+      if (dm) dm.onchange = function(){ var b=document.getElementById('pspPvDecreeEmpBox'); if(b) b.style.display = dm.value==='selected'?'':'none'; };
+      var pm = document.getElementById('pspPvProfileMode');
+      if (pm) pm.onchange = function(){ var b=document.getElementById('pspPvProfileEmpBox'); if(b) b.style.display = pm.value==='selected'?'':'none'; };
+      var saveBtn = document.getElementById('pspPortalViewSave');
+      if (saveBtn) saveBtn.onclick = savePortalViewCfg;
+      var relBtn = document.getElementById('pspPortalViewReload');
+      if (relBtn) relBtn.onclick = loadPortalViewCfg;
+    }
+    function savePortalViewCfg(){
+      var st = document.getElementById('pspPortalViewStatus');
+      function checked(cls){ var a=[]; document.querySelectorAll('.'+cls+':checked').forEach(function(c){ a.push(c.value); }); return a; }
+      var body = {
+        showDecree: !!(document.getElementById('pspPvShowDecree')||{}).checked,
+        decreeMode: (document.getElementById('pspPvDecreeMode')||{}).value || 'self',
+        decreeSelectedCodes: checked('psp-pv-decree-emp'),
+        decreeFields: checked('psp-pv-decree-f'),
+        showProfile: !!(document.getElementById('pspPvShowProfile')||{}).checked,
+        profileMode: (document.getElementById('pspPvProfileMode')||{}).value || 'self',
+        profileSelectedCodes: checked('psp-pv-profile-emp'),
+        profileFields: checked('psp-pv-profile-f')
+      };
+      if (st) st.textContent = 'ذخیره…';
+      fetch('/api/admin/portal-view', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify(body)
+      }).then(function(r){ return r.json(); }).then(function(j){
+        if (st) { st.style.color = j.ok ? '#16a34a' : '#b91c1c'; st.textContent = j.ok ? 'ذخیره شد' : (j.message||j.error||'خطا'); }
+      }).catch(function(){ if (st) { st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; } });
+    }
+
     (function(){
       function showSub(name){
         document.querySelectorAll('.psp-subtab').forEach(function(b){
@@ -549,35 +647,62 @@ export default `(function(){
           var otUn = (j.rows && j.rows[0] && j.rows[0].otHoursUnapproved != null) ? Number(j.rows[0].otHoursUnapproved) : 0;
           var otCap = (j.rows && j.rows[0] && j.rows[0].otCeilingHours != null) ? j.rows[0].otCeilingHours : '—';
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (فقط روزهای دارای تردد کامل یا مرخصی/مأموریت روزانه؛ بدون غیبت میانی) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار تأیید: <b>' + otAp.toFixed(2) + '</b>س | تأییدنشده: <b>' + otUn.toFixed(2) + '</b>س (سقف کارت: ' + otCap + ') | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
-          html += '<div style="overflow:auto;max-height:70vh;"><table class="psp-ts-table" style="font-size:0.65rem;min-width:100%;border-collapse:collapse;"><thead style="position:sticky;top:0;z-index:2;"><tr>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 4px;">تاریخ</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">روز</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۱</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۱</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۲</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۲</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۳</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۳</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۴</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۴</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">کارکرد</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">تأخیر</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">تعجیل</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">اضافه</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">غیبت‌س</th>' +
-            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">مأموریت</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">مرخصی</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">توضیح</th>' +
+          html += '<div style="margin:6px 0;font-size:0.72rem;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">' +
+            '<span style="color:#64748b;">نمایش ستون:</span>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="punch" checked> ورود/خروج</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="work" checked> کارکرد</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="ot" checked> اضافه</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="abs" checked> غیبت</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="mis" checked> مأموریت</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="lv" checked> مرخصی</label>' +
+            '<label><input type="checkbox" class="psp-col-tog" data-col="note" checked> توضیح</label>' +
+            '</div>';
+          var thS = 'background:#ecfdf5;border:1px solid #99f6e4;padding:2px 1px;text-align:center;vertical-align:middle;font-size:0.58rem;white-space:nowrap;';
+          var tdS = 'border:1px solid #e2e8f0;padding:0;text-align:center;vertical-align:middle;';
+          html += '<div style="overflow:auto;max-height:70vh;"><table class="psp-ts-table" style="font-size:0.6rem;min-width:100%;border-collapse:collapse;table-layout:fixed;"><thead style="position:sticky;top:0;z-index:2;"><tr>' +
+            '<th style="'+thS+'width:72px;">تاریخ</th><th style="'+thS+'width:28px;">روز</th>';
+          for (var hi=1; hi<=4; hi++) {
+            html += '<th class="psp-c-punch" style="'+thS+'width:34px;">و'+hi+'</th><th class="psp-c-punch" style="'+thS+'width:34px;">خ'+hi+'</th>';
+          }
+          html += '<th class="psp-c-work" style="'+thS+'width:36px;">کارکرد</th>' +
+            '<th class="psp-c-ot" style="'+thS+'width:32px;">اضافه</th>' +
+            '<th class="psp-c-abs" style="'+thS+'width:36px;">غیبت‌س</th>' +
+            '<th class="psp-c-mis" style="'+thS+'width:70px;">مأموریت</th>' +
+            '<th class="psp-c-lv" style="'+thS+'width:70px;">مرخصی</th>' +
+            '<th class="psp-c-note" style="'+thS+'width:64px;">توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
             var bg = d.isNonWork ? 'background:#fef2f2;' : (d.leaveConflict||d.missionConflict ? 'background:#fff7ed;' : '');
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
-              '<td data-date="'+d.date+'" style="white-space:nowrap;border:1px solid #e2e8f0;padding:2px 3px;">' + d.date + '</td><td style="border:1px solid #e2e8f0;padding:2px 2px;">' + (d.weekday||'') + '</td>' +
-              (function(){ var ic=d.incomplete||{}; var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;'; var bs='width:38px;padding:1px;font-size:0.62rem;margin:0;';
-              var h='';
-              for(var pi=1;pi<=4;pi++){
-                h+='<td style="border:1px solid #e2e8f0;padding:1px;"><input class="ts-in'+pi+'" value="'+(d['in'+pi]||'')+'" style="'+bs+(ic['in'+pi]?rs:'')+'" dir="ltr"></td>';
-                h+='<td style="border:1px solid #e2e8f0;padding:1px;"><input class="ts-out'+pi+'" value="'+(d['out'+pi]||'')+'" style="'+bs+(ic['out'+pi]?rs:'')+'" dir="ltr"></td>';
-              }
-              return h;
-              })() +
-              '<td style="border:1px solid #e2e8f0;padding:2px;">' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
-              '<td style="border:1px solid #e2e8f0;padding:2px;">' + (d.delayMin||'') + '</td><td style="border:1px solid #e2e8f0;padding:2px;">' + (d.earlyMin||'') + '</td><td style="border:1px solid #e2e8f0;padding:2px;">' + (d.otHours||'') + '</td>' +
-              '<td>' + (d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '')) + '</td>' +
-              '<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:70px;padding:1px;font-size:0.68rem;"></td></tr>';
+              '<td data-date="'+d.date+'" style="'+tdS+'white-space:nowrap;font-size:0.58rem;padding:1px 2px;">' + d.date + '</td>' +
+              '<td style="'+tdS+'font-size:0.55rem;padding:1px;">' + (d.weekday||'') + '</td>';
+            var ic=d.incomplete||{};
+            var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;';
+            var bs='width:32px;padding:0;font-size:0.58rem;margin:0;border:1px solid #cbd5e1;border-radius:3px;text-align:center;';
+            for (var pi=1; pi<=4; pi++) {
+              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-in'+pi+'" value="'+(d['in'+pi]||'')+'" style="'+bs+(ic['in'+pi]?rs:'')+'" dir="ltr"></td>';
+              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-out'+pi+'" value="'+(d['out'+pi]||'')+'" style="'+bs+(ic['out'+pi]?rs:'')+'" dir="ltr"></td>';
+            }
+            var absVal = d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '');
+            var absStyle = absVal ? 'color:#b91c1c;font-weight:700;' : '';
+            var noteText = (d.note||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            html += '<td class="psp-c-work" style="'+tdS+'padding:1px 2px;">' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
+              '<td class="psp-c-ot" style="'+tdS+'padding:1px 2px;">' + (d.otHours||'') + '</td>' +
+              '<td class="psp-c-abs" style="'+tdS+'padding:1px 2px;'+absStyle+'">' + absVal + '</td>' +
+              '<td class="psp-c-mis" style="'+tdS+'font-size:0.58rem;padding:1px 2px;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td class="psp-c-lv" style="'+tdS+'font-size:0.58rem;padding:1px 2px;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td class="psp-c-note" style="'+tdS+'padding:1px;"><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" title="'+noteText+'" style="width:56px;padding:0 2px;font-size:0.55rem;border:1px solid #e2e8f0;border-radius:3px;"></td></tr>';
           });
           html += '</tbody></table></div>';
+          setTimeout(function(){
+            document.querySelectorAll('.psp-col-tog').forEach(function(cb){
+              cb.onchange = function(){
+                var col = cb.getAttribute('data-col');
+                var show = cb.checked;
+                document.querySelectorAll('.psp-c-'+col).forEach(function(el){ el.style.display = show ? '' : 'none'; });
+              };
+            });
+          }, 0);
           window.__pspTsDaily = j.daily;
           window.__pspTsYear = j.year;
           window.__pspTsMonth = j.month;
