@@ -1887,14 +1887,15 @@ function computeDayTimesheet(cal, punches, opts) {
   // اضافه‌کار قبل از شروع (اختیاری per opts.earlyOtEnabled)
   let earlyOtMin = 0;
   const earlyOtOn = !!opts.earlyOtEnabled;
-  if (earlyOtOn && firstIn != null && start != null && firstIn < start) {
-    const earlyFrom = opts.earlyOtFrom != null ? Number(opts.earlyOtFrom) : (start - 45); // پیش‌فرض ۴۵د قبل
-    earlyOtMin = Math.max(0, Math.min(start, firstIn > earlyFrom ? firstIn : start) - Math.max(earlyFrom, firstIn < start ? firstIn : start));
-    // if arrived before start: early OT = from max(earlyFrom, firstIn) wait:
-    // window [earlyOtFrom, start); presence in that window counts as early OT
+  if (earlyOtOn && start != null) {
+    // پیش‌فرض: از (شروع − ۴۴ دقیقه) مثلاً ۰۶:۰۱ تا ۰۶:۴۵ — قابل تنظیم با earlyOtFrom
+    const earlyFrom = (opts.earlyOtFrom != null && !isNaN(Number(opts.earlyOtFrom)))
+      ? Number(opts.earlyOtFrom)
+      : Math.max(0, start - 44);
     earlyOtMin = 0;
     completePairs.forEach(function (p) {
       let a = p.inn, b = p.out;
+      if (a == null || b == null) return;
       if (b < a) b += 24 * 60;
       earlyOtMin += overlapMinutes(a, b, earlyFrom, start);
     });
@@ -1971,19 +1972,40 @@ function computeDayTimesheet(cal, punches, opts) {
     }
   }
 
-  // اضافه‌کار عادی (روز کاری): ماندن بعد از end — شب‌کاری از آن کسر می‌شود
-  if (!isHoliday && !condFull && !condHalf && lastOut != null && end != null && lastOut > end) {
-    const plainOt = lastOut - end;
-    // اگر قبلاً ot ست نشده
-    if (!ot) ot = Math.max(0, plainOt);
+  // ── جداسازی قطعی اضافه‌کار و شب‌کاری ──
+  // هر دقیقه حضور در ۲۲:۰۰–۰۶:۰۰ = شب‌کاری (نه اضافه‌کار)
+  // اضافه‌کار = حضور بعد از پایان شیفت که داخل بازه شب نباشد
+  nightMin = 0;
+  completePairs.forEach(function (p) {
+    nightMin += nightMinutesInPair(p.inn, p.out);
+  });
+
+  if (hasComplete && lastOut != null && end != null && lastOut > end && !isHoliday && !condFull && !condHalf) {
+    // بازه بعد از پایان شیفت
+    const afterStart = end + (compensated || 0); // جبران شناوری از اولِ بعد-از-شیفت مصرف شده
+    let otRangeFrom = end;
+    let otRangeTo = lastOut;
+    // کل ماندن بعد از end
+    let stayed = Math.max(0, lastOut - end);
+    // جبران شناوری از stayed کم می‌شود
+    stayed = Math.max(0, stayed - (compensated || 0));
+    // از این stayed، بخش شب را جدا کن
+    // شب داخل [end, lastOut]:
+    const nightInAfter = nightMinutesInPair(end, lastOut);
+    // اگر جبران از ابتدای بعد-از-end مصرف شود، شب را از انتهای بازه در نظر می‌گیریم
+    // ساده و شفاف: OT = stayed - nightInAfter (با کف صفر)
+    // اما nightInAfter ممکن است شامل دقایقی باشد که در جبران بودند؛ تقریبی قابل قبول:
+    ot = Math.max(0, stayed - nightInAfter);
+    // شب‌کاری گزارش‌شده همان کل حضور در ۲۲–۶ است (شامل بعد از شیفت)
+  } else if (isHoliday || condFull) {
+    // تعطیل: حضور غیرشب = اضافه‌کار، حضور شب = شب‌کاری
+    if (present > 0) {
+      ot = Math.max(0, present - nightMin);
+      workPresent = 0;
+    }
   }
-  // شب‌کاری را از OT عادی جدا نگه دار — ot نباید شامل night باشد
-  if (ot > 0 && nightMin > 0) {
-    // فقط آن بخش OT که در پنجره شب است از OT کم و به night می‌رود (قبلاً night جدا حساب شده)
-    // ot = زمان بعد از end؛ اگر end بعد از 22 باشد بخشی شب است
-  }
-  ot = Math.max(0, (ot || 0));
-  // early OT اضافه به ot نمی‌شود جداگانه
+  ot = Math.max(0, ot || 0);
+  // early OT جدا از ot نگه داشته می‌شود (earlyOtMin)
 
 
   // غیبت ساعتی:
@@ -2776,6 +2798,8 @@ async function handleEmpTimesheet(request, env) {
       workHours: calc.workHours,
       otHours: calc.otHours,
       otHoursHM: calc.otHoursHM,
+      nightHoursHM: calc.nightHoursHM,
+      earlyOtHoursHM: calc.earlyOtHoursHM,
       delayMin: calc.delayMinutes,
       hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
       hourlyAbsenceHours: calc.hourlyAbsenceHours,
@@ -6040,7 +6064,7 @@ async function loadTimesheet(){
       html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
       html+='<th style="'+thE+'width:58px">تاریخ</th>';
       for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
-      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه</th><th style="'+thE+'width:32px">غیبت‌س</th>';
+      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه</th><th style="'+thE+'width:28px">شب</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
       html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
@@ -6053,6 +6077,8 @@ async function loadTimesheet(){
         for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
         html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         html+='<td style="'+tdE+'">'+(d.otHoursHM?d.otHoursHM:(d.otHours||''))+'</td>';
+        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM||'')+'</td>';
+        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM||'')+'</td>';
         html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
         html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
         html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
