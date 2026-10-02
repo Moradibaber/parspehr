@@ -554,10 +554,12 @@ export default `(function(){
             var bg = d.isNonWork ? 'background:#fef2f2;' : '';
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
               '<td data-date="'+d.date+'" style="white-space:nowrap;">' + d.date + '</td><td>' + (d.weekday||'') + '</td>' +
-              '<td><input class="ts-in1" value="'+(d.in1||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr" placeholder="08:00"></td>' +
-              '<td><input class="ts-out1" value="'+(d.out1||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
-              '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
-              '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="width:44px;padding:1px;font-size:0.68rem;" dir="ltr"></td>' +
+              (function(){ var ic=d.incomplete||{}; var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;'; var bs='width:44px;padding:1px;font-size:0.68rem;';
+              return '<td><input class="ts-in1" value="'+(d.in1||'')+'" style="'+bs+(ic.in1?rs:'')+'" dir="ltr" placeholder="08:00"></td>' +
+              '<td><input class="ts-out1" value="'+(d.out1||'')+'" style="'+bs+(ic.out1?rs:'')+'" dir="ltr"></td>' +
+              '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="'+bs+(ic.in2?rs:'')+'" dir="ltr"></td>' +
+              '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="'+bs+(ic.out2?rs:'')+'" dir="ltr"></td>';
+              })() +
               '<td>' + (d.workHours!=null?d.workHours:'') + '</td>' +
               '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
               '<td>' + (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : (d.hourlyAbsenceMin>0 ? (Math.round(d.hourlyAbsenceMin/60*100)/100) : '')) + '</td>' +
@@ -673,10 +675,59 @@ export default `(function(){
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:8px;">برای جدول روزبه‌روز و ثبت ورود/خروج، یک کد پرسنلی وارد کنید.</p>';
         }
         var rows = (j.rows || []).map(function(x){
-          return '<tr><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td><b>' + (x.workDays!=null?x.workDays:0) + '</b></td><td>' + (x.leaveDays!=null?x.leaveDays:0) + '</td><td>' + (x.hourlyLeave!=null?x.hourlyLeave:0) + '</td><td>' + (x.missions!=null?x.missions:0) + '</td></tr>';
+          return '<tr><td><input type="checkbox" class="psp-bulk-code" value="'+x.code+'"></td><td>' + x.code + '</td><td>' + x.fullName + '</td><td>' + (x.unit||'') + '</td><td>' + (x.managerCode||'') + '</td><td><b>' + (x.workDays!=null?x.workDays:0) + '</b></td><td>' + (x.leaveDays!=null?x.leaveDays:0) + '</td><td>' + (x.hourlyLeave!=null?x.hourlyLeave:0) + '</td><td>' + (x.missions!=null?x.missions:0) + '</td></tr>';
         }).join('');
-        html += '<h4 style="margin-top:14px;">خلاصه ماه</h4><table><thead><tr><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد (روز)</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        html += '<h4 style="margin-top:14px;">خلاصه ماه</h4>';
+        html += '<div style="margin:8px 0;padding:10px;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;font-size:0.8rem;">' +
+          '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;">' +
+          '<label>سقف کسر کار مجاز ماهانه (ساعت): <input type="number" id="pspShortAllow" step="0.25" min="0" placeholder="مثلاً 2" style="width:70px;padding:4px;"></label>' +
+          '<button type="button" class="btn btn-outline btn-sm" id="pspShortAllowSave">ذخیره سقف</button>' +
+          '<label>تاریخ اختیاری: <input id="pspBulkDate" placeholder="1405/01/15" style="width:110px;padding:4px;direction:ltr;"></label>' +
+          '<button type="button" class="btn btn-primary btn-sm" id="pspBulkLeave">مرخصی ساعتی گروهی</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" id="pspBulkMission">مأموریت ساعتی گروهی</button>' +
+          '</div>' +
+          '<p style="color:#64748b;margin:0;font-size:0.75rem;">تیک بزنید → سیستم روزهای دارای کسر کار را پیدا می‌کند و مرخصی/مأموریت ساعتی ثبت می‌کند. تا سقف مجاز ماهانه، کسر باقی می‌ماند. تاریخ خالی = همه روزهای ماه؛ پر = فقط همان روز.</p>' +
+          '<div id="pspBulkStatus" style="margin-top:6px;color:#0f766e;"></div></div>';
+        html += '<table><thead><tr><th><input type="checkbox" id="pspBulkAll"></th><th>کد</th><th>نام</th><th>واحد</th><th>مدیر</th><th>کارکرد (روز)</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th></tr></thead><tbody>' + rows + '</tbody></table>';
         out.innerHTML = html;
+        // سقف کسر + گروهی
+        fetch('/api/admin/shortfall-settings',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(s){
+          var el=document.getElementById('pspShortAllow');
+          if(el && s && s.ok && s.monthlyShortfallAllowanceHours!=null && s.monthlyShortfallAllowanceHours!=='') el.value=s.monthlyShortfallAllowanceHours;
+        }).catch(function(){});
+        var all=document.getElementById('pspBulkAll');
+        if(all) all.onchange=function(){ document.querySelectorAll('.psp-bulk-code').forEach(function(c){ c.checked=all.checked; }); };
+        function selectedCodes(){ var a=[]; document.querySelectorAll('.psp-bulk-code:checked').forEach(function(c){ a.push(c.value); }); return a; }
+        function runBulk(kind){
+          var codes=selectedCodes();
+          if(!codes.length){ alert('حداقل یک نفر را تیک بزنید'); return; }
+          var st=document.getElementById('pspBulkStatus');
+          if(st) st.textContent='در حال ثبت...';
+          var body={
+            year: Number(document.getElementById('pspTsYear').value),
+            month: Number(document.getElementById('pspTsMonth').value),
+            codes: codes,
+            kind: kind,
+            date: (document.getElementById('pspBulkDate')||{}).value||''
+          };
+          fetch('/api/admin/bulk-hourly-cover',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)})
+            .then(function(r){return r.json()}).then(function(j){
+              if(!j.ok){ if(st) st.style.color='#b91c1c'; if(st) st.textContent=j.message||j.error||'خطا'; return; }
+              if(st){ st.style.color='#0f766e'; st.textContent='ثبت شد: '+(j.created||0)+' مورد. سقف مجاز: '+(j.allowanceHours||0)+'س'; }
+              setTimeout(function(){ var b=document.getElementById('pspTsLoad'); if(b) b.click(); }, 500);
+            }).catch(function(e){ if(st){ st.style.color='#b91c1c'; st.textContent=String(e); } });
+        }
+        var bl=document.getElementById('pspBulkLeave'); if(bl) bl.onclick=function(){ runBulk('leave'); };
+        var bm=document.getElementById('pspBulkMission'); if(bm) bm.onclick=function(){ runBulk('mission'); };
+        var bs=document.getElementById('pspShortAllowSave');
+        if(bs) bs.onclick=function(){
+          var v=(document.getElementById('pspShortAllow')||{}).value;
+          fetch('/api/admin/shortfall-settings',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({monthlyShortfallAllowanceHours:v})})
+            .then(function(r){return r.json()}).then(function(j){
+              var st=document.getElementById('pspBulkStatus');
+              if(st) st.textContent=j.ok?'سقف ذخیره شد':'خطا در ذخیره سقف';
+            });
+        };
       }).catch(function(err){
         var out = document.getElementById('pspTsOut');
         if (out) out.innerHTML = '<p style="color:#b91c1c">خطا در دریافت تایم‌شیت: '+(err && err.message ? err.message : err)+'</p>';
