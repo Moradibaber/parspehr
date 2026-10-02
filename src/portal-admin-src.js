@@ -560,9 +560,9 @@ export default `(function(){
               '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="'+bs+(ic.in2?rs:'')+'" dir="ltr"></td>' +
               '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="'+bs+(ic.out2?rs:'')+'" dir="ltr"></td>';
               })() +
-              '<td>' + (d.workHours!=null?d.workHours:'') + '</td>' +
+              '<td>' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
               '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
-              '<td>' + (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : (d.hourlyAbsenceMin>0 ? (Math.round(d.hourlyAbsenceMin/60*100)/100) : '')) + '</td>' +
+              '<td>' + (d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '')) + '</td>' +
               '<td style="font-size:0.65rem;">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td style="font-size:0.65rem;">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:70px;padding:1px;font-size:0.68rem;"></td></tr>';
