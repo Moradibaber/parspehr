@@ -1014,7 +1014,7 @@ window.__pspTsDaily = j.daily;
                   var parts = line.split(/[,;\\t|]/);
                   if (!parts.length) return;
                   var date = (parts[0]||'').trim().replace(/-/g,'/');
-                  if (!/\\d{4}\\/\\d{1,2}\\/\\d{1,2}/.test(date)) return;
+                  if (!/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(date)) return;
                   var p = date.split('/');
                   date = p[0] + '/' + String(Number(p[1])).padStart(2,'0') + '/' + String(Number(p[2])).padStart(2,'0');
                   map[date] = {
