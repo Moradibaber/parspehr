@@ -559,6 +559,176 @@ export default `(function(){
       }).catch(function(){ if (st) { st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; } });
     }
 
+
+    var __pspCtrEmps = [];
+    var __pspCtrSelected = {};
+    function updateCtrEmpSummary(){
+      var n = Object.keys(__pspCtrSelected).filter(function(k){ return __pspCtrSelected[k]; }).length;
+      var s = document.getElementById('pspCtrEmpSummary');
+      if (s) s.textContent = n ? ('انتخاب کارکنان — ' + n + ' نفر') : 'انتخاب کارکنان — هیچ‌کس انتخاب نشده';
+    }
+    function renderCtrEmpList(){
+      var list = document.getElementById('pspCtrEmpList');
+      if (!list) return;
+      var q = ((document.getElementById('pspCtrEmpSearch')||{}).value || '').trim().toLowerCase();
+      var html = '';
+      __pspCtrEmps.forEach(function(e){
+        var name = (e.fullName||'') + ' ' + (e.code||'') + ' ' + (e.unit||'');
+        if (q && name.toLowerCase().indexOf(q) < 0) return;
+        var on = !!__pspCtrSelected[String(e.code)];
+        html += '<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;border-bottom:1px solid #f1f5f9;"><input type="checkbox" class="psp-ctr-emp" value="'+e.code+'"'+(on?' checked':'')+'> <span>'+(e.fullName||'')+'</span> <span style="color:#94a3b8;font-size:0.72rem;">('+e.code+')</span></label>';
+      });
+      list.innerHTML = html || '<div style="color:#94a3b8;padding:8px;">موردی نیست</div>';
+      list.querySelectorAll('.psp-ctr-emp').forEach(function(cb){
+        cb.onchange = function(){ __pspCtrSelected[String(cb.value)] = cb.checked; updateCtrEmpSummary(); };
+      });
+    }
+    function loadCtrEmployees(){
+      fetch('/api/admin/portal-view', { credentials:'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if (j.ok && j.employees) {
+            __pspCtrEmps = j.employees;
+            renderCtrEmpList();
+            updateCtrEmpSummary();
+          } else {
+            // fallback via timesheet empty or state
+            __pspCtrEmps = [];
+            renderCtrEmpList();
+          }
+        })
+        .catch(function(){ __pspCtrEmps = []; renderCtrEmpList(); });
+      // bind toggle once
+      var tog = document.getElementById('pspCtrEmpToggle');
+      var dd = document.getElementById('pspCtrEmpDropdown');
+      var ch = document.getElementById('pspCtrEmpChevron');
+      if (tog && !tog._bound) {
+        tog._bound = true;
+        tog.onclick = function(){
+          if (!dd) return;
+          var open = dd.style.display === 'none' || !dd.style.display;
+          dd.style.display = open ? 'block' : 'none';
+          if (ch) ch.textContent = open ? '▲ بستن' : '▼ باز کردن';
+          if (open && !__pspCtrEmps.length) loadCtrEmployees();
+        };
+      }
+      var search = document.getElementById('pspCtrEmpSearch');
+      if (search && !search._bound) {
+        search._bound = true;
+        search.oninput = function(){ renderCtrEmpList(); };
+      }
+      var all = document.getElementById('pspCtrEmpAll');
+      if (all && !all._bound) {
+        all._bound = true;
+        all.onchange = function(){
+          var q = ((document.getElementById('pspCtrEmpSearch')||{}).value || '').trim().toLowerCase();
+          __pspCtrEmps.forEach(function(e){
+            var name = (e.fullName||'') + ' ' + (e.code||'') + ' ' + (e.unit||'');
+            if (q && name.toLowerCase().indexOf(q) < 0) return;
+            __pspCtrSelected[String(e.code)] = all.checked;
+          });
+          renderCtrEmpList();
+          updateCtrEmpSummary();
+        };
+      }
+      var excel = document.getElementById('pspCtrExcel');
+      if (excel && !excel._bound) {
+        excel._bound = true;
+        excel.onchange = function(){
+          var f = excel.files && excel.files[0];
+          if (!f) return;
+          var reader = new FileReader();
+          reader.onload = function(){
+            var text = String(reader.result||'');
+            var codes = {};
+            text.split(/[\r\n]+/).forEach(function(line){
+              var p = line.split(/[,\t;]/);
+              var c = String(p[0]||'').trim();
+              if (c && /^\d+/.test(c)) codes[c] = true;
+            });
+            Object.keys(codes).forEach(function(c){ __pspCtrSelected[c] = true; });
+            renderCtrEmpList();
+            updateCtrEmpSummary();
+          };
+          reader.readAsText(f);
+        };
+      }
+      var createBtn = document.getElementById('pspCtrCreate');
+      if (createBtn && !createBtn._bound) {
+        createBtn._bound = true;
+        createBtn.onclick = function(){
+          var codes = Object.keys(__pspCtrSelected).filter(function(k){ return __pspCtrSelected[k]; });
+          if (!codes.length) { alert('حداقل یک نفر انتخاب کنید'); return; }
+          var st = document.getElementById('pspCtrStatus');
+          if (st) st.textContent = 'در حال صدور…';
+          fetch('/api/admin/contracts', {
+            method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+            body: JSON.stringify({
+              action: 'create',
+              codes: codes,
+              startDate: (document.getElementById('pspCtrFrom')||{}).value || '',
+              endDate: (document.getElementById('pspCtrTo')||{}).value || '',
+              type: (document.getElementById('pspCtrType')||{}).value || 'fixed',
+              note: (document.getElementById('pspCtrNote')||{}).value || '',
+              showDurationToEmployee: !!(document.getElementById('pspCtrShowDurDef')||{}).checked,
+              visibleToEmployee: !!(document.getElementById('pspCtrVisibleDef')||{}).checked
+            })
+          }).then(function(r){return r.json()}).then(function(j){
+            if (st) { st.style.color = j.ok?'#16a34a':'#b91c1c'; st.textContent = j.ok ? ('صادر شد: '+(j.created||0)) : (j.message||j.error||'خطا'); }
+            if (j.ok) loadContracts();
+          }).catch(function(){ if(st){ st.style.color='#b91c1c'; st.textContent='خطا در ارتباط'; }});
+        };
+      }
+      var loadBtn = document.getElementById('pspCtrLoad');
+      if (loadBtn && !loadBtn._bound) {
+        loadBtn._bound = true;
+        loadBtn.onclick = function(){ loadContracts(); };
+      }
+      var filt = document.getElementById('pspCtrFilter');
+      if (filt && !filt._bound) {
+        filt._bound = true;
+        filt.onchange = function(){ loadContracts(); };
+      }
+    }
+    function loadContracts(){
+      var st = document.getElementById('pspCtrStatus');
+      var filter = (document.getElementById('pspCtrFilter')||{}).value || 'all';
+      fetch('/api/admin/contracts?filter='+encodeURIComponent(filter), { credentials:'same-origin' })
+        .then(function(r){return r.json()})
+        .then(function(j){
+          var box = document.getElementById('pspCtrList');
+          if (!box) return;
+          if (!j.ok) { box.innerHTML = '<div style="color:#b91c1c">'+(j.message||j.error||'خطا')+'</div>'; return; }
+          var list = j.contracts || [];
+          if (!list.length) { box.innerHTML = '<div style="color:#94a3b8;padding:8px;">قراردادی نیست</div>'; return; }
+          var html = '<table style="font-size:0.75rem;width:100%;border-collapse:collapse;"><thead><tr>' +
+            '<th style="border:1px solid #e2e8f0;padding:4px;">کد</th><th style="border:1px solid #e2e8f0;padding:4px;">نام</th><th style="border:1px solid #e2e8f0;padding:4px;">نوع</th><th style="border:1px solid #e2e8f0;padding:4px;">از</th><th style="border:1px solid #e2e8f0;padding:4px;">تا</th><th style="border:1px solid #e2e8f0;padding:4px;">وضعیت</th><th style="border:1px solid #e2e8f0;padding:4px;">عملیات</th></tr></thead><tbody>';
+          list.forEach(function(c){
+            var stt = c.adminApproved ? (c.status||'تأیید') : 'منتظر تأیید';
+            html += '<tr><td style="border:1px solid #e2e8f0;padding:3px;">'+c.empCode+'</td><td style="border:1px solid #e2e8f0;padding:3px;">'+(c.fullName||'')+'</td><td style="border:1px solid #e2e8f0;padding:3px;">'+(c.type||'')+'</td><td style="border:1px solid #e2e8f0;padding:3px;direction:ltr;">'+(c.startDate||'')+'</td><td style="border:1px solid #e2e8f0;padding:3px;direction:ltr;">'+(c.endDate||'')+'</td><td style="border:1px solid #e2e8f0;padding:3px;">'+stt+'</td><td style="border:1px solid #e2e8f0;padding:3px;white-space:nowrap;">';
+            if (!c.adminApproved) html += '<button type="button" class="btn btn-outline btn-sm psp-ctr-approve" data-id="'+c.id+'">تأیید</button> ';
+            html += '<button type="button" class="btn btn-outline btn-sm psp-ctr-del" data-id="'+c.id+'" style="color:#b91c1c;">حذف</button>';
+            html += '</td></tr>';
+          });
+          html += '</tbody></table>';
+          box.innerHTML = html;
+          box.querySelectorAll('.psp-ctr-approve').forEach(function(b){
+            b.onclick = function(){
+              fetch('/api/admin/contracts',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'approve',id:b.getAttribute('data-id')})})
+                .then(function(r){return r.json()}).then(function(){ loadContracts(); });
+            };
+          });
+          box.querySelectorAll('.psp-ctr-del').forEach(function(b){
+            b.onclick = function(){
+              if (!confirm('حذف قرارداد؟ (نیاز به تأیید دوباره)')) return;
+              if (!confirm('تأیید نهایی حذف؟')) return;
+              fetch('/api/admin/contracts',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({action:'delete',id:b.getAttribute('data-id')})})
+                .then(function(r){return r.json()}).then(function(){ loadContracts(); });
+            };
+          });
+        });
+    }
+
     (function(){
       function showSub(name){
         document.querySelectorAll('.psp-subtab').forEach(function(b){
@@ -646,6 +816,7 @@ export default `(function(){
           var otAp = (j.rows && j.rows[0] && j.rows[0].otHours != null) ? Number(j.rows[0].otHours) : sumOt;
           var otUn = (j.rows && j.rows[0] && j.rows[0].otHoursUnapproved != null) ? Number(j.rows[0].otHoursUnapproved) : 0;
           var otCap = (j.rows && j.rows[0] && j.rows[0].otCeilingHours != null) ? j.rows[0].otCeilingHours : '—';
+          html += '<p style="font-size:0.78rem;margin-bottom:4px;"><label style="cursor:pointer;"><input type="checkbox" id="pspTsEarlyOt" '+(j.daily&&j.daily.earlyOtEnabled?'checked ':'')+'> اضافه‌کار قبل از شروع (برای این نفر)</label> <span style="color:#94a3b8;font-size:0.72rem;">پیش‌فرض خاموش — از حدود ۴۵د قبل تا شروع شیفت</span></p>';
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (فقط روزهای دارای تردد کامل یا مرخصی/مأموریت روزانه؛ بدون غیبت میانی) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار تأیید: <b>' + otAp.toFixed(2) + '</b>س | تأییدنشده: <b>' + otUn.toFixed(2) + '</b>س (سقف کارت: ' + otCap + ') | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
           html += '<div style="margin:6px 0;font-size:0.72rem;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">' +
             '<span style="color:#64748b;">نمایش ستون:</span>' +
@@ -704,21 +875,30 @@ export default `(function(){
               };
             });
             // فرمت خودکار 0645 → 06:45
-            function fmtTimeInput(el){
-              var v = String(el.value||'').replace(/[^\d]/g,'');
+            function fmtTimeInput(el, live){
+              var raw = String(el.value||'');
+              var v = raw.replace(/[^\d]/g,'');
+              if (live) {
+                if (v.length === 4) {
+                  var h = parseInt(v.slice(0,2),10), m = parseInt(v.slice(2,4),10);
+                  if (h >= 0 && h <= 23 && m >= 0 && m <= 59) el.value = (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+                }
+                return;
+              }
               if (v.length >= 3 && v.length <= 4) {
                 while (v.length < 4) v = '0' + v;
-                var h = parseInt(v.slice(0,2),10), m = parseInt(v.slice(2,4),10);
-                if (h >= 0 && h <= 23 && m >= 0 && m <= 59) el.value = (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+                var h2 = parseInt(v.slice(0,2),10), m2 = parseInt(v.slice(2,4),10);
+                if (h2 >= 0 && h2 <= 23 && m2 >= 0 && m2 <= 59) el.value = (h2<10?'0':'')+h2+':'+(m2<10?'0':'')+m2;
               } else if (v.length === 1 || v.length === 2) {
-                var h2 = parseInt(v,10);
-                if (h2 >= 0 && h2 <= 23) el.value = (h2<10?'0':'')+h2+':00';
+                var h3 = parseInt(v,10);
+                if (h3 >= 0 && h3 <= 23) el.value = (h3<10?'0':'')+h3+':00';
               }
             }
             document.querySelectorAll('#pspTsOut input.ts-time').forEach(function(inp){
-              inp.addEventListener('blur', function(){ fmtTimeInput(inp); });
+              inp.addEventListener('input', function(){ fmtTimeInput(inp, true); });
+              inp.addEventListener('blur', function(){ fmtTimeInput(inp, false); });
               inp.addEventListener('keydown', function(e){
-                if (e.key === 'Enter') { fmtTimeInput(inp); inp.blur(); }
+                if (e.key === 'Enter') { fmtTimeInput(inp, false); inp.blur(); }
               });
             });
             // تغییر عرض ستون مثل اکسل (کشیدن لبه هدر)
@@ -745,6 +925,25 @@ export default `(function(){
             }
           }, 0);
 window.__pspTsDaily = j.daily;
+          setTimeout(function(){
+            var eo = document.getElementById('pspTsEarlyOt');
+            if (eo && !eo._bound) {
+              eo._bound = true;
+              eo.onchange = function(){
+                fetch('/api/admin/timesheet-days', {
+                  method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+                  body: JSON.stringify({
+                    code: (window.__pspTsDaily||{}).code,
+                    earlyOtEnabled: !!eo.checked,
+                    days: []
+                  })
+                }).then(function(r){return r.json()}).then(function(res){
+                  var st=document.getElementById('pspTsDayStatus');
+                  if(st){ st.textContent = res.ok ? (eo.checked?'اضافه‌کار قبل فعال شد':'غیرفعال شد') : (res.message||'خطا'); }
+                });
+              };
+            }
+}, 10);
           window.__pspTsYear = j.year;
           window.__pspTsMonth = j.month;
           setTimeout(function(){
@@ -1039,39 +1238,32 @@ window.__pspTsDaily = j.daily;
       var cy = year - 979; var k = cy % 33; var breaks = [1,5,9,13,17,22,26,30];
       if (breaks.indexOf(k)>=0) mdays[12]=30;
       var hol = window.__pspHolidays[pspHolKey(ct, year)] || [];
-      var holSet = {}; hol.forEach(function(d){ holSet[d]=true; });
-      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">';
+      function dayKey(item){
+        if (item && typeof item === 'object') return String(item.date || item.day || '').replace(/-/g,'/');
+        return String(item || '').replace(/-/g,'/');
+      }
+      var holMap = {};
+      hol.forEach(function(item){
+        var k2 = dayKey(item);
+        if (k2) holMap[k2] = (item && typeof item === 'object') ? item : { date: k2, type: 'official', fullDay: true };
+      });
+      var html = '<p style="font-size:0.72rem;color:#64748b;margin-bottom:6px;">کلیک روی روز: تعطیل رسمی / <b style="color:#c2410c;">شرایطی</b> / عادی. رنگ نارنجی = شرایطی.</p>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">';
       for (var m=1;m<=12;m++) {
         html += '<div style="border:1px solid #99f6e4;border-radius:8px;padding:6px;"><div style="font-weight:700;font-size:0.8rem;color:#0f766e;margin-bottom:4px;">'+monthNames[m]+'</div>';
         html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:0.65rem;">';
         for (var d=1;d<=mdays[m];d++) {
           var key = year+'/'+String(m).padStart(2,'0')+'/'+String(d).padStart(2,'0');
-          var on = !!holSet[key];
-          // پنجشنبه/جمعه و روزهای غیرکاری هفته (از تیک‌های بالای صفحه) هم قرمز نمایش داده شوند
-          var isNonWork = false;
-          try {
-            var wd = (function(jy,jm,jd){
-              // تقریب روز هفته جلالی (0=یکشنبه … 6=شنبه)
-              var jy2=jy-979, days=365*jy2+Math.floor(jy2/33)*8+Math.floor(((jy2%33)+3)/4)+78+jd+(jm<7?(jm-1)*31:((jm-7)*30+186));
-              var gy2=1600+400*Math.floor(days/146097); days%=146097; var leap=true;
-              if(days>=36525){days--;gy2+=100*Math.floor(days/36524);days%=36524;if(days>=365)days++;else leap=false;}
-              gy2+=4*Math.floor(days/1461);days%=1461;
-              if(days>=366){leap=false;gy2+=Math.floor((days-1)/365);days=(days-1)%365;}
-              var sal=[0,31,(leap?29:28),31,30,31,30,31,31,30,31,30,31], gm=0;
-              for(;gm<13;gm++){var v=sal[gm];if(days<v)break;days-=v;}
-              return (new Date(Date.UTC(gy2,gm-1,days+1))).getUTCDay();
-            })(year,m,d);
-            var wds = [];
-            document.querySelectorAll('.psp-wd:checked').forEach(function(c){ wds.push(Number(c.value)); });
-            if (wds.length && wds.indexOf(wd) < 0) isNonWork = true;
-          } catch(e) {}
-          var mark = on || isNonWork;
-          var title = key + (on ? ' (تعطیل رسمی)' : (isNonWork ? ' (غیرکاری هفته)' : ''));
-          html += '<button type="button" data-hday="'+key+'" style="padding:3px 0;border-radius:4px;border:1px solid '+(mark?'#b91c1c':'#e2e8f0')+';background:'+(on?'#fecaca':(isNonWork?'#fee2e2':'#fff'))+';cursor:pointer;opacity:'+(isNonWork&&!on?'0.85':'1')+';" title="'+title+'">'+d+'</button>';
+          var meta = holMap[key];
+          var isCond = meta && (meta.conditional || meta.type === 'conditional');
+          var on = !!meta;
+          var bg = isCond ? '#ffedd5' : (on ? '#fecaca' : '#fff');
+          var col = isCond ? '#c2410c' : (on ? '#b91c1c' : '#334155');
+          html += '<button type="button" data-hday="'+key+'" style="padding:3px 0;border:1px solid #e2e8f0;border-radius:4px;background:'+bg+';color:'+col+';cursor:pointer;font-size:0.65rem;">'+d+'</button>';
         }
         html += '</div></div>';
       }
-      html += '</div><p style="font-size:0.72rem;color:#64748b;margin-top:6px;">قرمز = تعطیل رسمی/تعطیل‌شده توسط ادمین. کلیک = تغییر وضعیت.</p>';
+      html += '</div>';
       box.innerHTML = html;
       box.querySelectorAll('[data-hday]').forEach(function(btn){
         btn.onclick = function(){
@@ -1079,8 +1271,40 @@ window.__pspTsDaily = j.daily;
           var ct2 = (typeof pspSelectedCt === 'function') ? pspSelectedCt() : 'normal';
           var hk = pspHolKey(ct2, year);
           var list = (window.__pspHolidays[hk] || []).slice();
-          var ix = list.indexOf(key);
-          if (ix >= 0) list.splice(ix,1); else list.push(key);
+          // find index
+          var ix = -1;
+          for (var i=0;i<list.length;i++) {
+            if (dayKey(list[i]) === key) { ix = i; break; }
+          }
+          if (ix >= 0) {
+            // cycle: official -> conditional options -> remove
+            var cur = list[ix];
+            var isObj = cur && typeof cur === 'object';
+            var isCond2 = isObj && (cur.conditional || cur.type === 'conditional');
+            if (!isCond2) {
+              // convert to conditional — ask options
+              var closeFrom = prompt('تعطیل شرایطی — اگر تمام‌روز است خالی بگذارید؛ اگر از ساعت خاصی تعطیل می‌شود (مثلاً 12:00):', '');
+              var otDuring = confirm('در ساعات موظفی، حضور = اضافه‌کار؟\nOK=بله / Cancel=خیر');
+              var otAfter = confirm('بعد از ساعات موظفی (یا بعد از ساعت تعطیلی)، حضور = اضافه‌کار؟\nOK=بله / Cancel=خیر');
+              var applyF = confirm('شناوری در این روز محاسبه شود؟\nOK=بله / Cancel=خیر (معمولاً برای شرایطی خیر)');
+              var obj = {
+                date: key,
+                type: 'conditional',
+                conditional: true,
+                fullDay: !closeFrom,
+                closeFrom: closeFrom || null,
+                closeTo: null,
+                otDuringOfficial: !!otDuring,
+                otAfterOfficial: !!otAfter,
+                applyFloat: !!applyF
+              };
+              list[ix] = obj;
+            } else {
+              list.splice(ix, 1);
+            }
+          } else {
+            list.push(key); // official holiday string
+          }
           window.__pspHolidays[hk] = list;
           renderHolidayCal();
         };
