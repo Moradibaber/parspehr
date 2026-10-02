@@ -1693,6 +1693,75 @@ function officialWorkMinutes(cal) {
  * punches: [{in:'08:05', out:'12:00'}, {in:'13:00', out:'17:10'}] یا in1,out1,in2,out2
  * نتیجه: دقیقه کار خالص، تأخیر، تعجیل خروج، اضافه‌کار، شناوری جبران‌شده
  */
+
+/** همپوشانی دو بازه به دقیقه */
+function overlapMinutes(a0, a1, b0, b1) {
+  const s = Math.max(a0, b0);
+  const e = Math.min(a1, b1);
+  return Math.max(0, e - s);
+}
+/** دقیقه شب‌کاری در بازه حضور: ۲۲:۰۰ تا ۰۶:۰۰ (روز بعد) */
+function nightMinutesInPair(inn, out) {
+  if (inn == null || out == null) return 0;
+  let a = inn, b = out;
+  if (b < a) b += 24 * 60;
+  // شب: 22:00 (1320) تا 24:00 و 0 تا 6:00 (360) — برای بازه‌ای که از نیمه‌شب رد می‌شود
+  let n = 0;
+  // قسمت اول روز: 0..1440
+  n += overlapMinutes(a, Math.min(b, 1440), 22 * 60, 24 * 60);
+  n += overlapMinutes(a, Math.min(b, 1440), 0, 6 * 60);
+  if (b > 1440) {
+    const a2 = 0, b2 = b - 1440;
+    n += overlapMinutes(a2, b2, 22 * 60, 24 * 60);
+    n += overlapMinutes(a2, b2, 0, 6 * 60);
+  }
+  return n;
+}
+
+/**
+ * متادیتای روز از تقویم: تعطیل رسمی / تعطیل شرایطی / نیمه‌روز
+ * holidaysByYear[year] می‌تواند رشته تاریخ یا آبجکت باشد
+ */
+function getDayMeta(obj, y, m, d, contractType) {
+  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  const cal = getContractCalendar(obj, contractType);
+  const list = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
+  let meta = null;
+  (list || []).forEach(function (item) {
+    if (item == null) return;
+    if (typeof item === 'string' || typeof item === 'number') {
+      const s = String(item).replace(/\//g, '-');
+      if (s === keyDash || String(item) === keySlash || String(item) === keyDash) {
+        meta = { date: keySlash, type: 'official', fullDay: true, conditional: false,
+          otDuringOfficial: true, otAfterOfficial: true, applyFloat: false };
+      }
+    } else if (typeof item === 'object') {
+      const ds = String(item.date || item.day || '').replace(/\//g, '-');
+      if (ds === keyDash || String(item.date) === keySlash) {
+        meta = {
+          date: keySlash,
+          type: item.type || (item.conditional ? 'conditional' : 'official'),
+          conditional: !!(item.conditional || item.type === 'conditional'),
+          fullDay: item.fullDay !== false && !item.closeFrom,
+          closeFrom: item.closeFrom || null,
+          closeTo: item.closeTo || null,
+          otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
+          otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
+          applyFloat: item.applyFloat != null ? !!item.applyFloat : false
+        };
+      }
+    }
+  });
+  const wd = jalaliWeekday(y, m, d);
+  const isWeekend = (cal.workWeekDays || []).indexOf(wd) < 0;
+  if (!meta && isWeekend) {
+    meta = { date: keySlash, type: 'weekend', fullDay: true, conditional: false,
+      otDuringOfficial: true, otAfterOfficial: true, applyFloat: false };
+  }
+  return meta;
+}
+
 function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
@@ -1809,15 +1878,113 @@ function computeDayTimesheet(cal, punches, opts) {
   }
   // تردد ناقص بدون جفت کامل: کارکرد صفر — delay/early جداگانه معنا ندارد
 
-  // روز تعطیل/غیرکاری: تمام حضور = اضافه‌کار
+  // شب‌کاری: فقط ۲۲:۰۰–۰۶:۰۰ (جزو اضافه‌کار عادی نیست)
+  let nightMin = 0;
+  completePairs.forEach(function (p) {
+    nightMin += nightMinutesInPair(p.inn, p.out);
+  });
+
+  // اضافه‌کار قبل از شروع (اختیاری per opts.earlyOtEnabled)
+  let earlyOtMin = 0;
+  const earlyOtOn = !!opts.earlyOtEnabled;
+  if (earlyOtOn && firstIn != null && start != null && firstIn < start) {
+    const earlyFrom = opts.earlyOtFrom != null ? Number(opts.earlyOtFrom) : (start - 45); // پیش‌فرض ۴۵د قبل
+    earlyOtMin = Math.max(0, Math.min(start, firstIn > earlyFrom ? firstIn : start) - Math.max(earlyFrom, firstIn < start ? firstIn : start));
+    // if arrived before start: early OT = from max(earlyFrom, firstIn) wait:
+    // window [earlyOtFrom, start); presence in that window counts as early OT
+    earlyOtMin = 0;
+    completePairs.forEach(function (p) {
+      let a = p.inn, b = p.out;
+      if (b < a) b += 24 * 60;
+      earlyOtMin += overlapMinutes(a, b, earlyFrom, start);
+    });
+  }
+
+  // روز تعطیل/غیرکاری یا تعطیل شرایطی
   let workPresent = present;
-  if (isHoliday && present > 0) {
-    ot = present;
+  const dayMeta = opts.dayMeta || null;
+  const condFull = dayMeta && dayMeta.conditional && dayMeta.fullDay;
+  const condHalf = dayMeta && dayMeta.conditional && !dayMeta.fullDay && dayMeta.closeFrom;
+  const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
+
+  if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
+    // تعطیل رسمی/هفته: تمام حضور = اضافه‌کار (شب‌کاری جدا)
+    ot = Math.max(0, present - nightMin);
     workPresent = 0;
     delay = 0;
     earlyLeave = 0;
     compensated = 0;
+  } else if (condFull && present > 0) {
+    // تعطیل شرایطی تمام‌روز
+    if (dayMeta.otDuringOfficial) {
+      ot = Math.max(0, present - nightMin);
+      workPresent = 0;
+    } else {
+      // فقط بعد از موظفی اضافه‌کار
+      ot = 0;
+      workPresent = Math.min(present, official);
+      if (dayMeta.otAfterOfficial && lastOut != null && end != null && lastOut > end) {
+        ot = Math.max(0, lastOut - end - nightMin); // تقریبی
+      }
+    }
+    delay = 0;
+    earlyLeave = 0;
+    compensated = 0;
+  } else if (condHalf) {
+    // تعطیل شرایطی از ساعت closeFrom
+    const cf = timeToMinutes(dayMeta.closeFrom);
+    if (cf != null) {
+      // کارکرد فقط تا closeFrom
+      let presentUntil = 0;
+      completePairs.forEach(function (p) {
+        let a = p.inn, b = p.out;
+        if (b < a) b += 24 * 60;
+        presentUntil += overlapMinutes(a, b, start != null ? start : 0, cf);
+      });
+      if (sched.hasBreak && !sched.breakCountsAsWork) {
+        const bs = timeToMinutes(sched.breakStart);
+        const be = timeToMinutes(sched.breakEnd);
+        if (bs != null && be != null && bs < cf) {
+          presentUntil = Math.max(0, presentUntil - overlapMinutes(bs, be, start, cf));
+        }
+      }
+      workPresent = presentUntil;
+      // بعد از closeFrom تا end (یا بعد) = اضافه‌کار در صورت otAfterOfficial
+      let afterClose = 0;
+      completePairs.forEach(function (p) {
+        let a = p.inn, b = p.out;
+        if (b < a) b += 24 * 60;
+        afterClose += overlapMinutes(a, b, cf, dayMeta.otAfterOfficial ? (lastOut != null ? Math.max(lastOut, end || cf) : (end || cf + 60)) : cf);
+      });
+      if (dayMeta.otAfterOfficial) ot = Math.max(0, afterClose - nightMin);
+      else ot = 0;
+      // بدون شناوری
+      if (forceNoFloat) {
+        delay = 0;
+        compensated = 0;
+        // تأخیر واقعی اگر بعد از start آمده تا closeFrom
+        if (firstIn != null && start != null && firstIn > start && firstIn < cf) {
+          delay = firstIn - start;
+        }
+        earlyLeave = 0;
+      }
+    }
   }
+
+  // اضافه‌کار عادی (روز کاری): ماندن بعد از end — شب‌کاری از آن کسر می‌شود
+  if (!isHoliday && !condFull && !condHalf && lastOut != null && end != null && lastOut > end) {
+    const plainOt = lastOut - end;
+    // اگر قبلاً ot ست نشده
+    if (!ot) ot = Math.max(0, plainOt);
+  }
+  // شب‌کاری را از OT عادی جدا نگه دار — ot نباید شامل night باشد
+  if (ot > 0 && nightMin > 0) {
+    // فقط آن بخش OT که در پنجره شب است از OT کم و به night می‌رود (قبلاً night جدا حساب شده)
+    // ot = زمان بعد از end؛ اگر end بعد از 22 باشد بخشی شب است
+  }
+  ot = Math.max(0, (ot || 0));
+  // early OT اضافه به ot نمی‌شود جداگانه
+
 
   // غیبت ساعتی:
   // - روز مرخصی/مأموریت روزانه (غیر بدون‌حقوق) → صفر
@@ -1874,7 +2041,13 @@ function computeDayTimesheet(cal, punches, opts) {
     requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
     workHours: Math.round((displayWorkMin / 60) * 100) / 100,
     otHours: Math.round((ot / 60) * 100) / 100,
-    otHoursHM: fmtHM(ot)
+    otHoursHM: fmtHM(ot),
+    nightMinutes: Math.round(nightMin || 0),
+    nightHours: Math.round(((nightMin || 0) / 60) * 100) / 100,
+    nightHoursHM: fmtHM(nightMin || 0),
+    earlyOtMinutes: Math.round(earlyOtMin || 0),
+    earlyOtHours: Math.round(((earlyOtMin || 0) / 60) * 100) / 100,
+    earlyOtHoursHM: fmtHM(earlyOtMin || 0)
   };
 }
 
@@ -1884,21 +2057,25 @@ function getHolidaySet(obj, year, contractType) {
   const list = cal.holidaysByYear[String(year)] || cal.holidaysByYear[year] || [];
   const set = {};
   (list || []).forEach(function (d) {
-    const k = String(d).replace(/\//g, '-');
-    set[k] = true;
-    set[String(d)] = true;
+    if (d && typeof d === 'object') {
+      const k = String(d.date || d.day || '').replace(/\//g, '-');
+      if (k) { set[k] = true; set[String(d.date || d.day)] = true; }
+    } else {
+      const k = String(d).replace(/\//g, '-');
+      set[k] = true;
+      set[String(d)] = true;
+    }
   });
   return set;
 }
 
 function isHolidayOrNonWork(obj, y, m, d, contractType) {
-  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
-  const hol = getHolidaySet(obj, y, contractType);
-  if (hol[keyDash] || hol[keySlash]) return true;
-  const cal = getContractCalendar(obj, contractType);
-  const wd = jalaliWeekday(y, m, d);
-  if (cal.workWeekDays.indexOf(wd) < 0) return true;
+  const meta = getDayMeta(obj, y, m, d, contractType);
+  if (meta) {
+    // نیمه‌روز شرایطی: هنوز روز کاری جزئی است ولی فلگ جدا دارد
+    if (meta.conditional && !meta.fullDay) return false;
+    return true;
+  }
   return false;
 }
 
@@ -3288,12 +3465,13 @@ async function handleAdminTimesheet(request, who, env) {
       const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const coveredMin = hourlyCoverMinutesOnDay(gd.obj, filterCode, year, month, d);
       const dlm = dailyLeaveMissionFlags(gd.obj, filterCode, year, month, d);
+      const dayMeta = getDayMeta(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+      }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -3309,6 +3487,8 @@ async function handleAdminTimesheet(request, who, env) {
         earlyMin: calc.earlyLeaveMinutes,
         otHours: calc.otHours,
         otHoursHM: calc.otHoursHM,
+        nightHoursHM: calc.nightHoursHM,
+        earlyOtHoursHM: calc.earlyOtHoursHM,
         hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
         hourlyAbsenceHours: calc.hourlyAbsenceHours,
         hourlyAbsenceHM: calc.hourlyAbsenceHM,
@@ -3388,7 +3568,7 @@ async function handleAdminTimesheet(request, who, env) {
         floatMinutes: cal.floatMinutes, floatCompensate: cal.floatCompensate,
         officialMinutes: officialWorkMinutes(cal)
       },
-      days: daysArr
+      days: daysArr, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt))
     };
   }
 
@@ -3408,7 +3588,13 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
   if (r.error) return r.error;
   const empCode = String(r.body.code || r.body.empCode || '').trim();
   const days = Array.isArray(r.body.days) ? r.body.days : [];
-  if (!empCode || !days.length) {
+  if (!empCode) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'کد پرسنلی الزامی است.' }, 400);
+  }
+  // فقط تنظیم earlyOt بدون روز
+  if (!days.length && r.body.earlyOtEnabled != null) {
+    // handled below after load
+  } else if (!days.length) {
     return jsonResponse({ ok: false, error: 'bad_request', message: 'کد پرسنلی و حداقل یک روز الزامی است.' }, 400);
   }
   const cfg = storeConfig(env);
@@ -3421,6 +3607,15 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
     if (!gd.obj.dailyAttendance[empCode]) gd.obj.dailyAttendance[empCode] = {};
     const store = gd.obj.dailyAttendance[empCode];
     const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === empCode; });
+    if (r.body.earlyOtEnabled != null && emp) {
+      emp.earlyOtEnabled = !!r.body.earlyOtEnabled;
+    }
+    if (!days.length && r.body.earlyOtEnabled != null) {
+      const putEo = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
+      if (putEo && putEo.fail) return storeFailResponse(putEo.fail);
+      if (putEo && putEo.conflict) continue;
+      return jsonResponse({ ok: true, earlyOtEnabled: !!(emp && emp.earlyOtEnabled) });
+    }
     const cal = getContractCalendar(gd.obj, (emp && emp.contractType) || 'normal');
     let saved = 0;
     days.forEach(function (d) {
