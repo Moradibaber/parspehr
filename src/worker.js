@@ -2622,12 +2622,25 @@ async function handleEmpTimesheet(request, env) {
       if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
       const cell = dayMap[dk];
       if (!cell) return;
-      const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-      if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
+      let label = x.typeName || (x.kind === 'mission' ? 'روزانه' : 'روزانه');
+        label = String(label).replace(/^\s*مأموریت\s*/,'').replace(/^\s*ماموریت\s*/,'').replace(/^\s*مرخصی\s*/,'').replace(/\s*\(پوشش کسر کار\)\s*/g,'').trim() || label;
+        // ساعتی: فقط بازه
+        const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
+      if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
       if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
       if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
-      /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
+      
+        if (!x.bulkCover) {
+          var bits = [];
+          if (x.place) bits.push(String(x.place).trim());
+          if (x.reason && String(x.reason).indexOf('ثبت خودکار') < 0) bits.push(String(x.reason).trim());
+          bits.forEach(function(b){
+            if (!b) return;
+            if (!cell.note) cell.note = b;
+            else if (cell.note.indexOf(b) < 0) cell.note += '؛ ' + b;
+          });
+        }
     });
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
@@ -3316,12 +3329,25 @@ async function handleAdminTimesheet(request, who, env) {
         if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
         const cell = dayMap[dk];
         if (!cell) return;
-        const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-        if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
+        let label = x.typeName || (x.kind === 'mission' ? 'روزانه' : 'روزانه');
+        label = String(label).replace(/^\s*مأموریت\s*/,'').replace(/^\s*ماموریت\s*/,'').replace(/^\s*مرخصی\s*/,'').replace(/\s*\(پوشش کسر کار\)\s*/g,'').trim() || label;
+        // ساعتی: فقط بازه
+        const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
+        if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
         if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
-        /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
+        
+        if (!x.bulkCover) {
+          var bits = [];
+          if (x.place) bits.push(String(x.place).trim());
+          if (x.reason && String(x.reason).indexOf('ثبت خودکار') < 0) bits.push(String(x.reason).trim());
+          bits.forEach(function(b){
+            if (!b) return;
+            if (!cell.note) cell.note = b;
+            else if (cell.note.indexOf(b) < 0) cell.note += '؛ ' + b;
+          });
+        }
       });
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
