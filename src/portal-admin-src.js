@@ -657,41 +657,42 @@ export default `(function(){
             '<label><input type="checkbox" class="psp-col-tog" data-col="lv" checked> مرخصی</label>' +
             '<label><input type="checkbox" class="psp-col-tog" data-col="note" checked> توضیح</label>' +
             '</div>';
-          var thS = 'background:#ecfdf5;border:1px solid #99f6e4;padding:2px 1px;text-align:center;vertical-align:middle;font-size:0.58rem;white-space:nowrap;';
-          var tdS = 'border:1px solid #e2e8f0;padding:0;text-align:center;vertical-align:middle;';
-          html += '<div style="overflow:auto;max-height:70vh;"><table class="psp-ts-table" style="font-size:0.6rem;min-width:100%;border-collapse:collapse;table-layout:fixed;"><thead style="position:sticky;top:0;z-index:2;"><tr>' +
-            '<th style="'+thS+'width:72px;">تاریخ</th><th style="'+thS+'width:28px;">روز</th>';
+          var thS = 'background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;height:18px;';
+          var tdS = 'border:1px solid #e2e8f0;padding:0;text-align:center;vertical-align:middle;line-height:1.1;height:20px;';
+          html += '<div style="overflow:auto;max-height:70vh;"><table class="psp-ts-table" style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed;"><thead style="position:sticky;top:0;z-index:2;"><tr>' +
+            '<th data-col-key="date" style="'+thS+'width:58px;">تاریخ</th><th data-col-key="day" style="'+thS+'width:22px;">روز</th>';
           for (var hi=1; hi<=4; hi++) {
-            html += '<th class="psp-c-punch" style="'+thS+'width:34px;">و'+hi+'</th><th class="psp-c-punch" style="'+thS+'width:34px;">خ'+hi+'</th>';
+            html += '<th class="psp-c-punch" data-col-key="p'+hi+'i" style="'+thS+'width:30px;">و'+hi+'</th><th class="psp-c-punch" data-col-key="p'+hi+'o" style="'+thS+'width:30px;">خ'+hi+'</th>';
           }
-          html += '<th class="psp-c-work" style="'+thS+'width:36px;">کارکرد</th>' +
-            '<th class="psp-c-ot" style="'+thS+'width:32px;">اضافه</th>' +
-            '<th class="psp-c-abs" style="'+thS+'width:36px;">غیبت‌س</th>' +
-            '<th class="psp-c-mis" style="'+thS+'width:70px;">مأموریت</th>' +
-            '<th class="psp-c-lv" style="'+thS+'width:70px;">مرخصی</th>' +
-            '<th class="psp-c-note" style="'+thS+'width:64px;">توضیح</th>' +
+          html += '<th class="psp-c-work" data-col-key="work" style="'+thS+'width:32px;">کارکرد</th>' +
+            '<th class="psp-c-ot" data-col-key="ot" style="'+thS+'width:30px;">اضافه</th>' +
+            '<th class="psp-c-abs" data-col-key="abs" style="'+thS+'width:32px;">غیبت‌س</th>' +
+            '<th class="psp-c-mis" data-col-key="mis" style="'+thS+'width:56px;">مأموریت</th>' +
+            '<th class="psp-c-lv" data-col-key="lv" style="'+thS+'width:56px;">مرخصی</th>' +
+            '<th class="psp-c-note" data-col-key="note" style="'+thS+'width:48px;">توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
             var bg = d.isNonWork ? 'background:#fef2f2;' : (d.leaveConflict||d.missionConflict ? 'background:#fff7ed;' : '');
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
-              '<td data-date="'+d.date+'" style="'+tdS+'white-space:nowrap;font-size:0.58rem;padding:1px 2px;">' + d.date + '</td>' +
-              '<td style="'+tdS+'font-size:0.55rem;padding:1px;">' + (d.weekday||'') + '</td>';
+              '<td data-date="'+d.date+'" style="'+tdS+'white-space:nowrap;font-size:0.52rem;padding:0 1px;">' + d.date + '</td>' +
+              '<td style="'+tdS+'font-size:0.5rem;padding:0;">' + (d.weekday||'') + '</td>';
             var ic=d.incomplete||{};
             var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;';
-            var bs='width:32px;padding:0;font-size:0.58rem;margin:0;border:1px solid #cbd5e1;border-radius:3px;text-align:center;';
+            var bs='width:100%;max-width:28px;padding:0;font-size:0.52rem;margin:0;border:1px solid #cbd5e1;border-radius:2px;text-align:center;height:16px;box-sizing:border-box;';
             for (var pi=1; pi<=4; pi++) {
-              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-in'+pi+'" value="'+(d['in'+pi]||'')+'" style="'+bs+(ic['in'+pi]?rs:'')+'" dir="ltr"></td>';
-              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-out'+pi+'" value="'+(d['out'+pi]||'')+'" style="'+bs+(ic['out'+pi]?rs:'')+'" dir="ltr"></td>';
+              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-in'+pi+' ts-time" value="'+(d['in'+pi]||'')+'" style="'+bs+(ic['in'+pi]?rs:'')+'" dir="ltr" inputmode="numeric" maxlength="5"></td>';
+              html += '<td class="psp-c-punch" style="'+tdS+'"><input class="ts-out'+pi+' ts-time" value="'+(d['out'+pi]||'')+'" style="'+bs+(ic['out'+pi]?rs:'')+'" dir="ltr" inputmode="numeric" maxlength="5"></td>';
             }
             var absVal = d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '');
             var absStyle = absVal ? 'color:#b91c1c;font-weight:700;' : '';
+            var otDisp = d.otHoursHM ? d.otHoursHM : (d.otHours ? d.otHours : '');
             var noteText = (d.note||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-            html += '<td class="psp-c-work" style="'+tdS+'padding:1px 2px;">' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
-              '<td class="psp-c-ot" style="'+tdS+'padding:1px 2px;">' + (d.otHours||'') + '</td>' +
-              '<td class="psp-c-abs" style="'+tdS+'padding:1px 2px;'+absStyle+'">' + absVal + '</td>' +
-              '<td class="psp-c-mis" style="'+tdS+'font-size:0.58rem;padding:1px 2px;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td class="psp-c-lv" style="'+tdS+'font-size:0.58rem;padding:1px 2px;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td class="psp-c-note" style="'+tdS+'padding:1px;"><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" title="'+noteText+'" style="width:56px;padding:0 2px;font-size:0.55rem;border:1px solid #e2e8f0;border-radius:3px;"></td></tr>';
+            html += '<td class="psp-c-work" style="'+tdS+'padding:0 1px;font-size:0.52rem;">' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
+              '<td class="psp-c-ot" style="'+tdS+'padding:0 1px;font-size:0.52rem;">' + otDisp + '</td>' +
+              '<td class="psp-c-abs" style="'+tdS+'padding:0 1px;font-size:0.52rem;'+absStyle+'">' + absVal + '</td>' +
+              '<td class="psp-c-mis" style="'+tdS+'font-size:0.5rem;padding:0 1px;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td class="psp-c-lv" style="'+tdS+'font-size:0.5rem;padding:0 1px;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td class="psp-c-note" style="'+tdS+'padding:0;"><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" title="'+noteText+'" style="width:100%;box-sizing:border-box;padding:0 2px;font-size:0.5rem;border:1px solid #e2e8f0;border-radius:2px;height:16px;"></td></tr>';
           });
           html += '</tbody></table></div>';
           setTimeout(function(){
@@ -702,8 +703,48 @@ export default `(function(){
                 document.querySelectorAll('.psp-c-'+col).forEach(function(el){ el.style.display = show ? '' : 'none'; });
               };
             });
+            // فرمت خودکار 0645 → 06:45
+            function fmtTimeInput(el){
+              var v = String(el.value||'').replace(/[^\d]/g,'');
+              if (v.length >= 3 && v.length <= 4) {
+                while (v.length < 4) v = '0' + v;
+                var h = parseInt(v.slice(0,2),10), m = parseInt(v.slice(2,4),10);
+                if (h >= 0 && h <= 23 && m >= 0 && m <= 59) el.value = (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+              } else if (v.length === 1 || v.length === 2) {
+                var h2 = parseInt(v,10);
+                if (h2 >= 0 && h2 <= 23) el.value = (h2<10?'0':'')+h2+':00';
+              }
+            }
+            document.querySelectorAll('#pspTsOut input.ts-time').forEach(function(inp){
+              inp.addEventListener('blur', function(){ fmtTimeInput(inp); });
+              inp.addEventListener('keydown', function(e){
+                if (e.key === 'Enter') { fmtTimeInput(inp); inp.blur(); }
+              });
+            });
+            // تغییر عرض ستون مثل اکسل (کشیدن لبه هدر)
+            var tbl = document.querySelector('#pspTsOut table.psp-ts-table');
+            if (tbl) {
+              var ths = tbl.querySelectorAll('thead th');
+              ths.forEach(function(th){
+                th.style.position = 'relative';
+                var grip = document.createElement('span');
+                grip.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:4px;cursor:col-resize;z-index:3;';
+                th.appendChild(grip);
+                grip.addEventListener('mousedown', function(e){
+                  e.preventDefault(); e.stopPropagation();
+                  var startX = e.pageX, startW = th.offsetWidth;
+                  function move(ev){
+                    var nw = Math.max(18, startW + (startX - ev.pageX));
+                    th.style.width = nw + 'px';
+                  }
+                  function up(){ document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); }
+                  document.addEventListener('mousemove', move);
+                  document.addEventListener('mouseup', up);
+                });
+              });
+            }
           }, 0);
-          window.__pspTsDaily = j.daily;
+window.__pspTsDaily = j.daily;
           window.__pspTsYear = j.year;
           window.__pspTsMonth = j.month;
           setTimeout(function(){
