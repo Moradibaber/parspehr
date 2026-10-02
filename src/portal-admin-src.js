@@ -549,23 +549,29 @@ export default `(function(){
           var otUn = (j.rows && j.rows[0] && j.rows[0].otHoursUnapproved != null) ? Number(j.rows[0].otHoursUnapproved) : 0;
           var otCap = (j.rows && j.rows[0] && j.rows[0].otCeilingHours != null) ? j.rows[0].otCeilingHours : '—';
           html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (فقط روزهای دارای تردد کامل یا مرخصی/مأموریت روزانه؛ بدون غیبت میانی) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار تأیید: <b>' + otAp.toFixed(2) + '</b>س | تأییدنشده: <b>' + otUn.toFixed(2) + '</b>س (سقف کارت: ' + otCap + ') | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
-          html += '<div style="overflow:auto;"><table style="font-size:0.7rem;min-width:980px;"><thead><tr>' +
-            '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
-            '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th><th>غیبت‌س</th>' +
-            '<th>مأموریت</th><th>مرخصی</th><th>توضیح</th>' +
+          html += '<div style="overflow:auto;max-height:70vh;"><table class="psp-ts-table" style="font-size:0.65rem;min-width:100%;border-collapse:collapse;"><thead style="position:sticky;top:0;z-index:2;"><tr>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 4px;">تاریخ</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">روز</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۱</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۱</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۲</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۲</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۳</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۳</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">و۴</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 1px;">خ۴</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">کارکرد</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">تأخیر</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">تعجیل</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">اضافه</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">غیبت‌س</th>' +
+            '<th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">مأموریت</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">مرخصی</th><th style="background:#ecfdf5;border:1px solid #99f6e4;padding:3px 2px;">توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
             var bg = d.isNonWork ? 'background:#fef2f2;' : (d.leaveConflict||d.missionConflict ? 'background:#fff7ed;' : '');
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
-              '<td data-date="'+d.date+'" style="white-space:nowrap;">' + d.date + '</td><td>' + (d.weekday||'') + '</td>' +
-              (function(){ var ic=d.incomplete||{}; var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;'; var bs='width:44px;padding:1px;font-size:0.68rem;';
-              return '<td><input class="ts-in1" value="'+(d.in1||'')+'" style="'+bs+(ic.in1?rs:'')+'" dir="ltr" placeholder="08:00"></td>' +
-              '<td><input class="ts-out1" value="'+(d.out1||'')+'" style="'+bs+(ic.out1?rs:'')+'" dir="ltr"></td>' +
-              '<td><input class="ts-in2" value="'+(d.in2||'')+'" style="'+bs+(ic.in2?rs:'')+'" dir="ltr"></td>' +
-              '<td><input class="ts-out2" value="'+(d.out2||'')+'" style="'+bs+(ic.out2?rs:'')+'" dir="ltr"></td>';
+              '<td data-date="'+d.date+'" style="white-space:nowrap;border:1px solid #e2e8f0;padding:2px 3px;">' + d.date + '</td><td style="border:1px solid #e2e8f0;padding:2px 2px;">' + (d.weekday||'') + '</td>' +
+              (function(){ var ic=d.incomplete||{}; var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;'; var bs='width:38px;padding:1px;font-size:0.62rem;margin:0;';
+              var h='';
+              for(var pi=1;pi<=4;pi++){
+                h+='<td style="border:1px solid #e2e8f0;padding:1px;"><input class="ts-in'+pi+'" value="'+(d['in'+pi]||'')+'" style="'+bs+(ic['in'+pi]?rs:'')+'" dir="ltr"></td>';
+                h+='<td style="border:1px solid #e2e8f0;padding:1px;"><input class="ts-out'+pi+'" value="'+(d['out'+pi]||'')+'" style="'+bs+(ic['out'+pi]?rs:'')+'" dir="ltr"></td>';
+              }
+              return h;
               })() +
-              '<td>' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
-              '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
+              '<td style="border:1px solid #e2e8f0;padding:2px;">' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
+              '<td style="border:1px solid #e2e8f0;padding:2px;">' + (d.delayMin||'') + '</td><td style="border:1px solid #e2e8f0;padding:2px;">' + (d.earlyMin||'') + '</td><td style="border:1px solid #e2e8f0;padding:2px;">' + (d.otHours||'') + '</td>' +
               '<td>' + (d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '')) + '</td>' +
               '<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
@@ -581,14 +587,12 @@ export default `(function(){
               document.querySelectorAll('#pspTsOut tr[data-ts-day]').forEach(function(tr){
                 var date = (tr.querySelector('[data-date]')||{}).getAttribute('data-date');
                 if (!date) return;
-                days.push({
-                  date: date,
-                  in1: (tr.querySelector('.ts-in1')||{}).value || '',
-                  out1: (tr.querySelector('.ts-out1')||{}).value || '',
-                  in2: (tr.querySelector('.ts-in2')||{}).value || '',
-                  out2: (tr.querySelector('.ts-out2')||{}).value || '',
-                  note: (tr.querySelector('.ts-note')||{}).value || ''
-                });
+                var row={date:date, note:(tr.querySelector('.ts-note')||{}).value||''};
+                for(var pi=1;pi<=4;pi++){
+                  row['in'+pi]=(tr.querySelector('.ts-in'+pi)||{}).value||'';
+                  row['out'+pi]=(tr.querySelector('.ts-out'+pi)||{}).value||'';
+                }
+                days.push(row);
               });
               return days;
             }
