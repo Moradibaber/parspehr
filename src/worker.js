@@ -837,7 +837,7 @@ async function handleAdminSetEmpPassword(request, who, env) {
 
 // ---------- Attendance requests (leave / mission) ----------
 function newRequestId() {
-  return 'r_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  return 'r_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10) + '_' + Math.random().toString(36).slice(2, 6);
 }
 
 function parseJalaliYMD(str) {
@@ -2598,7 +2598,7 @@ async function handleEmpTimesheet(request, env) {
       if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
       if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
       if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-      if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+      if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار پوشش') < 0) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
     });
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
@@ -3106,7 +3106,7 @@ async function handleAdminTimesheet(request, who, env) {
         if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
         if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-        if (x.reason) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+        if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار پوشش') < 0) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
       });
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
@@ -4016,13 +4016,17 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
 }
 
 async function handleAdminDeleteAttendanceRequest(request, who, env) {
-  if (who.role !== 'admin') {
-    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین سیستم می‌تواند حذف کند.' }, 403);
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'دسترسی حذف ندارید.' }, 403);
   }
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const id = String(r.body.id || '').trim();
-  if (!id) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  const url = new URL(request.url);
+  let id = String(url.searchParams.get('id') || '').trim();
+  if (!id) {
+    const r = await readBody(request);
+    if (r.error) return r.error;
+    id = String((r.body && r.body.id) || '').trim();
+  }
+  if (!id) return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه درخواست لازم است.' }, 400);
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -4030,23 +4034,53 @@ async function handleAdminDeleteAttendanceRequest(request, who, env) {
     if (gd.fail) return storeFailResponse(gd.fail);
     if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
-    const idx = gd.obj.attendanceRequests.findIndex(function (x) { return x.id === id; });
-    if (idx < 0) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    let idx = gd.obj.attendanceRequests.findIndex(function (x) { return String(x.id) === String(id); });
+    // اگر id پیدا نشد ولی قبلاً حذف شده — موفق
+    if (idx < 0) {
+      return jsonResponse({ ok: true, alreadyGone: true, message: 'این درخواست از قبل حذف شده بود.' });
+    }
     const doomed = gd.obj.attendanceRequests[idx];
-    // برگرداندن اثر روی کارکرد و مانده اگر تأیید نهایی شده بود
-    if (doomed && doomed.status === 'approved') {
+    if (doomed && (doomed.status === 'approved' || doomed.status === 'approved_l1' || doomed.bulkCover)) {
       try { restoreLeaveDeduction(gd.obj, doomed); } catch (e) {}
+      try { reverseApprovedRequestFromTimesheet(gd.obj, doomed); } catch (e) {}
+      // پاک کردن توضیح خودکار از dailyAttendance
       try {
-        if (doomed._timesheetApplied) {
-          reverseApprovedRequestFromTimesheet(gd.obj, doomed);
-          doomed._timesheetApplied = false;
-        } else {
-          reverseApprovedRequestFromTimesheet(gd.obj, doomed);
+        const code = String(doomed.empCode || '');
+        const p = parseJalaliYMD(doomed.startDate);
+        if (code && p && gd.obj.dailyAttendance && gd.obj.dailyAttendance[code]) {
+          const dk = p.y + '-' + String(p.m).padStart(2, '0') + '-' + String(p.d).padStart(2, '0');
+          const dateFa = p.y + '/' + String(p.m).padStart(2, '0') + '/' + String(p.d).padStart(2, '0');
+          const rec = gd.obj.dailyAttendance[code][dk] || gd.obj.dailyAttendance[code][dateFa];
+          if (rec && rec.note) {
+            const auto = 'ثبت خودکار پوشش کسر کار';
+            let n = String(rec.note);
+            n = n.split('؛').map(function (s) { return s.trim(); }).filter(function (s) {
+              return s && s.indexOf(auto) < 0 && s.indexOf('پوشش کسر') < 0;
+            }).join('؛ ');
+            rec.note = n;
+            if (!rec.note && !rec.in1 && !rec.out1 && !rec.in2 && !rec.out2) {
+              delete gd.obj.dailyAttendance[code][dk];
+              delete gd.obj.dailyAttendance[code][dateFa];
+            }
+          }
         }
       } catch (e) {}
     }
     const empCodeDel = doomed ? doomed.empCode : '';
     gd.obj.attendanceRequests.splice(idx, 1);
+    // حذف تکراری‌های همان پوشش خودکار (id خراب / تکراری)
+    if (doomed && doomed.bulkCover) {
+      gd.obj.attendanceRequests = gd.obj.attendanceRequests.filter(function (x) {
+        if (!x || !x.bulkCover) return true;
+        if (String(x.empCode) !== String(doomed.empCode)) return true;
+        if (String(x.startDate) !== String(doomed.startDate)) return true;
+        if (String(x.fromTime || '') !== String(doomed.fromTime || '')) return true;
+        if (String(x.toTime || '') !== String(doomed.toTime || '')) return true;
+        if (String(x.kind) !== String(doomed.kind)) return true;
+        // این یکی همان رکورد در حال حذف است که splice شده — بقیه تکراری
+        return String(x.id) === String(doomed.id);
+      });
+    }
     if (empCodeDel) {
       try { rebuildEmpLeaveUsedFromRequests(gd.obj, empCodeDel); } catch (e) {}
     }
@@ -5059,8 +5093,11 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 16px; direction: rtl; }
-  .wrap { max-width: 720px; margin: 0 auto; }
+  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 10px; direction: rtl; font-size: 0.88rem; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .box table { font-size: 0.68rem !important; }
+  .box table th, .box table td { padding: 2px 4px !important; white-space: nowrap; }
+  .box table td { line-height: 1.25; }
   .card { background: #fff; border-radius: 14px; padding: 22px 18px; box-shadow: 0 8px 30px rgba(15,118,110,0.10); margin-bottom: 14px; }
   h1 { font-size: 1.2rem; color: #0f766e; text-align: center; margin-bottom: 4px; }
   h2 { font-size: 1rem; color: #0f766e; margin: 0 0 10px; }
@@ -5537,7 +5574,7 @@ async function loadTimesheet(){
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+sumWork.toFixed(2)+'</b> | تأخیر: <b>'+sumDelay+'</b>د | اضافه‌کار: <b>'+sumOt.toFixed(2)+'</b>س | غیبت ساعتی: <b>'+(Math.round(sumAbs*100)/100)+'</b>س</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      html+='<div style="overflow:auto"><table style="font-size:0.7rem;min-width:100%;width:100%"><thead><tr>';
+      html+='<div style="overflow:auto"><table style="font-size:0.65rem;min-width:100%;width:100%;border-collapse:collapse"><thead><tr>';
       html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th><th>کار</th><th>تأخیر</th><th>اضافه</th><th>غیبت‌س</th>';
       html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
