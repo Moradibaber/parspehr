@@ -1136,13 +1136,16 @@ export default `(function(){
           if(!confirm('حذف این درخواست؟')) return;
           var st = document.getElementById('pspAdmStatus'); st.textContent='…';
           if(!row.id){ window.__pspReqRows.splice(i,1); renderReqSheet(); st.textContent='حذف شد'; return; }
-          fetch('/api/admin/attendance-request', {
+          fetch('/api/admin/attendance-request?id=' + encodeURIComponent(row.id), {
             method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
             body: JSON.stringify({ id: row.id })
           }).then(function(r){return r.json()}).then(function(j){
-            if(j.ok){ st.style.color='#16a34a'; st.textContent='حذف شد'; window.__pspReqRows.splice(i,1); renderReqSheet(); }
+            if(j.ok){ st.style.color='#16a34a'; st.textContent=j.alreadyGone?'از قبل حذف شده بود':'حذف شد';
+              try { loadReqSheet(); } catch(e){ window.__pspReqRows.splice(i,1); renderReqSheet(); }
+              try { var b=document.getElementById('pspTsLoad'); if(b) b.click(); } catch(e2){}
+            }
             else { st.style.color='#b91c1c'; st.textContent=j.message||j.error||'خطا'; }
-          });
+          }).catch(function(e){ st.style.color='#b91c1c'; st.textContent=String(e&&e.message?e.message:e); });
         };
       });
     }
