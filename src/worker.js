@@ -1718,14 +1718,14 @@ function computeDayTimesheet(cal, punches, opts) {
     if (punches.in2 || punches.out2) pairs.push({ inn: timeToMinutes(punches.in2), out: timeToMinutes(punches.out2) });
   }
   pairs = pairs.filter(function (p) { return p.inn != null || p.out != null; });
+  // فقط جفت کامل (ورود+خروج) در کارکرد شمرده می‌شود
+  const completePairs = pairs.filter(function (p) { return p.inn != null && p.out != null; });
+  const incompletePairs = pairs.filter(function (p) { return p.inn == null || p.out == null; });
 
   let present = 0;
-  pairs.forEach(function (p) {
+  completePairs.forEach(function (p) {
     let a = p.inn, b = p.out;
-    if (a == null && b == null) return;
-    if (a == null) a = start;
-    if (b == null) b = end;
-    if (b < a) b += 24 * 60; // عبور از نیمه‌شب تا dayEnd
+    if (b < a) b += 24 * 60;
     present += Math.max(0, b - a);
   });
 
@@ -1733,15 +1733,12 @@ function computeDayTimesheet(cal, punches, opts) {
   if (sched.hasBreak && !sched.breakCountsAsWork) {
     const bs = timeToMinutes(sched.breakStart);
     const be = timeToMinutes(sched.breakEnd);
-    if (bs != null && be != null && pairs.length) {
+    if (bs != null && be != null && completePairs.length) {
       let br = be - bs;
       if (br < 0) br += 24 * 60;
-      // اگر حداقل یک بازه حضور کل وقفه را پوشش دهد، کسر کن
       let covers = false;
-      pairs.forEach(function (p) {
+      completePairs.forEach(function (p) {
         let a = p.inn, b = p.out;
-        if (a == null) a = start;
-        if (b == null) b = end;
         if (b < a) b += 24 * 60;
         if (a <= bs && b >= be) covers = true;
       });
@@ -1749,45 +1746,66 @@ function computeDayTimesheet(cal, punches, opts) {
     }
   }
 
-  const firstIn = pairs.length ? pairs.map(function (p) { return p.inn; }).filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; })[0] : null;
-  const lastOut = pairs.length ? pairs.map(function (p) { return p.out; }).filter(function (x) { return x != null; }).sort(function (a, b) { return b - a; })[0] : null;
+  const firstIn = completePairs.length
+    ? completePairs.map(function (p) { return p.inn; }).sort(function (a, b) { return a - b; })[0]
+    : (pairs.map(function (p) { return p.inn; }).filter(function (x) { return x != null; }).sort(function (a, b) { return a - b; })[0] || null);
+  const lastOut = completePairs.length
+    ? completePairs.map(function (p) { return p.out; }).sort(function (a, b) { return b - a; })[0]
+    : null;
+  const hasAnyPunch = pairs.length > 0;
+  const hasComplete = completePairs.length > 0;
 
-  let delay = 0; // تأخیر ورود (دقیقه)
-  let earlyLeave = 0; // تعجیل خروج
-  let compensated = 0; // دقایق جبران‌شده با ماندن بیشتر
+  /**
+   * شناوری:
+   * - اگر ورود در بازه [start, start+float] باشد → می‌تواند همان میزان تأخیر را با ماندن بعد از end جبران کند (حداکثر float)
+   * - اگر ورود بعد از start+float باشد → شناوری اعمال نمی‌شود؛ جبران فقط اگر تیک floatCompensate زده شده باشد
+   * - ماندن بعد از end بدون حق جبران = اضافه‌کار
+   */
+  let delay = 0;          // تأخیر ورود نسبت به start (قبل از جبران)
+  let earlyLeave = 0;     // تعجیل خروج نسبت به end (قبل از جبران)
+  let compensated = 0;    // دقایق جبران‌شده با ماندن بعد از end
+  let ot = 0;
+  let withinFloat = false;
   let requiredEnd = end;
 
-  if (firstIn != null && start != null) {
+  if (hasComplete && firstIn != null && start != null) {
     delay = Math.max(0, firstIn - start);
+    withinFloat = delay > 0 && delay <= (floatM || 0);
   }
-  if (compensate && delay > 0 && end != null) {
-    // اجازه جبران: پایان مورد انتظار = پایان رسمی + تأخیر
-    requiredEnd = end + delay;
-    if (lastOut != null) {
-      if (lastOut >= requiredEnd) {
-        compensated = delay;
-        delay = 0; // جبران کامل
-      } else if (lastOut > end) {
-        compensated = lastOut - end;
-        delay = Math.max(0, delay - compensated);
-      }
-    }
-  } else if (!compensate && delay > 0) {
-    // تأخیر می‌ماند؛ شناوری فقط برای نمایش پنجره است
-  }
-
-  if (lastOut != null && end != null && !compensate) {
+  if (hasComplete && lastOut != null && end != null) {
     earlyLeave = Math.max(0, end - lastOut);
-  } else if (lastOut != null && requiredEnd != null && compensate) {
-    earlyLeave = Math.max(0, requiredEnd - lastOut);
   }
 
-  // اضافه‌کار نسبت به پایان رسمی (پس از جبران)
-  let ot = 0;
-  if (lastOut != null && end != null) {
-    const beyond = lastOut - (compensate && compensated ? requiredEnd : end);
-    if (beyond > 0) ot = beyond;
+  // جبران: فقط داخل شناوری (خودکار) یا با تیک floatCompensate
+  const canCompensate = withinFloat || !!compensate;
+  if (hasComplete && canCompensate && delay > 0 && lastOut != null && end != null) {
+    const stayedPast = Math.max(0, lastOut - end);
+    // حداکثر جبران = min(تأخیر، ماندن بعد از پایان، و اگر فقط شناوری باشد سقف float)
+    let maxComp = delay;
+    if (withinFloat && !compensate) {
+      maxComp = Math.min(delay, floatM || 0);
+    }
+    compensated = Math.min(maxComp, stayedPast);
+    delay = Math.max(0, delay - compensated);
+    // اضافه‌کار = ماندن بعد از end فراتر از جبران
+    ot = Math.max(0, stayedPast - compensated);
+    // تعجیل فقط اگر زودتر از end رفته (و جبران صبح از end جداست)
+    if (lastOut < end) {
+      earlyLeave = end - lastOut;
+    } else {
+      earlyLeave = 0;
+    }
+  } else if (hasComplete && lastOut != null && end != null) {
+    // بدون حق جبران: ماندن بعد از end = OT؛ تأخیر کامل می‌ماند
+    if (lastOut > end) {
+      ot = lastOut - end;
+      earlyLeave = 0;
+    } else {
+      earlyLeave = end - lastOut;
+      ot = 0;
+    }
   }
+  // تردد ناقص بدون جفت کامل: کارکرد صفر — delay/early جداگانه معنا ندارد
 
   // روز تعطیل/غیرکاری: تمام حضور = اضافه‌کار
   let workPresent = present;
@@ -1815,6 +1833,22 @@ function computeDayTimesheet(cal, punches, opts) {
     shortfall = Math.max(0, official - present - covered);
   }
 
+  // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
+  let displayWorkMin = workPresent + (isHoliday ? 0 : covered);
+  if (!isHoliday && !opts.unpaidLeave) {
+    if (opts.fullDayLeaveOrMission) displayWorkMin = official;
+    else displayWorkMin = Math.min(official, displayWorkMin);
+  }
+  // فرمت ساعت: دقیقه → «ساعت:دقیقه» مثلاً 8:45
+  function fmtHM(mins) {
+    mins = Math.round(Number(mins) || 0);
+    if (mins <= 0) return 0;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (m === 0) return h;
+    return h + ':' + String(m).padStart(2, '0');
+  }
+
   return {
     officialMinutes: official,
     presentMinutes: Math.round(present),
@@ -1825,13 +1859,18 @@ function computeDayTimesheet(cal, punches, opts) {
     shortfallMinutes: Math.round(shortfall),
     hourlyAbsenceMinutes: Math.round(shortfall),
     hourlyAbsenceHours: Math.round((shortfall / 60) * 100) / 100,
+    hourlyAbsenceHM: fmtHM(shortfall),
+    workHoursHM: fmtHM(displayWorkMin),
     floatMinutes: floatM,
     floatCompensate: compensate,
     isHoliday: isHoliday,
+    hasCompletePair: hasComplete,
+    withinFloat: withinFloat,
+    incompletePunch: incompletePairs.length > 0,
     firstIn: firstIn != null ? minutesToTime(firstIn) : null,
     lastOut: lastOut != null ? minutesToTime(lastOut) : null,
     requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
-    workHours: Math.round((workPresent / 60) * 100) / 100,
+    workHours: Math.round((displayWorkMin / 60) * 100) / 100,
     otHours: Math.round((ot / 60) * 100) / 100
   };
 }
@@ -2532,6 +2571,8 @@ async function handleEmpTimesheet(request, env) {
       delayMin: calc.delayMinutes,
       hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
       hourlyAbsenceHours: calc.hourlyAbsenceHours,
+      hourlyAbsenceHM: calc.hourlyAbsenceHM,
+      workHoursHM: calc.workHoursHM,
       delayMin: calc.delayMinutes,
       earlyMin: calc.earlyLeaveMinutes,
       incomplete: punchIncompleteFlags(punch),
@@ -2654,26 +2695,79 @@ async function handleAdminGetManager(request, who, env) {
 
 
 /** پیشنهاد بازه ساعتی برای پوشش کسری: تعجیل → تا پایان شیفت؛ تأخیر → از شروع شیفت */
-function suggestHourlyCoverRange(cal, calc, coverMinutes) {
+/**
+ * بازه‌های پوشش کسر کار:
+ * - تأخیر باقی‌مانده (پس از جبران شناوری): از (start + compensated) تا firstIn — هرگز بعد از end
+ * - تعجیل: از lastOut تا end
+ * - ورود خارج شناوری: از start تا firstIn (بدون شناوری)
+ */
+function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
-  if (start == null || end == null || coverMinutes <= 0) return null;
+  if (start == null || end == null) return [];
+  let budget = Math.max(0, Number(maxCoverMinutes) || 0);
+  const ranges = [];
+  const delay = Number(calc.delayMinutes) || 0; // باقی‌مانده پس از جبران
   const early = Number(calc.earlyLeaveMinutes) || 0;
-  const delay = Number(calc.delayMinutes) || 0;
-  let fromM, toM;
-  if (early > 0) {
-    toM = end;
-    fromM = Math.max(start, end - coverMinutes);
-  } else if (delay > 0) {
-    fromM = start;
-    toM = Math.min(end, start + coverMinutes);
-  } else {
-    toM = end;
-    fromM = Math.max(start, end - coverMinutes);
+  const compensated = Number(calc.compensatedMinutes) || 0;
+  const shortfall = Number(calc.hourlyAbsenceMinutes) || 0;
+  const hasComplete = !!calc.hasCompletePair;
+  const firstInM = calc.firstIn ? timeToMinutes(calc.firstIn) : null;
+  const lastOutM = calc.lastOut ? timeToMinutes(calc.lastOut) : null;
+
+  if (!hasComplete && shortfall > 0) {
+    const need = Math.min(budget || shortfall, shortfall);
+    if (need > 0) {
+      ranges.push({ fromTime: minutesToHHMM(start), toTime: minutesToHHMM(Math.min(end, start + need)), minutes: need });
+    }
+    return ranges;
   }
-  if (toM <= fromM) return null;
-  return { fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(toM) };
+
+  // مرخصی صبح: از start+compensated تا firstIn (جبران‌شده با ماندن عصر روی صبح اعمال می‌شود)
+  if (firstInM != null && firstInM > start && budget > 0) {
+    const fromM = start + compensated;
+    const toM = firstInM;
+    if (toM > fromM) {
+      const need = Math.min(toM - fromM, budget, delay > 0 ? delay : (toM - fromM));
+      if (need > 0) {
+        ranges.push({ fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(fromM + need), minutes: need });
+        budget -= need;
+      }
+    }
+  } else if (delay > 0 && budget > 0) {
+    const need = Math.min(delay, budget);
+    ranges.push({ fromTime: minutesToHHMM(start + compensated), toTime: minutesToHHMM(start + compensated + need), minutes: need });
+    budget -= need;
+  }
+
+  // تعجیل: از خروج تا پایان شیفت (نه بعد از end)
+  if (early > 0 && lastOutM != null && lastOutM < end && budget > 0) {
+    const need = Math.min(early, budget, end - lastOutM);
+    if (need > 0) {
+      ranges.push({ fromTime: minutesToHHMM(lastOutM), toTime: minutesToHHMM(lastOutM + need), minutes: need });
+      budget -= need;
+    }
+  }
+
+  // کسری باقی (مثلاً وقفه)
+  if (budget > 0 && shortfall > 0) {
+    const used = ranges.reduce(function (s, r) { return s + r.minutes; }, 0);
+    const rest = Math.min(budget, Math.max(0, shortfall - used));
+    if (rest > 0) {
+      // ترجیح صبح: چسبیده به شروع
+      const fromM = start + compensated + (delay > 0 ? Math.min(delay, used) : 0);
+      const toM = Math.min(end, fromM + rest);
+      if (toM > fromM) {
+        ranges.push({ fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(toM), minutes: toM - fromM });
+      }
+    }
+  }
+  return ranges;
+}
+function suggestHourlyCoverRange(cal, calc, coverMinutes) {
+  const arr = suggestHourlyCoverRanges(cal, calc, coverMinutes);
+  return arr.length ? arr[0] : null;
 }
 
 /**
@@ -2772,10 +2866,12 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         let need = ds.shortMin - skip;
         if (need > leftToCover) need = leftToCover;
         if (need <= 0) continue;
-        const range = suggestHourlyCoverRange(cal, ds.calc, need);
-        if (!range) continue;
-        planned.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: need });
-        leftToCover -= need;
+        const ranges = suggestHourlyCoverRanges(cal, ds.calc, need);
+        if (!ranges.length) continue;
+        ranges.forEach(function (range) {
+          planned.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: range.minutes });
+          leftToCover -= range.minutes;
+        });
       }
 
       if (!planned.length) {
@@ -2797,7 +2893,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           managerCode: String(emp.managerCode || ''),
           managerName: '',
           typeId: tdef.id || '',
-          typeName: tdef.name || (kind === 'mission' ? 'مأموریت ساعتی' : 'مرخصی ساعتی'),
+          typeName: (tdef.name || (kind === 'mission' ? 'مأموریت ساعتی' : 'مرخصی ساعتی')) + ' (پوشش کسر کار)',
           deductFromEntitlement: kind === 'leave' && !!(tdef.deductFromEntitlement),
           kind: kind,
           mode: 'hourly',
@@ -2984,6 +3080,9 @@ async function handleAdminTimesheet(request, who, env) {
         otHours: calc.otHours,
         hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
         hourlyAbsenceHours: calc.hourlyAbsenceHours,
+        hourlyAbsenceHM: calc.hourlyAbsenceHM,
+        workHoursHM: calc.workHoursHM,
+        incomplete: punchIncompleteFlags(punch),
         compensatedMin: calc.compensatedMinutes,
         leaveDaily: '',
         leaveHourly: '',
@@ -5446,11 +5545,11 @@ async function loadTimesheet(){
         var bg=d.isNonWork?'background:#fef2f2;':'';
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
-        var abs=(d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'';
+        var abs=d.hourlyAbsenceHM?d.hourlyAbsenceHM:((d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'');
         function cell(v,bad){ return '<td style="font-size:0.72rem;direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
         html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
         html+=cell(d.in1,ic.in1)+cell(d.out1,ic.out1)+cell(d.in2,ic.in2)+cell(d.out2,ic.out2);
-        html+='<td style="font-size:0.72rem">'+(d.workHours!=null&&d.workHours>0?d.workHours:'')+'</td>';
+        html+='<td style="font-size:0.72rem">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         html+='<td style="font-size:0.72rem">'+(d.delayMin||'')+'</td>';
         html+='<td style="font-size:0.72rem">'+(d.otHours||'')+'</td>';
         html+='<td style="font-size:0.72rem">'+abs+'</td>';
