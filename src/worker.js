@@ -1623,8 +1623,8 @@ function normalizeWorkSchedule(cal) {
     breakEnd: c.breakEnd != null ? c.breakEnd : d.breakEnd,
     breakCountsAsWork: hb && !!c.breakCountsAsWork,
     dayEnd: c.dayEnd || d.dayEnd,
-    floatMinutes: Math.max(0, Number(c.floatMinutes) || 0),
-    floatCompensate: !!c.floatCompensate
+    floatMinutes: Math.max(0, (c.floatMinutes != null && c.floatMinutes !== '') ? Number(c.floatMinutes) : d.floatMinutes),
+    floatCompensate: c.floatCompensate != null ? !!c.floatCompensate : !!d.floatCompensate
   };
 }
 
@@ -1714,8 +1714,10 @@ function computeDayTimesheet(cal, punches, opts) {
       }
     });
   } else if (punches && typeof punches === 'object') {
-    if (punches.in1 || punches.out1) pairs.push({ inn: timeToMinutes(punches.in1), out: timeToMinutes(punches.out1) });
-    if (punches.in2 || punches.out2) pairs.push({ inn: timeToMinutes(punches.in2), out: timeToMinutes(punches.out2) });
+    for (let i = 1; i <= 4; i++) {
+      const inn = punches['in' + i], out = punches['out' + i];
+      if (inn || out) pairs.push({ inn: timeToMinutes(inn), out: timeToMinutes(out) });
+    }
   }
   pairs = pairs.filter(function (p) { return p.inn != null || p.out != null; });
   // فقط جفت کامل (ورود+خروج) در کارکرد شمرده می‌شود
@@ -1999,12 +2001,13 @@ function punchPairIncomplete(inn, out) {
 }
 function punchIncompleteFlags(p) {
   p = p || {};
-  return {
-    in1: punchPairIncomplete(p.in1, p.out1),
-    out1: punchPairIncomplete(p.in1, p.out1),
-    in2: punchPairIncomplete(p.in2, p.out2),
-    out2: punchPairIncomplete(p.in2, p.out2)
-  };
+  const o = {};
+  for (let i = 1; i <= 4; i++) {
+    const bad = punchPairIncomplete(p['in' + i], p['out' + i]);
+    o['in' + i] = bad;
+    o['out' + i] = bad;
+  }
+  return o;
 }
 function minutesToHHMM(m) {
   if (m == null || isNaN(m)) return '';
@@ -2151,9 +2154,11 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
     // فقط جفت کامل
-    const ok1 = !!(String(punch.in1 || '').trim() && String(punch.out1 || '').trim());
-    const ok2 = !!(String(punch.in2 || '').trim() && String(punch.out2 || '').trim());
-    if (ok1 || ok2) flags[d].work = true;
+    let hasCompletePunch = false;
+    for (let pi = 1; pi <= 4; pi++) {
+      if (String(punch['in' + pi] || '').trim() && String(punch['out' + pi] || '').trim()) hasCompletePunch = true;
+    }
+    if (hasCompletePunch) flags[d].work = true;
   }
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
@@ -2586,10 +2591,10 @@ async function handleEmpTimesheet(request, env) {
     dayMap[dk] = {
       day: d,
       date: dateFa,
-      in1: punch.in1 || '',
-      out1: punch.out1 || '',
-      in2: punch.in2 || '',
-      out2: punch.out2 || '',
+      in1: punch.in1 || '', out1: punch.out1 || '',
+      in2: punch.in2 || '', out2: punch.out2 || '',
+      in3: punch.in3 || '', out3: punch.out3 || '',
+      in4: punch.in4 || '', out4: punch.out4 || '',
       workHours: calc.workHours,
       otHours: calc.otHours,
       delayMin: calc.delayMinutes,
@@ -2618,10 +2623,10 @@ async function handleEmpTimesheet(request, env) {
       const cell = dayMap[dk];
       if (!cell) return;
       const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-      if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.leaveConflict = true; }
-      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.missionConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
       /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
     });
   });
@@ -2739,8 +2744,9 @@ function hourlyOverlapsPresence(fromTime, toTime, punch) {
   if (a == null || b == null || b <= a) return false;
   const pairs = [];
   if (punch) {
-    if (punch.in1 && punch.out1) pairs.push([timeToMinutes(punch.in1), timeToMinutes(punch.out1)]);
-    if (punch.in2 && punch.out2) pairs.push([timeToMinutes(punch.in2), timeToMinutes(punch.out2)]);
+    punchPairsFromObj(punch).forEach(function (p) {
+      if (!p.incomplete && p.a != null && p.b != null) pairs.push([p.a, p.b]);
+    });
   }
   for (let i = 0; i < pairs.length; i++) {
     const p = pairs[i];
@@ -2750,6 +2756,32 @@ function hourlyOverlapsPresence(fromTime, toTime, punch) {
   return false;
 }
 
+
+function punchPairsFromObj(punches) {
+  const pairs = [];
+  if (!punches) return pairs;
+  if (Array.isArray(punches)) {
+    punches.forEach(function (p) {
+      if (!p) return;
+      const a = timeToMinutes(p.in != null ? p.in : p.inn);
+      const b = timeToMinutes(p.out);
+      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
+      else if (a != null || b != null) pairs.push({ a: a, b: b, incomplete: true });
+    });
+    return pairs;
+  }
+  for (let i = 1; i <= 4; i++) {
+    const inn = punches['in' + i];
+    const out = punches['out' + i];
+    if (inn || out) {
+      const a = timeToMinutes(inn);
+      const b = timeToMinutes(out);
+      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
+      else pairs.push({ a: a, b: b, incomplete: true });
+    }
+  }
+  return pairs;
+}
 function findOfficialAbsenceGaps(cal, punches) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
@@ -2765,14 +2797,10 @@ function findOfficialAbsenceGaps(cal, punches) {
       if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
     });
   } else if (punches && typeof punches === 'object') {
-    if (punches.in1 && punches.out1) {
-      const a = timeToMinutes(punches.in1), b = timeToMinutes(punches.out1);
-      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
-    }
-    if (punches.in2 && punches.out2) {
-      const a = timeToMinutes(punches.in2), b = timeToMinutes(punches.out2);
-      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
-    }
+    punchPairsFromObj(punches).forEach(function (p) {
+      if (p.incomplete) return;
+      if (p.a != null && p.b != null) pairs.push({ a: p.a, b: p.b });
+    });
   }
 
   // حضور را به بازه موظفی محدود کن
@@ -2835,8 +2863,10 @@ function applyFloatToMorningGaps(gaps, cal, punches) {
   let lastOut = null, firstIn = null;
   const list = [];
   if (punches && typeof punches === 'object' && !Array.isArray(punches)) {
-    if (punches.in1 && punches.out1) list.push({ a: timeToMinutes(punches.in1), b: timeToMinutes(punches.out1) });
-    if (punches.in2 && punches.out2) list.push({ a: timeToMinutes(punches.in2), b: timeToMinutes(punches.out2) });
+    punchPairsFromObj(punches).forEach(function (p) {
+      if (p.incomplete) return;
+      if (p.a != null && p.b != null) list.push({ a: p.a, b: p.b });
+    });
   }
   list.forEach(function (p) {
     if (p.a == null || p.b == null) return;
@@ -2882,23 +2912,27 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
   const end = timeToMinutes(sched.workEnd);
   if (start == null || end == null) return [];
 
-  let budget = Math.max(0, Number(maxCoverMinutes) || 0);
-  if (!budget) {
-    budget = Number(calc && calc.hourlyAbsenceMinutes) || 0;
-  }
-
-  // بدون تردد کامل: کل موظفی (تا budget)
   const hasComplete = calc && calc.hasCompletePair;
+  // بدون تردد کامل
   if (!hasComplete) {
-    const shortfall = Number(calc && calc.hourlyAbsenceMinutes) || (end - start);
-    const need = Math.min(budget || shortfall, shortfall);
+    let budget = Math.max(0, Number(maxCoverMinutes) || 0);
+    const shortfall = Number(calc && calc.hourlyAbsenceMinutes) || Math.max(0, end - start);
+    if (!budget) budget = shortfall;
+    const need = Math.min(budget, shortfall);
     if (need > 0) return [{ fromTime: minutesToHHMM(start), toTime: minutesToHHMM(Math.min(end, start + need)), minutes: need }];
     return [];
   }
 
+  // شکاف واقعی + جبران شناوری (ماندن بعد از پایان روی صبح)
   let gaps = findOfficialAbsenceGaps(cal, punches || {});
   const applied = applyFloatToMorningGaps(gaps, cal, punches || {});
   gaps = applied.gaps;
+
+  // بودجه: اگر maxCoverMinutes داده شده از آن استفاده؛ وگرنه همه شکاف‌های باقی‌مانده
+  let budget = Number(maxCoverMinutes);
+  if (!isFinite(budget) || budget <= 0) {
+    budget = gaps.reduce(function (s, g) { return s + g.minutes; }, 0);
+  }
 
   const ranges = [];
   gaps.forEach(function (g) {
@@ -2987,12 +3021,14 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         if (dlm.fullDayLeaveOrMission && !dlm.unpaidLeave) continue;
         const calc = computeDayTimesheet(cal, {
           in1: punch.in1 || '', out1: punch.out1 || '',
-          in2: punch.in2 || '', out2: punch.out2 || ''
+          in2: punch.in2 || '', out2: punch.out2 || '',
+          in3: punch.in3 || '', out3: punch.out3 || '',
+          in4: punch.in4 || '', out4: punch.out4 || ''
         }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
         const sm = Number(calc.hourlyAbsenceMinutes) || 0;
         if (sm > 0) {
           totalShortMin += sm;
-          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc, punch: { in1: punch.in1 || '', out1: punch.out1 || '', in2: punch.in2 || '', out2: punch.out2 || '' } });
+          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc, punch: { in1: punch.in1||'', out1: punch.out1||'', in2: punch.in2||'', out2: punch.out2||'', in3: punch.in3||'', out3: punch.out3||'', in4: punch.in4||'', out4: punch.out4||'' } });
         }
       }
 
@@ -3005,18 +3041,39 @@ async function handleAdminBulkHourlyCover(request, who, env) {
       // اگر فقط یک تاریخ و toCover با allowance: برای همان روز
       for (let i = 0; i < dayShorts.length && leftToCover > 0; i++) {
         const ds = dayShorts[i];
-        // چقدر از این روز را می‌توانیم با allowance رد کنیم؟
-        let skip = Math.min(ds.shortMin, remainAllow);
-        remainAllow -= skip;
-        let need = ds.shortMin - skip;
-        if (need > leftToCover) need = leftToCover;
-        if (need <= 0) continue;
-        const ranges = suggestHourlyCoverRanges(cal, ds.calc, need, ds.punch || {});
+        // شکاف‌های واقعی + جبران شناوری
+        let ranges = suggestHourlyCoverRanges(cal, ds.calc, 0, ds.punch || {});
         if (!ranges.length) continue;
+        // اعمال سقف کسر مجاز و leftToCover
+        const out = [];
         ranges.forEach(function (range) {
-          planned.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: range.minutes });
-          leftToCover -= range.minutes;
+          if (leftToCover <= 0) return;
+          let m = range.minutes;
+          // از اولین دقیقه‌های روز می‌توان با remainAllow رد کرد
+          if (remainAllow > 0) {
+            const sk2 = Math.min(m, remainAllow);
+            remainAllow -= sk2;
+            m -= sk2;
+            // جابه‌جایی fromTime
+            if (sk2 > 0 && m > 0) {
+              const fm = timeToMinutes(range.fromTime);
+              if (fm != null) {
+                range = { fromTime: minutesToHHMM(fm + sk2), toTime: range.toTime, minutes: m };
+              }
+            } else if (m <= 0) {
+              return;
+            }
+          }
+          if (m > leftToCover) {
+            const fm = timeToMinutes(range.fromTime);
+            m = leftToCover;
+            if (fm != null) range = { fromTime: range.fromTime, toTime: minutesToHHMM(fm + m), minutes: m };
+          }
+          if (m <= 0) return;
+          out.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: m });
+          leftToCover -= m;
         });
+        out.forEach(function (range) { planned.push(range); });
       }
 
       if (!planned.length) {
@@ -3218,7 +3275,9 @@ async function handleAdminTimesheet(request, who, env) {
       const dlm = dailyLeaveMissionFlags(gd.obj, filterCode, year, month, d);
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
-        in2: punch.in2 || '', out2: punch.out2 || ''
+        in2: punch.in2 || '', out2: punch.out2 || '',
+        in3: punch.in3 || '', out3: punch.out3 || '',
+        in4: punch.in4 || '', out4: punch.out4 || ''
       }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
@@ -3226,10 +3285,10 @@ async function handleAdminTimesheet(request, who, env) {
         day: d,
         date: dateFa,
         weekday: wd,
-        in1: punch.in1 || '',
-        out1: punch.out1 || '',
-        in2: punch.in2 || '',
-        out2: punch.out2 || '',
+        in1: punch.in1 || '', out1: punch.out1 || '',
+        in2: punch.in2 || '', out2: punch.out2 || '',
+        in3: punch.in3 || '', out3: punch.out3 || '',
+        in4: punch.in4 || '', out4: punch.out4 || '',
         workHours: calc.workHours,
         delayMin: calc.delayMinutes,
         earlyMin: calc.earlyLeaveMinutes,
@@ -3258,9 +3317,9 @@ async function handleAdminTimesheet(request, who, env) {
         const cell = dayMap[dk];
         if (!cell) return;
         const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-        if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.leaveConflict = true; }
+        if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
         if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
       });
@@ -3341,14 +3400,14 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
       if (!p) return;
       const dk = p.y + '-' + String(p.m).padStart(2, '0') + '-' + String(p.d).padStart(2, '0');
       const rec = {
-        in1: String(d.in1 || '').trim(),
-        out1: String(d.out1 || '').trim(),
-        in2: String(d.in2 || '').trim(),
-        out2: String(d.out2 || '').trim(),
+        in1: String(d.in1 || '').trim(), out1: String(d.out1 || '').trim(),
+        in2: String(d.in2 || '').trim(), out2: String(d.out2 || '').trim(),
+        in3: String(d.in3 || '').trim(), out3: String(d.out3 || '').trim(),
+        in4: String(d.in4 || '').trim(), out4: String(d.out4 || '').trim(),
         note: cleanTimesheetNote(d.note)
       };
       // اگر همه خالی → حذف
-      if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.note) {
+      if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.in3 && !rec.out3 && !rec.in4 && !rec.out4 && !rec.note) {
         delete store[dk];
       } else {
         store[dk] = rec;
@@ -5752,8 +5811,8 @@ async function loadTimesheet(){
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+sumWork.toFixed(2)+'</b> | تأخیر: <b>'+sumDelay+'</b>د | اضافه‌کار: <b>'+sumOt.toFixed(2)+'</b>س | غیبت ساعتی: <b>'+(Math.round(sumAbs*100)/100)+'</b>س</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      html+='<div style="overflow:auto"><table style="font-size:0.65rem;min-width:100%;width:100%;border-collapse:collapse"><thead><tr>';
-      html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th><th>کار</th><th>تأخیر</th><th>اضافه</th><th>غیبت‌س</th>';
+      html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.62rem;min-width:100%;width:100%;border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2;background:#ecfdf5"><tr>';
+      html+='<th>تاریخ</th><th>و۱</th><th>خ۱</th><th>و۲</th><th>خ۲</th><th>و۳</th><th>خ۳</th><th>و۴</th><th>خ۴</th><th>کارکرد</th><th>تأخیر</th><th>اضافه</th><th>غیبت‌س</th>';
       html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
@@ -5763,7 +5822,7 @@ async function loadTimesheet(){
         var abs=d.hourlyAbsenceHM?d.hourlyAbsenceHM:((d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'');
         function cell(v,bad){ return '<td style="font-size:0.72rem;direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
         html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
-        html+=cell(d.in1,ic.in1)+cell(d.out1,ic.out1)+cell(d.in2,ic.in2)+cell(d.out2,ic.out2);
+        for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
         html+='<td style="font-size:0.72rem">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         html+='<td style="font-size:0.72rem">'+(d.delayMin||'')+'</td>';
         html+='<td style="font-size:0.72rem">'+(d.otHours||'')+'</td>';
