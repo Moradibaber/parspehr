@@ -1,4 +1,4 @@
-// Portal admin client UI — imported by worker.js 
+// Portal admin client UI — imported by worker.js
 export default `(function(){
   if (window.__pspPortalAdmin) return;
   window.__pspPortalAdmin = true;
@@ -555,7 +555,7 @@ export default `(function(){
             '<th>مأموریت</th><th>مرخصی</th><th>توضیح</th>' +
             '</tr></thead><tbody>';
           j.daily.days.forEach(function(d, idx){
-            var bg = d.isNonWork ? 'background:#fef2f2;' : '';
+            var bg = d.isNonWork ? 'background:#fef2f2;' : (d.leaveConflict||d.missionConflict ? 'background:#fff7ed;' : '');
             html += '<tr style="'+bg+'" data-ts-day="'+idx+'">' +
               '<td data-date="'+d.date+'" style="white-space:nowrap;">' + d.date + '</td><td>' + (d.weekday||'') + '</td>' +
               (function(){ var ic=d.incomplete||{}; var rs='color:#b91c1c;font-weight:700;border-color:#fca5a5;'; var bs='width:44px;padding:1px;font-size:0.68rem;';
@@ -567,8 +567,8 @@ export default `(function(){
               '<td>' + (d.workHoursHM!=null&&d.workHoursHM!==0?d.workHoursHM:(d.workHours!=null?d.workHours:'')) + '</td>' +
               '<td>' + (d.delayMin||'') + '</td><td>' + (d.earlyMin||'') + '</td><td>' + (d.otHours||'') + '</td>' +
               '<td>' + (d.hourlyAbsenceHM ? d.hourlyAbsenceHM : (d.hourlyAbsenceHours!=null && d.hourlyAbsenceHours>0 ? d.hourlyAbsenceHours : '')) + '</td>' +
-              '<td style="font-size:0.65rem;">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
-              '<td style="font-size:0.65rem;">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.missionDaily,d.missionHourly].filter(Boolean).join(' / ') + '</td>' +
+              '<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">' + [d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ') + '</td>' +
               '<td><input class="ts-note" value="'+(d.note||'').replace(/"/g,'&quot;')+'" style="width:70px;padding:1px;font-size:0.68rem;"></td></tr>';
           });
           html += '</tbody></table></div>';
