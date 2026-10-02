@@ -1873,7 +1873,8 @@ function computeDayTimesheet(cal, punches, opts) {
     lastOut: lastOut != null ? minutesToTime(lastOut) : null,
     requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
     workHours: Math.round((displayWorkMin / 60) * 100) / 100,
-    otHours: Math.round((ot / 60) * 100) / 100
+    otHours: Math.round((ot / 60) * 100) / 100,
+    otHoursHM: fmtHM(ot)
   };
 }
 
@@ -2597,6 +2598,7 @@ async function handleEmpTimesheet(request, env) {
       in4: punch.in4 || '', out4: punch.out4 || '',
       workHours: calc.workHours,
       otHours: calc.otHours,
+      otHoursHM: calc.otHoursHM,
       delayMin: calc.delayMinutes,
       hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
       hourlyAbsenceHours: calc.hourlyAbsenceHours,
@@ -3306,6 +3308,7 @@ async function handleAdminTimesheet(request, who, env) {
         delayMin: calc.delayMinutes,
         earlyMin: calc.earlyLeaveMinutes,
         otHours: calc.otHours,
+        otHoursHM: calc.otHoursHM,
         hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
         hourlyAbsenceHours: calc.hourlyAbsenceHours,
         hourlyAbsenceHM: calc.hourlyAbsenceHM,
@@ -5837,27 +5840,28 @@ async function loadTimesheet(){
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+sumWork.toFixed(2)+'</b> | تأخیر: <b>'+sumDelay+'</b>د | اضافه‌کار: <b>'+sumOt.toFixed(2)+'</b>س | غیبت ساعتی: <b>'+(Math.round(sumAbs*100)/100)+'</b>س</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.62rem;min-width:100%;width:100%;border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2;background:#ecfdf5"><tr>';
-      html+='<th>تاریخ</th><th>و۱</th><th>خ۱</th><th>و۲</th><th>خ۲</th><th>و۳</th><th>خ۳</th><th>و۴</th><th>خ۴</th><th>کارکرد</th><th>تأخیر</th><th>اضافه</th><th>غیبت‌س</th>';
-      html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
+      var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
+      var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
+      html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
+      html+='<th style="'+thE+'width:58px">تاریخ</th>';
+      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
+      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه</th><th style="'+thE+'width:32px">غیبت‌س</th>';
+      html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
         var abs=d.hourlyAbsenceHM?d.hourlyAbsenceHM:((d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'');
-        function cell(v,bad){ return '<td style="font-size:0.72rem;direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
+        function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
+        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
         for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
-        html+='<td style="font-size:0.72rem">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="font-size:0.72rem">'+(d.delayMin||'')+'</td>';
-        html+='<td style="font-size:0.72rem">'+(d.otHours||'')+'</td>';
-        html+='<td style="font-size:0.72rem">'+abs+'</td>';
-        html+='<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.missionHourly||'')+'</td>';
-        html+='<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.missionDaily||'')+'</td>';
-        html+='<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.leaveHourly||'')+'</td>';
-        html+='<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.leaveDaily||'')+'</td>';
-        html+='<td style="font-size:0.65rem">'+(d.note||'')+'</td></tr>';
+        html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
+        html+='<td style="'+tdE+'">'+(d.otHoursHM?d.otHoursHM:(d.otHours||''))+'</td>';
+        html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
+        html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
+        html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
+        html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:48px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td></tr>';
       });
       html+='</tbody></table></div>';
     }
