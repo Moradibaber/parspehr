@@ -2618,10 +2618,10 @@ async function handleEmpTimesheet(request, env) {
       const cell = dayMap[dk];
       if (!cell) return;
       const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-      if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
-      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
-      if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : '');
-      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
+      if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.leaveConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
       /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
     });
   });
@@ -2727,85 +2727,199 @@ async function handleAdminGetManager(request, who, env) {
 
 /** پیشنهاد بازه ساعتی برای پوشش کسری: تعجیل → تا پایان شیفت؛ تأخیر → از شروع شیفت */
 /**
- * بازه‌های پوشش کسر کار:
- * - تأخیر باقی‌مانده (پس از جبران شناوری): از (start + compensated) تا firstIn — هرگز بعد از end
- * - تعجیل: از lastOut تا end
- * - ورود خارج شناوری: از start تا firstIn (بدون شناوری)
+ * شکاف‌های عدم حضور داخل بازه موظفی (با کسر وقفه اگر جزو کار نباشد)
+ * punches: {in1,out1,in2,out2} یا آرایه
+ * خروجی: [{ fromMin, toMin, minutes }] — فقط جایی که فرد حضور نداشته
  */
-function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes) {
+
+/** آیا بازه ساعتی با جفت‌های کامل تردد تداخل دارد؟ */
+function hourlyOverlapsPresence(fromTime, toTime, punch) {
+  const a = timeToMinutes(fromTime);
+  const b = timeToMinutes(toTime);
+  if (a == null || b == null || b <= a) return false;
+  const pairs = [];
+  if (punch) {
+    if (punch.in1 && punch.out1) pairs.push([timeToMinutes(punch.in1), timeToMinutes(punch.out1)]);
+    if (punch.in2 && punch.out2) pairs.push([timeToMinutes(punch.in2), timeToMinutes(punch.out2)]);
+  }
+  for (let i = 0; i < pairs.length; i++) {
+    const p = pairs[i];
+    if (p[0] == null || p[1] == null) continue;
+    if (a < p[1] && b > p[0]) return true;
+  }
+  return false;
+}
+
+function findOfficialAbsenceGaps(cal, punches) {
+  const sched = normalizeWorkSchedule(cal);
+  const start = timeToMinutes(sched.workStart);
+  const end = timeToMinutes(sched.workEnd);
+  if (start == null || end == null || end <= start) return [];
+
+  let pairs = [];
+  if (Array.isArray(punches)) {
+    punches.forEach(function (p) {
+      if (!p) return;
+      const a = timeToMinutes(p.in != null ? p.in : p.inn);
+      const b = timeToMinutes(p.out);
+      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
+    });
+  } else if (punches && typeof punches === 'object') {
+    if (punches.in1 && punches.out1) {
+      const a = timeToMinutes(punches.in1), b = timeToMinutes(punches.out1);
+      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
+    }
+    if (punches.in2 && punches.out2) {
+      const a = timeToMinutes(punches.in2), b = timeToMinutes(punches.out2);
+      if (a != null && b != null) pairs.push({ a: a, b: b < a ? b + 24 * 60 : b });
+    }
+  }
+
+  // حضور را به بازه موظفی محدود کن
+  const presence = [];
+  pairs.forEach(function (p) {
+    const a = Math.max(p.a, start);
+    const b = Math.min(p.b, end);
+    if (b > a) presence.push({ a: a, b: b });
+  });
+  presence.sort(function (x, y) { return x.a - y.a; });
+  // ادغام
+  const merged = [];
+  presence.forEach(function (p) {
+    if (!merged.length || p.a > merged[merged.length - 1].b) merged.push({ a: p.a, b: p.b });
+    else merged[merged.length - 1].b = Math.max(merged[merged.length - 1].b, p.b);
+  });
+
+  // شکاف‌های [start,end] منهای حضور
+  const gaps = [];
+  let cursor = start;
+  merged.forEach(function (p) {
+    if (p.a > cursor) gaps.push({ fromMin: cursor, toMin: p.a, minutes: p.a - cursor });
+    cursor = Math.max(cursor, p.b);
+  });
+  if (cursor < end) gaps.push({ fromMin: cursor, toMin: end, minutes: end - cursor });
+
+  // اگر وقفه جزو کار نباشد، از شکاف‌ها کم کن (وقفه غیبت نیست)
+  if (sched.hasBreak && !sched.breakCountsAsWork) {
+    const bs = timeToMinutes(sched.breakStart);
+    const be = timeToMinutes(sched.breakEnd);
+    if (bs != null && be != null && be > bs) {
+      const trimmed = [];
+      gaps.forEach(function (g) {
+        // شکاف را نسبت به [bs,be] بشکن
+        if (g.toMin <= bs || g.fromMin >= be) {
+          trimmed.push(g);
+          return;
+        }
+        if (g.fromMin < bs) trimmed.push({ fromMin: g.fromMin, toMin: Math.min(g.toMin, bs), minutes: Math.min(g.toMin, bs) - g.fromMin });
+        if (g.toMin > be) trimmed.push({ fromMin: Math.max(g.fromMin, be), toMin: g.toMin, minutes: g.toMin - Math.max(g.fromMin, be) });
+      });
+      return trimmed.filter(function (g) { return g.minutes > 0; });
+    }
+  }
+  return gaps.filter(function (g) { return g.minutes > 0; });
+}
+
+/**
+ * اعمال جبران شناوری روی شکاف صبح: ماندن بعد از end، از ابتدای شکاف صبح کم می‌کند
+ */
+function applyFloatToMorningGaps(gaps, cal, punches) {
+  const sched = normalizeWorkSchedule(cal);
+  const start = timeToMinutes(sched.workStart);
+  const end = timeToMinutes(sched.workEnd);
+  const floatM = sched.floatMinutes || 0;
+  const forceComp = !!sched.floatCompensate;
+  if (start == null || end == null || !gaps.length) return { gaps: gaps, compensated: 0 };
+
+  // lastOut از جفت کامل
+  let lastOut = null, firstIn = null;
+  const list = [];
+  if (punches && typeof punches === 'object' && !Array.isArray(punches)) {
+    if (punches.in1 && punches.out1) list.push({ a: timeToMinutes(punches.in1), b: timeToMinutes(punches.out1) });
+    if (punches.in2 && punches.out2) list.push({ a: timeToMinutes(punches.in2), b: timeToMinutes(punches.out2) });
+  }
+  list.forEach(function (p) {
+    if (p.a == null || p.b == null) return;
+    if (firstIn == null || p.a < firstIn) firstIn = p.a;
+    if (lastOut == null || p.b > lastOut) lastOut = p.b;
+  });
+  if (firstIn == null || lastOut == null) return { gaps: gaps, compensated: 0 };
+
+  const morningDelay = Math.max(0, firstIn - start);
+  const withinFloat = morningDelay > 0 && morningDelay <= floatM;
+  const canComp = withinFloat || forceComp;
+  if (!canComp || morningDelay <= 0) return { gaps: gaps, compensated: 0 };
+
+  const stayedPast = Math.max(0, lastOut - end);
+  let maxComp = morningDelay;
+  if (withinFloat && !forceComp) maxComp = Math.min(morningDelay, floatM);
+  const compensated = Math.min(maxComp, stayedPast);
+  if (compensated <= 0) return { gaps: gaps, compensated: 0 };
+
+  // از ابتدای شکاف‌هایی که از start شروع می‌شوند کم کن
+  let left = compensated;
+  const out = [];
+  gaps.forEach(function (g) {
+    if (left <= 0) { out.push(g); return; }
+    if (g.fromMin === start || (g.fromMin >= start && g.fromMin < firstIn)) {
+      const skip = Math.min(left, g.minutes);
+      left -= skip;
+      const nf = g.fromMin + skip;
+      if (nf < g.toMin) out.push({ fromMin: nf, toMin: g.toMin, minutes: g.toMin - nf });
+    } else {
+      out.push(g);
+    }
+  });
+  return { gaps: out, compensated: compensated };
+}
+
+/**
+ * بازه‌های پوشش کسر کار = فقط شکاف‌های واقعی عدم حضور (پس از جبران شناوری)
+ */
+function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   if (start == null || end == null) return [];
+
   let budget = Math.max(0, Number(maxCoverMinutes) || 0);
-  const ranges = [];
-  const delay = Number(calc.delayMinutes) || 0; // باقی‌مانده پس از جبران
-  const early = Number(calc.earlyLeaveMinutes) || 0;
-  const compensated = Number(calc.compensatedMinutes) || 0;
-  const shortfall = Number(calc.hourlyAbsenceMinutes) || 0;
-  const hasComplete = !!calc.hasCompletePair;
-  const firstInM = calc.firstIn ? timeToMinutes(calc.firstIn) : null;
-  const lastOutM = calc.lastOut ? timeToMinutes(calc.lastOut) : null;
+  if (!budget) {
+    budget = Number(calc && calc.hourlyAbsenceMinutes) || 0;
+  }
 
-  if (!hasComplete && shortfall > 0) {
+  // بدون تردد کامل: کل موظفی (تا budget)
+  const hasComplete = calc && calc.hasCompletePair;
+  if (!hasComplete) {
+    const shortfall = Number(calc && calc.hourlyAbsenceMinutes) || (end - start);
     const need = Math.min(budget || shortfall, shortfall);
-    if (need > 0) {
-      ranges.push({ fromTime: minutesToHHMM(start), toTime: minutesToHHMM(Math.min(end, start + need)), minutes: need });
-    }
-    return ranges;
+    if (need > 0) return [{ fromTime: minutesToHHMM(start), toTime: minutesToHHMM(Math.min(end, start + need)), minutes: need }];
+    return [];
   }
 
-  // مرخصی صبح: از start+compensated تا firstIn (جبران‌شده با ماندن عصر روی صبح اعمال می‌شود)
-  if (firstInM != null && firstInM > start && budget > 0) {
-    const fromM = start + compensated;
-    const toM = firstInM;
-    if (toM > fromM) {
-      const need = Math.min(toM - fromM, budget, delay > 0 ? delay : (toM - fromM));
-      if (need > 0) {
-        ranges.push({ fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(fromM + need), minutes: need });
-        budget -= need;
-      }
-    }
-  } else if (delay > 0 && budget > 0) {
-    const need = Math.min(delay, budget);
-    ranges.push({ fromTime: minutesToHHMM(start + compensated), toTime: minutesToHHMM(start + compensated + need), minutes: need });
+  let gaps = findOfficialAbsenceGaps(cal, punches || {});
+  const applied = applyFloatToMorningGaps(gaps, cal, punches || {});
+  gaps = applied.gaps;
+
+  const ranges = [];
+  gaps.forEach(function (g) {
+    if (budget <= 0) return;
+    const need = Math.min(g.minutes, budget);
+    if (need <= 0) return;
+    ranges.push({
+      fromTime: minutesToHHMM(g.fromMin),
+      toTime: minutesToHHMM(g.fromMin + need),
+      minutes: need
+    });
     budget -= need;
-  }
-
-  // تعجیل: از خروج تا پایان شیفت (نه بعد از end)
-  if (early > 0 && lastOutM != null && lastOutM < end && budget > 0) {
-    const need = Math.min(early, budget, end - lastOutM);
-    if (need > 0) {
-      ranges.push({ fromTime: minutesToHHMM(lastOutM), toTime: minutesToHHMM(lastOutM + need), minutes: need });
-      budget -= need;
-    }
-  }
-
-  // کسری باقی (مثلاً وقفه)
-  if (budget > 0 && shortfall > 0) {
-    const used = ranges.reduce(function (s, r) { return s + r.minutes; }, 0);
-    const rest = Math.min(budget, Math.max(0, shortfall - used));
-    if (rest > 0) {
-      // ترجیح صبح: چسبیده به شروع
-      const fromM = start + compensated + (delay > 0 ? Math.min(delay, used) : 0);
-      const toM = Math.min(end, fromM + rest);
-      if (toM > fromM) {
-        ranges.push({ fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(toM), minutes: toM - fromM });
-      }
-    }
-  }
+  });
   return ranges;
 }
-function suggestHourlyCoverRange(cal, calc, coverMinutes) {
-  const arr = suggestHourlyCoverRanges(cal, calc, coverMinutes);
+function suggestHourlyCoverRange(cal, calc, coverMinutes, punches) {
+  const arr = suggestHourlyCoverRanges(cal, calc, coverMinutes, punches);
   return arr.length ? arr[0] : null;
 }
 
-/**
- * ثبت گروهی/فردی مرخصی یا مأموریت ساعتی برای پوشش کسر کار
- * body: { year, month, codes:[], kind:'leave'|'mission', date?: optional, dryRun?: bool }
- * سقف کسر مجاز ماهانه: settings.monthlyShortfallAllowanceHours (ساعت) — تا این مقدار کسر باقی می‌ماند
- */
+
 async function handleAdminBulkHourlyCover(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -2878,7 +2992,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         const sm = Number(calc.hourlyAbsenceMinutes) || 0;
         if (sm > 0) {
           totalShortMin += sm;
-          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc });
+          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc, punch: { in1: punch.in1 || '', out1: punch.out1 || '', in2: punch.in2 || '', out2: punch.out2 || '' } });
         }
       }
 
@@ -2897,7 +3011,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         let need = ds.shortMin - skip;
         if (need > leftToCover) need = leftToCover;
         if (need <= 0) continue;
-        const ranges = suggestHourlyCoverRanges(cal, ds.calc, need);
+        const ranges = suggestHourlyCoverRanges(cal, ds.calc, need, ds.punch || {});
         if (!ranges.length) continue;
         ranges.forEach(function (range) {
           planned.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: range.minutes });
@@ -3144,10 +3258,10 @@ async function handleAdminTimesheet(request, who, env) {
         const cell = dayMap[dk];
         if (!cell) return;
         const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
-        if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
-        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
-        if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : '');
-        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
+        if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label; if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.leaveConflict = true; }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : ''); if (cell.in1 || cell.out1 || cell.in2 || cell.out2) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
       });
     });
@@ -5643,7 +5757,7 @@ async function loadTimesheet(){
       html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
-        var bg=d.isNonWork?'background:#fef2f2;':'';
+        var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
         var abs=d.hourlyAbsenceHM?d.hourlyAbsenceHM:((d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'');
@@ -5654,10 +5768,10 @@ async function loadTimesheet(){
         html+='<td style="font-size:0.72rem">'+(d.delayMin||'')+'</td>';
         html+='<td style="font-size:0.72rem">'+(d.otHours||'')+'</td>';
         html+='<td style="font-size:0.72rem">'+abs+'</td>';
-        html+='<td style="font-size:0.65rem">'+(d.missionHourly||'')+'</td>';
-        html+='<td style="font-size:0.65rem">'+(d.missionDaily||'')+'</td>';
-        html+='<td style="font-size:0.65rem">'+(d.leaveHourly||'')+'</td>';
-        html+='<td style="font-size:0.65rem">'+(d.leaveDaily||'')+'</td>';
+        html+='<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.missionHourly||'')+'</td>';
+        html+='<td style="font-size:0.65rem;'+(d.missionConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.missionDaily||'')+'</td>';
+        html+='<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.leaveHourly||'')+'</td>';
+        html+='<td style="font-size:0.65rem;'+(d.leaveConflict?'color:#b91c1c;font-weight:700;':'')+'">'+(d.leaveDaily||'')+'</td>';
         html+='<td style="font-size:0.65rem">'+(d.note||'')+'</td></tr>';
       });
       html+='</tbody></table></div>';
