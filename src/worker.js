@@ -2111,24 +2111,55 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
   return mins;
 }
 
+
+/** پاک‌سازی توضیح از متن‌های خودکار پوشش کسر و تکراری‌ها */
+function cleanTimesheetNote(note) {
+  if (!note) return '';
+  const seen = {};
+  return String(note).split(/[؛;]+/).map(function (s) { return s.trim(); }).filter(function (s) {
+    if (!s) return false;
+    if (s.indexOf('ثبت خودکار') >= 0 || s.indexOf('پوشش کسر') >= 0) return false;
+    const k = s.replace(/\s+/g, ' ');
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).join('؛ ');
+}
+
+function empOtCeilingHours(emp) {
+  if (!emp) return null;
+  const v = emp.otCeilingHours != null ? emp.otCeilingHours
+    : (emp.maxOtHours != null ? emp.maxOtHours
+    : (emp.otLimit != null ? emp.otLimit
+    : (emp.otCeiling != null ? emp.otCeiling : null)));
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+
 function recountEmpMonthWorkDays(obj, year, month, code) {
-  /* کارکرد = تعداد روزهای تقویمی از ۱ تا آخرین فعالیت (تردد/مرخصی روزانه/مأموریت روزانه)
-     شامل پنجشنبه، جمعه و تعطیل — فقط مرخصی بدون حقوق کسر می‌شود */
+  /* کارکرد = فقط روزهایی که واقعاً فعالیت دارند:
+     - جفت کامل ورود/خروج، یا
+     - مرخصی/مأموریت روزانه تأییدشده (غیر بدون‌حقوق)
+     روزهای غیبت بین دو بازه کارکرد شمرده نمی‌شوند */
   const dim = daysInJalaliMonth(year, month);
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
   const flags = {};
   for (let d = 1; d <= dim; d++) {
-    flags[d] = { activity: false, unpaid: false };
+    flags[d] = { work: false };
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    if (punch.in1 || punch.out1 || punch.in2 || punch.out2) flags[d].activity = true;
+    // فقط جفت کامل
+    const ok1 = !!(String(punch.in1 || '').trim() && String(punch.out1 || '').trim());
+    const ok2 = !!(String(punch.in2 || '').trim() && String(punch.out2 || '').trim());
+    if (ok1 || ok2) flags[d].work = true;
   }
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
     if (x.mode !== 'daily') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
-    const unpaid = isUnpaidLeaveRequest(obj, x);
+    if (x.kind === 'leave' && isUnpaidLeaveRequest(obj, x)) return; // بدون حقوق = کارکرد نیست
     const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
     keys.forEach(function (k) {
       const parts = String(k).split(/[-\/]/);
@@ -2136,19 +2167,12 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
       const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
       if (yy !== Number(year) || mm !== Number(month)) return;
       if (!flags[dd]) return;
-      flags[dd].activity = true;
-      if (unpaid) flags[dd].unpaid = true;
+      flags[dd].work = true;
     });
   });
-  let last = 0;
-  for (let d = 1; d <= dim; d++) {
-    if (flags[d].activity) last = d;
-  }
-  if (!last) return 0;
   let n = 0;
-  for (let d = 1; d <= last; d++) {
-    if (flags[d].unpaid) continue;
-    n++;
+  for (let d = 1; d <= dim; d++) {
+    if (flags[d].work) n++;
   }
   return n;
 }
@@ -2580,7 +2604,7 @@ async function handleEmpTimesheet(request, env) {
       leaveHourly: '',
       missionDaily: '',
       missionHourly: '',
-      note: punch.note || '',
+      note: cleanTimesheetNote(punch.note),
       isNonWork: nonWork
     };
   }
@@ -2598,7 +2622,10 @@ async function handleEmpTimesheet(request, env) {
       if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
       if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
       if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-      if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار پوشش') < 0) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+      if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار') < 0 && String(x.reason).indexOf('پوشش کسر') < 0) {
+        var rr = String(x.reason).trim();
+        if (rr && (!cell.note || cell.note.indexOf(rr) < 0)) cell.note = cell.note ? (cell.note + '؛ ' + rr) : rr;
+      }
     });
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
@@ -2608,6 +2635,10 @@ async function handleEmpTimesheet(request, env) {
   Object.keys(dayMap).forEach(function (k) {
     punchOt += Number(dayMap[k].otHours) || 0;
   });
+  punchOt = Math.round(punchOt * 100) / 100;
+  const otCap = empOtCeilingHours(emp);
+  const approvedOt = (otCap != null) ? Math.min(punchOt, otCap) : punchOt;
+  const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((punchOt - otCap) * 100) / 100) : 0;
   const workWithAtt = recountEmpMonthWorkDays(gd.obj, year, month, code);
   return jsonResponse({
     ok: true,
@@ -2619,7 +2650,10 @@ async function handleEmpTimesheet(request, env) {
     hourlyLeave: reHourlyLeave,
     missionDays: reMissionDays,
     missionHours: reMissionHours,
-    otHours: punchOt || 0,
+    otHours: approvedOt || 0,
+    otHoursTotal: punchOt || 0,
+    otHoursUnapproved: unapprovedOt,
+    otCeilingHours: otCap,
     nightHours: Number(row.nightHours) || 0,
     requests: reqs,
     daily: { code: code, fullName: emp ? emp.fullName : '', days: dailyDays }
@@ -3052,6 +3086,16 @@ async function handleAdminTimesheet(request, who, env) {
     const dim = daysInJalaliMonth(year, month);
     if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
     const punchStore = gd.obj.dailyAttendance[String(filterCode)] || {};
+
+    // پاک‌سازی توضیح‌های خودکار ذخیره‌شده
+    try {
+      const store = gd.obj.dailyAttendance && gd.obj.dailyAttendance[String(filterCode)];
+      if (store) {
+        Object.keys(store).forEach(function (k) {
+          if (store[k] && store[k].note) store[k].note = cleanTimesheetNote(store[k].note);
+        });
+      }
+    } catch (e) {}
     const dayMap = {};
     for (let d = 1; d <= dim; d++) {
       const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -3088,7 +3132,7 @@ async function handleAdminTimesheet(request, who, env) {
         leaveHourly: '',
         missionDaily: '',
         missionHourly: '',
-        note: punch.note || '',
+        note: cleanTimesheetNote(punch.note),
         isNonWork: nonWork
       };
     }
@@ -3106,14 +3150,27 @@ async function handleAdminTimesheet(request, who, env) {
         if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
         if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-        if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار پوشش') < 0) cell.note = (cell.note ? cell.note + '؛ ' : '') + x.reason;
+        if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار') < 0 && String(x.reason).indexOf('پوشش کسر') < 0) {
+        var rr = String(x.reason).trim();
+        if (rr && (!cell.note || cell.note.indexOf(rr) < 0)) cell.note = cell.note ? (cell.note + '؛ ' + rr) : rr;
+      }
       });
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
     const computedWork = recountEmpMonthWorkDays(gd.obj, year, month, filterCode);
+    let sumOtH = 0;
+    daysArr.forEach(function (d) { sumOtH += Number(d.otHours) || 0; });
+    sumOtH = Math.round(sumOtH * 100) / 100;
+    const otCapA = empOtCeilingHours(emp0);
+    const approvedOtA = (otCapA != null) ? Math.min(sumOtH, otCapA) : sumOtH;
+    const unapprovedOtA = (otCapA != null) ? Math.max(0, Math.round((sumOtH - otCapA) * 100) / 100) : 0;
     const reqList = rows[0].requests || [];
     const ct0 = (emp0 && emp0.contractType) || 'normal';
     rows[0].workDays = computedWork;
+    rows[0].otHours = approvedOtA;
+    rows[0].otHoursTotal = sumOtH;
+    rows[0].otHoursUnapproved = unapprovedOtA;
+    rows[0].otCeilingHours = otCapA;
     rows[0].leaveDays = Math.round((function(){
       let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,ct0); }); return n;
     })()*100)/100;
@@ -3179,7 +3236,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         out1: String(d.out1 || '').trim(),
         in2: String(d.in2 || '').trim(),
         out2: String(d.out2 || '').trim(),
-        note: String(d.note || '').trim()
+        note: cleanTimesheetNote(d.note)
       };
       // اگر همه خالی → حذف
       if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.note) {
@@ -3215,7 +3272,19 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         }
       }
       const md = gd.obj.monthlyData[key][empCode];
-      md.otHours = Math.round((sumOt / 60) * 100) / 100;
+      let otH = Math.round((sumOt / 60) * 100) / 100;
+      const empOt = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(empCode); });
+      const cap = empOtCeilingHours(empOt);
+      if (cap != null) {
+        md.otHoursTotal = otH;
+        md.otHoursUnapproved = Math.max(0, Math.round((otH - cap) * 100) / 100);
+        md.otHours = Math.min(otH, cap);
+        md.otCeilingHours = cap;
+      } else {
+        md.otHours = otH;
+        md.otHoursTotal = otH;
+        md.otHoursUnapproved = 0;
+      }
       md.workMinutes = sumWorkMin;
       md.delayMinutes = sumDelay;
       // کارکرد = پانچ‌های روز عادی + مرخصی/مأموریت روزانه تأییدشده همان ماه (فقط روز کاری)
@@ -5570,7 +5639,7 @@ async function loadTimesheet(){
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceHours)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); }
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
     html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
-    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+(j.hourlyLeave!=null?j.hourlyLeave:0)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+(j.missionHours!=null?j.missionHours:0)+'</td><td>'+(j.otHours!=null?j.otHours:0)+'</td><td>'+(j.nightHours!=null?j.nightHours:0)+'</td><td>'+(Math.round(sumAbs*100)/100)+'</td></tr></table>';
+    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+(j.hourlyLeave!=null?j.hourlyLeave:0)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+(j.missionHours!=null?j.missionHours:0)+'</td><td>'+(j.otHours!=null?j.otHours:0)+(j.otHoursUnapproved?(' / ناتأیید '+j.otHoursUnapproved):'')+'</td><td>'+(j.nightHours!=null?j.nightHours:0)+'</td><td>'+(Math.round(sumAbs*100)/100)+'</td></tr></table>';
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+sumWork.toFixed(2)+'</b> | تأخیر: <b>'+sumDelay+'</b>د | اضافه‌کار: <b>'+sumOt.toFixed(2)+'</b>س | غیبت ساعتی: <b>'+(Math.round(sumAbs*100)/100)+'</b>س</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
