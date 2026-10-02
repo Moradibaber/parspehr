@@ -1,4 +1,4 @@
-// Portal admin client UI — imported by worker.js
+// Portal admin client UI — imported by worker.js 
 export default `(function(){
   if (window.__pspPortalAdmin) return;
   window.__pspPortalAdmin = true;
