@@ -1597,8 +1597,8 @@ function ensureContractCalendars(obj) {
 
 function defaultWorkSchedule() {
   return {
-    workStart: '08:00',
-    workEnd: '17:00',
+    workStart: '06:45',
+    workEnd: '15:30',
     hasBreak: false,
     breakStart: '12:00',
     breakEnd: '13:00',
@@ -2604,7 +2604,7 @@ async function handleEmpTimesheet(request, env) {
       leaveHourly: '',
       missionDaily: '',
       missionHourly: '',
-      note: cleanTimesheetNote(punch.note),
+      note: '',
       isNonWork: nonWork
     };
   }
@@ -2620,12 +2620,9 @@ async function handleEmpTimesheet(request, env) {
       const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
       if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
       if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
-      if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
+      if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : '');
       if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-      if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار') < 0 && String(x.reason).indexOf('پوشش کسر') < 0) {
-        var rr = String(x.reason).trim();
-        if (rr && (!cell.note || cell.note.indexOf(rr) < 0)) cell.note = cell.note ? (cell.note + '؛ ' + rr) : rr;
-      }
+      /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
     });
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
@@ -3087,12 +3084,13 @@ async function handleAdminTimesheet(request, who, env) {
     if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
     const punchStore = gd.obj.dailyAttendance[String(filterCode)] || {};
 
-    // پاک‌سازی توضیح‌های خودکار ذخیره‌شده
+
+    // پاک‌سازی توضیح ذخیره‌شده (دلیل‌ها فقط از درخواست‌های جاری می‌آیند)
     try {
       const store = gd.obj.dailyAttendance && gd.obj.dailyAttendance[String(filterCode)];
       if (store) {
         Object.keys(store).forEach(function (k) {
-          if (store[k] && store[k].note) store[k].note = cleanTimesheetNote(store[k].note);
+          if (store[k] && store[k].note) store[k].note = '';
         });
       }
     } catch (e) {}
@@ -3132,7 +3130,7 @@ async function handleAdminTimesheet(request, who, env) {
         leaveHourly: '',
         missionDaily: '',
         missionHourly: '',
-        note: cleanTimesheetNote(punch.note),
+        note: '',
         isNonWork: nonWork
       };
     }
@@ -3148,12 +3146,9 @@ async function handleAdminTimesheet(request, who, env) {
         const label = x.typeName || (x.kind === 'mission' ? 'مأموریت' : 'مرخصی');
         if (x.kind === 'leave' && x.mode === 'daily') cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + label;
         if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; }
-        if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '');
+        if (x.kind === 'mission' && x.mode === 'daily') cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + label + (x.place ? ' (' + x.place + ')' : '') + (x.reason && !x.bulkCover ? ' — ' + String(x.reason).trim() : '');
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; }
-        if (x.reason && !x.bulkCover && String(x.reason).indexOf('ثبت خودکار') < 0 && String(x.reason).indexOf('پوشش کسر') < 0) {
-        var rr = String(x.reason).trim();
-        if (rr && (!cell.note || cell.note.indexOf(rr) < 0)) cell.note = cell.note ? (cell.note + '؛ ' + rr) : rr;
-      }
+        /* دلیل مأموریت/مرخصی فقط در ستون مربوطه — نه در توضیح */
       });
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
