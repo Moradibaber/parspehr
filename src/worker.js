@@ -1948,6 +1948,34 @@ function computeWorkDaysFromMap(dayMap) {
 /** تشخیص مرخصی بدون حقوق از روی نوع/نام */
 
 /** مرخصی/مأموریت ساعتی فقط داخل بازه موظفی (مثلاً 06:45–15:30) */
+
+/** ورود/خروج ناقص: ورود بدون خروج یا خروج بدون ورود */
+function punchPairIncomplete(inn, out) {
+  const a = String(inn || '').trim();
+  const b = String(out || '').trim();
+  if (!a && !b) return false;
+  if (a && !b) return true;
+  if (!a && b) return true;
+  return false;
+}
+function punchIncompleteFlags(p) {
+  p = p || {};
+  return {
+    in1: punchPairIncomplete(p.in1, p.out1),
+    out1: punchPairIncomplete(p.in1, p.out1),
+    in2: punchPairIncomplete(p.in2, p.out2),
+    out2: punchPairIncomplete(p.in2, p.out2)
+  };
+}
+function minutesToHHMM(m) {
+  if (m == null || isNaN(m)) return '';
+  m = Math.round(m);
+  if (m < 0) m = 0;
+  const h = Math.floor(m / 60) % 24;
+  const mm = m % 60;
+  return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+}
+
 function assertHourlyWithinShift(obj, emp, fromTime, toTime) {
   const cal = getContractCalendar(obj, (emp && emp.contractType) || 'normal');
   const sched = normalizeWorkSchedule(cal);
@@ -2504,6 +2532,9 @@ async function handleEmpTimesheet(request, env) {
       delayMin: calc.delayMinutes,
       hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
       hourlyAbsenceHours: calc.hourlyAbsenceHours,
+      delayMin: calc.delayMinutes,
+      earlyMin: calc.earlyLeaveMinutes,
+      incomplete: punchIncompleteFlags(punch),
       leaveDaily: '',
       leaveHourly: '',
       missionDaily: '',
@@ -2619,6 +2650,229 @@ async function handleAdminGetManager(request, who, env) {
     managerCode: meta.managerCode || (emp && emp.managerCode) || '',
     managerCode2: meta.managerCode2 || (emp && emp.managerCode2) || ''
   });
+}
+
+
+/** پیشنهاد بازه ساعتی برای پوشش کسری: تعجیل → تا پایان شیفت؛ تأخیر → از شروع شیفت */
+function suggestHourlyCoverRange(cal, calc, coverMinutes) {
+  const sched = normalizeWorkSchedule(cal);
+  const start = timeToMinutes(sched.workStart);
+  const end = timeToMinutes(sched.workEnd);
+  if (start == null || end == null || coverMinutes <= 0) return null;
+  const early = Number(calc.earlyLeaveMinutes) || 0;
+  const delay = Number(calc.delayMinutes) || 0;
+  let fromM, toM;
+  if (early > 0) {
+    toM = end;
+    fromM = Math.max(start, end - coverMinutes);
+  } else if (delay > 0) {
+    fromM = start;
+    toM = Math.min(end, start + coverMinutes);
+  } else {
+    toM = end;
+    fromM = Math.max(start, end - coverMinutes);
+  }
+  if (toM <= fromM) return null;
+  return { fromTime: minutesToHHMM(fromM), toTime: minutesToHHMM(toM) };
+}
+
+/**
+ * ثبت گروهی/فردی مرخصی یا مأموریت ساعتی برای پوشش کسر کار
+ * body: { year, month, codes:[], kind:'leave'|'mission', date?: optional, dryRun?: bool }
+ * سقف کسر مجاز ماهانه: settings.monthlyShortfallAllowanceHours (ساعت) — تا این مقدار کسر باقی می‌ماند
+ */
+async function handleAdminBulkHourlyCover(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  const kind = r.body.kind === 'mission' ? 'mission' : 'leave';
+  const codes = Array.isArray(r.body.codes) ? r.body.codes.map(function (c) { return String(c).trim(); }).filter(Boolean) : [];
+  const onlyDate = String(r.body.date || '').trim(); // optional YYYY/MM/DD
+  const dryRun = !!r.body.dryRun;
+  if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12) || !codes.length) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'سال، ماه و حداقل یک کد پرسنلی لازم است.' }, 400);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
+    if (!gd.obj.settings || typeof gd.obj.settings !== 'object') gd.obj.settings = {};
+
+    const allowanceH = Number(gd.obj.settings.monthlyShortfallAllowanceHours);
+    const allowanceMin = (isFinite(allowanceH) && allowanceH > 0) ? Math.round(allowanceH * 60) : 0;
+
+    let types = gd.obj.attendanceTypes || [];
+    if (!types.length) types = defaultAttendanceTypes();
+    const typeLeave = types.find(function (t) { return t.kind === 'leave' && t.mode === 'hourly'; }) || { id: 'leave_hourly', name: 'مرخصی ساعتی' };
+    const typeMission = types.find(function (t) { return t.kind === 'mission' && t.mode === 'hourly'; }) || { id: 'mission_hourly', name: 'مأموریت ساعتی' };
+    const tdef = kind === 'mission' ? typeMission : typeLeave;
+
+    const results = [];
+    let created = 0;
+
+    for (let ci = 0; ci < codes.length; ci++) {
+      const code = codes[ci];
+      const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === code; });
+      if (!emp || emp.status === 'inactive') {
+        results.push({ code: code, ok: false, message: 'یافت نشد' });
+        continue;
+      }
+      const ct = emp.contractType || 'normal';
+      const cal = getContractCalendar(gd.obj, ct);
+      const dim = daysInJalaliMonth(year, month);
+      const punchStore = ((gd.obj.dailyAttendance || {})[String(code)]) || {};
+
+      // جمع کسری ماه (قبل از پوشش جدید)
+      let totalShortMin = 0;
+      const dayShorts = [];
+      for (let d = 1; d <= dim; d++) {
+        if (onlyDate) {
+          const p = parseJalaliYMD(onlyDate);
+          if (!p || p.y !== year || p.m !== month || p.d !== d) continue;
+        }
+        const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+        const punch = punchStore[dk] || punchStore[dateFa] || {};
+        const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+        if (nonWork) continue;
+        const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
+        const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
+        if (dlm.fullDayLeaveOrMission && !dlm.unpaidLeave) continue;
+        const calc = computeDayTimesheet(cal, {
+          in1: punch.in1 || '', out1: punch.out1 || '',
+          in2: punch.in2 || '', out2: punch.out2 || ''
+        }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        const sm = Number(calc.hourlyAbsenceMinutes) || 0;
+        if (sm > 0) {
+          totalShortMin += sm;
+          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc });
+        }
+      }
+
+      // تا allowanceMin دقیقه کسر مجاز ماهانه باقی بماند
+      let remainAllow = allowanceMin;
+      let toCoverTotal = Math.max(0, totalShortMin - remainAllow);
+      // توزیع از روزها: اول از هر روز به اندازه ممکن با حفظ باقی‌مانده مجاز
+      const planned = [];
+      let leftToCover = toCoverTotal;
+      // اگر فقط یک تاریخ و toCover با allowance: برای همان روز
+      for (let i = 0; i < dayShorts.length && leftToCover > 0; i++) {
+        const ds = dayShorts[i];
+        // چقدر از این روز را می‌توانیم با allowance رد کنیم؟
+        let skip = Math.min(ds.shortMin, remainAllow);
+        remainAllow -= skip;
+        let need = ds.shortMin - skip;
+        if (need > leftToCover) need = leftToCover;
+        if (need <= 0) continue;
+        const range = suggestHourlyCoverRange(cal, ds.calc, need);
+        if (!range) continue;
+        planned.push({ dateFa: ds.dateFa, fromTime: range.fromTime, toTime: range.toTime, minutes: need });
+        leftToCover -= need;
+      }
+
+      if (!planned.length) {
+        results.push({ code: code, fullName: emp.fullName || '', ok: true, created: 0, message: totalShortMin ? 'کسری در سقف مجاز ماهانه است یا پوشش لازم نیست' : 'کسری ندارد', shortHours: Math.round(totalShortMin / 60 * 100) / 100 });
+        continue;
+      }
+
+      if (dryRun) {
+        results.push({ code: code, fullName: emp.fullName || '', ok: true, created: planned.length, planned: planned, shortHours: Math.round(totalShortMin / 60 * 100) / 100 });
+        continue;
+      }
+
+      let n = 0;
+      planned.forEach(function (pl) {
+        const req = {
+          id: newRequestId(),
+          empCode: String(emp.code),
+          empName: emp.fullName || '',
+          managerCode: String(emp.managerCode || ''),
+          managerName: '',
+          typeId: tdef.id || '',
+          typeName: tdef.name || (kind === 'mission' ? 'مأموریت ساعتی' : 'مرخصی ساعتی'),
+          deductFromEntitlement: kind === 'leave' && !!(tdef.deductFromEntitlement),
+          kind: kind,
+          mode: 'hourly',
+          startDate: pl.dateFa,
+          endDate: pl.dateFa,
+          fromTime: pl.fromTime,
+          toTime: pl.toTime,
+          place: kind === 'mission' ? 'پوشش کسر کار (گروهی)' : '',
+          reason: 'ثبت خودکار پوشش کسر کار',
+          status: 'approved',
+          rejectReason: '',
+          createdAt: new Date().toISOString(),
+          decidedAt: new Date().toISOString(),
+          decidedBy: 'admin:' + who.name,
+          adminOverride: true,
+          bulkCover: true
+        };
+        // overlap skip
+        const conflict = gd.obj.attendanceRequests.find(function (x) {
+          if (String(x.empCode) !== String(emp.code) || x.status === 'rejected') return false;
+          return requestsOverlap(req, x);
+        });
+        if (conflict) return;
+        gd.obj.attendanceRequests.unshift(req);
+        applyApprovedRequestToTimesheet(gd.obj, req);
+        n++;
+        created++;
+      });
+      results.push({ code: code, fullName: emp.fullName || '', ok: true, created: n, planned: planned, shortHours: Math.round(totalShortMin / 60 * 100) / 100 });
+    }
+
+    if (dryRun) {
+      return jsonResponse({ ok: true, dryRun: true, allowanceHours: allowanceH || 0, results: results, created: 0 });
+    }
+    if (gd.obj.attendanceRequests.length > 5000) gd.obj.attendanceRequests.length = 5000;
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, created: created, allowanceHours: allowanceH || 0, results: results });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminShortfallSettings(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const h = (gd.obj && gd.obj.settings && gd.obj.settings.monthlyShortfallAllowanceHours);
+    return jsonResponse({ ok: true, monthlyShortfallAllowanceHours: h != null ? h : '' });
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj.settings) gd.obj.settings = {};
+    const v = r.body.monthlyShortfallAllowanceHours;
+    if (v === '' || v == null) {
+      delete gd.obj.settings.monthlyShortfallAllowanceHours;
+    } else {
+      const n = Number(v);
+      if (!isFinite(n) || n < 0) return jsonResponse({ ok: false, error: 'bad_request', message: 'مقدار نامعتبر' }, 400);
+      gd.obj.settings.monthlyShortfallAllowanceHours = n;
+    }
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, monthlyShortfallAllowanceHours: gd.obj.settings.monthlyShortfallAllowanceHours });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
 async function handleAdminTimesheet(request, who, env) {
@@ -3832,6 +4086,8 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
+  if (path === '/api/admin/bulk-hourly-cover') return handleAdminBulkHourlyCover(request, who, env);
+  if (path === '/api/admin/shortfall-settings') return handleAdminShortfallSettings(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
     return new Response(PORTAL_ADMIN_JS, {
@@ -5174,27 +5430,35 @@ async function loadTimesheet(){
   try{
     var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
     var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
+    if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceHours)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); }
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
-    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th></tr>';
-    html+='<tr><td>'+j.workDays+'</td><td>'+j.leaveDays+'</td><td>'+j.hourlyLeave+'</td><td>'+j.otHours+'</td><td>'+j.nightHours+'</td></tr></table>';
+    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
+    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+(j.hourlyLeave!=null?j.hourlyLeave:0)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+(j.missionHours!=null?j.missionHours:0)+'</td><td>'+(j.otHours!=null?j.otHours:0)+'</td><td>'+(j.nightHours!=null?j.nightHours:0)+'</td><td>'+(Math.round(sumAbs*100)/100)+'</td></tr></table>';
+    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+sumWork.toFixed(2)+'</b> | تأخیر: <b>'+sumDelay+'</b>د | اضافه‌کار: <b>'+sumOt.toFixed(2)+'</b>س | غیبت ساعتی: <b>'+(Math.round(sumAbs*100)/100)+'</b>س</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
       html+='<div style="overflow:auto"><table style="font-size:0.7rem;min-width:100%;width:100%"><thead><tr>';
-      html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>';
+      html+='<th>تاریخ</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th><th>کار</th><th>تأخیر</th><th>اضافه</th><th>غیبت‌س</th>';
       html+='<th style="font-size:0.62rem">مأموریت س</th><th style="font-size:0.62rem">مأموریت ر</th><th style="font-size:0.62rem">مرخصی س</th><th style="font-size:0.62rem">مرخصی ر</th><th>توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':'';
+        var ic=d.incomplete||{};
+        var red='color:#b91c1c;font-weight:700;';
+        var abs=(d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'';
+        function cell(v,bad){ return '<td style="font-size:0.72rem;direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
         html+='<tr style="'+bg+'"><td style="white-space:nowrap">'+d.date+'</td>';
-        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in1||''))+'</td>';
-        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out1||''))+'</td>';
-        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.in2||''))+'</td>';
-        html+='<td style="font-size:0.72rem;direction:ltr">'+((d.out2||''))+'</td>';
-        html+='<td style="font-size:0.65rem">'+((d.missionHourly||''))+'</td>';
-        html+='<td style="font-size:0.65rem">'+((d.missionDaily||''))+'</td>';
-        html+='<td style="font-size:0.65rem">'+((d.leaveHourly||''))+'</td>';
-        html+='<td style="font-size:0.65rem">'+((d.leaveDaily||''))+'</td>';
-        html+='<td style="font-size:0.65rem">'+((d.note||''))+'</td></tr>';
+        html+=cell(d.in1,ic.in1)+cell(d.out1,ic.out1)+cell(d.in2,ic.in2)+cell(d.out2,ic.out2);
+        html+='<td style="font-size:0.72rem">'+(d.workHours!=null&&d.workHours>0?d.workHours:'')+'</td>';
+        html+='<td style="font-size:0.72rem">'+(d.delayMin||'')+'</td>';
+        html+='<td style="font-size:0.72rem">'+(d.otHours||'')+'</td>';
+        html+='<td style="font-size:0.72rem">'+abs+'</td>';
+        html+='<td style="font-size:0.65rem">'+(d.missionHourly||'')+'</td>';
+        html+='<td style="font-size:0.65rem">'+(d.missionDaily||'')+'</td>';
+        html+='<td style="font-size:0.65rem">'+(d.leaveHourly||'')+'</td>';
+        html+='<td style="font-size:0.65rem">'+(d.leaveDaily||'')+'</td>';
+        html+='<td style="font-size:0.65rem">'+(d.note||'')+'</td></tr>';
       });
       html+='</tbody></table></div>';
     }
