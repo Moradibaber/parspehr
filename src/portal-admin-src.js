@@ -544,7 +544,11 @@ export default `(function(){
           var wdShow = (j.rows && j.rows[0] && j.rows[0].workDays != null) ? j.rows[0].workDays : '—';
           var sumAbs = 0;
           j.daily.days.forEach(function(d){ sumAbs += Number(d.hourlyAbsenceHours)||(Number(d.hourlyAbsenceMin)||0)/60; });
-          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (از ۱ تا آخرین تردد/مرخصی/مأموریت، با تعطیل و پنجشنبه/جمعه) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه: <b>' + sumOt.toFixed(2) + '</b>س | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
+          var otTot = (j.rows && j.rows[0] && j.rows[0].otHoursTotal != null) ? Number(j.rows[0].otHoursTotal) : sumOt;
+          var otAp = (j.rows && j.rows[0] && j.rows[0].otHours != null) ? Number(j.rows[0].otHours) : sumOt;
+          var otUn = (j.rows && j.rows[0] && j.rows[0].otHoursUnapproved != null) ? Number(j.rows[0].otHoursUnapproved) : 0;
+          var otCap = (j.rows && j.rows[0] && j.rows[0].otCeilingHours != null) ? j.rows[0].otCeilingHours : '—';
+          html += '<p style="font-size:0.8rem;color:#0f766e;margin-bottom:6px;"><b>کارکرد ماه: ' + wdShow + ' روز</b> (فقط روزهای دارای تردد کامل یا مرخصی/مأموریت روزانه؛ بدون غیبت میانی) | رکورد: <b>' + filled + '</b> | کار: <b>' + sumWork.toFixed(2) + '</b>س | تأخیر: <b>' + sumDelay + '</b>د | اضافه‌کار تأیید: <b>' + otAp.toFixed(2) + '</b>س | تأییدنشده: <b>' + otUn.toFixed(2) + '</b>س (سقف کارت: ' + otCap + ') | غیبت ساعتی: <b>' + sumAbs.toFixed(2) + '</b>س</p>';
           html += '<div style="overflow:auto;"><table style="font-size:0.7rem;min-width:980px;"><thead><tr>' +
             '<th>تاریخ</th><th>روز</th><th>ورود۱</th><th>خروج۱</th><th>ورود۲</th><th>خروج۲</th>' +
             '<th>کار</th><th>تأخیر</th><th>تعجیل</th><th>اضافه</th><th>غیبت‌س</th>' +
