@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v10" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v11" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -3515,26 +3515,17 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   const allowH = Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
   const allowMin = Math.round(allowH * 60);
   const excessMin = Math.max(0, sumAbsMin - allowMin);
-  // روز کارکرد فقط از شمارش واقعی — کسر مازاد در حقوق (حکم/۱۹۰) اعمال می‌شود نه اینجا
-  let workDays = recountEmpMonthWorkDays(obj, year, month, code);
   const otCap = empOtCeilingHours(emp);
   const approvedOt = (otCap != null) ? Math.min(sumOt, otCap) : sumOt;
   const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((sumOt - otCap) * 100) / 100) : 0;
 
-  let aLeave = 0, aHourly = 0, aMission = 0, aMissionH = 0;
+  let aHourly = 0, aMissionH = 0;
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== code || x.status !== 'approved') return;
     const p = parseJalaliYMD(x.startDate);
-    if (!p) return;
-    if (x.kind === 'leave' && x.mode === 'daily') {
-      aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
-    } else if (x.kind === 'leave' && x.mode === 'hourly' && p.y === year && p.m === month) {
-      aHourly += hoursBetween(x.fromTime, x.toTime);
-    } else if (x.kind === 'mission' && x.mode === 'daily') {
-      aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
-    } else if (x.kind === 'mission' && x.mode === 'hourly' && p.y === year && p.m === month) {
-      aMissionH += hoursBetween(x.fromTime, x.toTime);
-    }
+    if (!p || p.y !== year || p.m !== month) return;
+    if (x.kind === 'leave' && x.mode === 'hourly') aHourly += hoursBetween(x.fromTime, x.toTime);
+    else if (x.kind === 'mission' && x.mode === 'hourly') aMissionH += hoursBetween(x.fromTime, x.toTime);
   });
 
   const key = year + '-' + month;
@@ -3542,10 +3533,8 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
   if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
   const md = obj.monthlyData[key][code];
-  md.workDays = workDays;
-  md.leaveDays = Math.round(aLeave * 100) / 100;
+  // فقط ساعت‌ها — روز کارکرد / مرخصی روزانه / مأموریت روزانه دست نخورده می‌ماند
   md.hourlyLeave = Math.round(aHourly * 100) / 100;
-  md.missionDays = Math.round(aMission * 100) / 100;
   md.missionHours = Math.round(aMissionH * 100) / 100;
   md.otHours = approvedOt;
   md.otHoursTotal = sumOt;
@@ -3631,11 +3620,11 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
-      workDays: mdRow.workDays != null ? mdRow.workDays : recountEmpMonthWorkDays(gd.obj, year, month, emp.code),
+      workDays: Number(row.workDays) || recountEmpMonthWorkDays(gd.obj, year, month, emp.code),
       leaveDays: Math.round(aLeave * 100) / 100,
-      hourlyLeave: Math.round(aHourly * 100) / 100,
+      hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
       missionDays: Math.round(aMission * 100) / 100,
-      missionHours: Math.round(aMissionH * 100) / 100,
+      missionHours: Number(mdRow.missionHours) != null ? Number(mdRow.missionHours) : Math.round(aMissionH * 100) / 100,
       otHours: Number(mdRow.otHours) || 0,
       otHoursTotal: Number(mdRow.otHoursTotal) || 0,
       otHoursUnapproved: Number(mdRow.otHoursUnapproved) || 0,
