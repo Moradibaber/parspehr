@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v7" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v8" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2839,15 +2839,16 @@ async function handleEmpTimesheet(request, env) {
       workHours: calc.workHours,
       otHours: calc.otHours,
       otHoursHM: calc.otHoursHM,
+      nightHours: calc.nightHours,
       nightHoursHM: calc.nightHoursHM,
+      earlyOtHours: calc.earlyOtHours,
       earlyOtHoursHM: calc.earlyOtHoursHM,
       delayMin: calc.delayMinutes,
+      earlyMin: calc.earlyLeaveMinutes,
       hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
       hourlyAbsenceHours: calc.hourlyAbsenceHours,
       hourlyAbsenceHM: calc.hourlyAbsenceHM,
       workHoursHM: calc.workHoursHM,
-      delayMin: calc.delayMinutes,
-      earlyMin: calc.earlyLeaveMinutes,
       incomplete: punchIncompleteFlags(punch),
       manualEdit: !!punch.manualEdit,
       editedBy: punch.editedBy || '',
@@ -3578,7 +3579,9 @@ async function handleAdminTimesheet(request, who, env) {
         earlyMin: calc.earlyLeaveMinutes,
         otHours: calc.otHours,
         otHoursHM: calc.otHoursHM,
+        nightHours: calc.nightHours,
         nightHoursHM: calc.nightHoursHM,
+        earlyOtHours: calc.earlyOtHours,
         earlyOtHoursHM: calc.earlyOtHoursHM,
         hourlyAbsenceMin: nonWork ? 0 : calc.hourlyAbsenceMinutes,
         hourlyAbsenceHours: nonWork ? 0 : calc.hourlyAbsenceHours,
@@ -3745,7 +3748,16 @@ async function handleAdminTimesheet(request, who, env) {
       md.leaveDays = rows[0].leaveDays;
       md.hourlyLeave = rows[0].hourlyLeave;
       md.missionDays = rows[0].missions;
+      md.missionHours = Math.round((function(){
+        let n=0; reqList.forEach(function(x){ if(x.kind==='mission'&&x.mode==='hourly'){ const p=parseJalaliYMD(x.startDate); if(p&&p.y===year&&p.m===month) n+=hoursBetween(x.fromTime,x.toTime);} }); return n;
+      })()*100)/100;
+      md.hourlyAbsenceHours = rows[0].hourlyAbsenceHours;
+      md.excessAbsenceMin = excessMin;
       md._timesheetSyncedAt = new Date().toISOString();
+      // ذخیره پایدار تا شیت ورود داده ببیند
+      try {
+        await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+      } catch (ePut) { console.error('md put', ePut); }
     } catch (eMd) { console.error('monthlyData sync', eMd); }
     daily = {
       code: rows[0].code,
@@ -4438,7 +4450,26 @@ async function handleAdminSaveHolidays(request, who, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
   const year = Number(r.body.year);
-  const days = Array.isArray(r.body.days) ? r.body.days.map(String) : [];
+  // آبجکت‌های تعطیل شرایطی را نگه دار (map(String) آن‌ها را خراب می‌کرد)
+  const days = Array.isArray(r.body.days) ? r.body.days.map(function (item) {
+    if (item != null && typeof item === 'object') {
+      const o = {
+        date: String(item.date || item.day || '').trim(),
+        type: item.type || (item.conditional ? 'conditional' : 'official'),
+        conditional: !!(item.conditional || item.type === 'conditional'),
+        fullDay: item.fullDay !== false && !item.closeFrom,
+        closeFrom: item.closeFrom || null,
+        closeTo: item.closeTo || null,
+        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
+        otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
+        applyFloat: item.applyFloat != null ? !!item.applyFloat : false
+      };
+      if (!o.date) return null;
+      return o;
+    }
+    const s = String(item || '').trim();
+    return s || null;
+  }).filter(Boolean) : [];
   if (!isInt(year, 1300, 1600)) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
