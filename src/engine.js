@@ -643,6 +643,12 @@ export function makeEngine(data) {
       const daily = emp.basicSalary / 30;
       const otAmount = Math.round((daily / 7.33) * (d.otHours||0) * s.overtimeFactor);
       const nightAmount = Math.round((daily / 7.33) * (d.nightHours||0) * (s.nightFactor||1.35));
+      // کسر کار مازاد: هر ساعت = جمع حکم ÷ ۱۹۰
+      const decreeForShort = (typeof getDecreeEmpTotals === 'function' ? (getDecreeEmpTotals(emp.code).decreeSum || 0) : 0) || (Number(emp.basicSalary) || 0);
+      const excessAbsH = Math.max(0, Number(d.excessAbsenceHours) || 0);
+      const shortfallDeduction = (excessAbsH > 0 && decreeForShort > 0)
+        ? Math.round(excessAbsH * (decreeForShort / 190))
+        : 0;
       // نوبت‌کاری: مزد روزانه × روزهای نوبت × درصد
       // فرمول رایج: تعداد روزهای نوبت × (درصد × مزد روزانه)
       let shiftAmount = 0;
@@ -660,6 +666,10 @@ export function makeEngine(data) {
       let totalAllow = 0, totalDeductions = 0;
       let insBase = basicAmount, taxBase = basicAmount + otAmount + nightAmount + shiftAmount;
       const itemDetails = [];
+      if (shortfallDeduction > 0) {
+        totalDeductions += shortfallDeduction;
+        itemDetails.push({ name: 'کسر کار (مازاد غیبت ساعتی)', amount: -shortfallDeduction });
+      }
   
       data.allowances.filter(a => isActiveAllowance(a) && !a.fromEmployee).forEach(a => {
         let raw = Number(a.amount)||0;
