@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v11" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v12" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2838,10 +2838,13 @@ async function handleEmpTimesheet(request, env) {
     const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
     const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
     const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
+    const dayMeta = getDayMeta(gd.obj, year, month, d, empCt);
     const calc = computeDayTimesheet(cal, {
       in1: punch.in1 || '', out1: punch.out1 || '',
-      in2: punch.in2 || '', out2: punch.out2 || ''
-    }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+      in2: punch.in2 || '', out2: punch.out2 || '',
+      in3: punch.in3 || '', out3: punch.out3 || '',
+      in4: punch.in4 || '', out4: punch.out4 || ''
+    }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -2907,16 +2910,40 @@ async function handleEmpTimesheet(request, env) {
   });
   const dailyDays = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
 
-  // کارکرد = روزهای عادی تا آخرین روز دارای پانچ/مرخصی/مأموریت (تعطیل شمرده نمی‌شود)
-  let punchOt = 0;
+  // جمع اضافه‌کار و شب‌کاری از همان روزبه‌روز (مثل ادمین)
+  let punchOt = 0, punchNight = 0, punchAbsMin = 0;
   Object.keys(dayMap).forEach(function (k) {
-    punchOt += Number(dayMap[k].otHours) || 0;
+    const cell = dayMap[k];
+    if (!cell) return;
+    punchOt += Number(cell.otHours) || 0;
+    punchNight += Number(cell.nightHours) || 0;
+    punchAbsMin += Number(cell.hourlyAbsenceMin) || 0;
   });
   punchOt = Math.round(punchOt * 100) / 100;
+  punchNight = Math.round(punchNight * 100) / 100;
   const otCap = empOtCeilingHours(emp);
   const approvedOt = (otCap != null) ? Math.min(punchOt, otCap) : punchOt;
   const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((punchOt - otCap) * 100) / 100) : 0;
   const workWithAtt = recountEmpMonthWorkDays(gd.obj, year, month, code);
+  // همگام‌سازی با monthlyData تا ورود داده ماهانه و ادمین یکسان باشند
+  try {
+    if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
+    if (!gd.obj.monthlyData[key]) gd.obj.monthlyData[key] = {};
+    if (!gd.obj.monthlyData[key][code]) gd.obj.monthlyData[key][code] = {};
+    const mdE = gd.obj.monthlyData[key][code];
+    mdE.workDays = Math.round(workWithAtt) || 0;
+    mdE.leaveDays = reLeaveDays;
+    mdE.hourlyLeave = reHourlyLeave;
+    mdE.missionDays = reMissionDays;
+    mdE.missionHours = reMissionHours;
+    mdE.otHours = approvedOt || 0;
+    mdE.otHoursTotal = punchOt || 0;
+    mdE.otHoursUnapproved = unapprovedOt;
+    mdE.nightHours = punchNight;
+    mdE.hourlyAbsenceHours = Math.round((punchAbsMin / 60) * 100) / 100;
+    mdE._fromTimesheet = true;
+    mdE._timesheetSyncedAt = new Date().toISOString();
+  } catch (eMdE) { console.error('emp md sync', eMdE); }
   return jsonResponse({
     ok: true,
     code,
@@ -2931,7 +2958,13 @@ async function handleEmpTimesheet(request, env) {
     otHoursTotal: punchOt || 0,
     otHoursUnapproved: unapprovedOt,
     otCeilingHours: otCap,
-    nightHours: Number(row.nightHours) || 0,
+    otHoursHM: (typeof formatHoursHMFromHours === 'function') ? formatHoursHMFromHours(approvedOt || 0) : undefined,
+    otHoursTotalHM: (typeof formatHoursHMFromHours === 'function') ? formatHoursHMFromHours(punchOt || 0) : undefined,
+    otHoursUnapprovedHM: (typeof formatHoursHMFromHours === 'function') ? formatHoursHMFromHours(unapprovedOt || 0) : undefined,
+    nightHours: punchNight,
+    nightHoursHM: (typeof formatHoursHMFromHours === 'function') ? formatHoursHMFromHours(punchNight) : undefined,
+    hourlyAbsenceHours: Math.round((punchAbsMin / 60) * 100) / 100,
+    hourlyAbsenceHM: (typeof formatHoursHM === 'function') ? formatHoursHM(punchAbsMin) : undefined,
     requests: reqs,
     daily: { code: code, fullName: emp ? emp.fullName : '', days: dailyDays }
   });
@@ -3528,12 +3561,27 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
     else if (x.kind === 'mission' && x.mode === 'hourly') aMissionH += hoursBetween(x.fromTime, x.toTime);
   });
 
+  // مرخصی/مأموریت روزانه از درخواست‌های تأییدشده
+  let aLeave = 0, aMission = 0;
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (String(x.empCode) !== code || x.status !== 'approved') return;
+    if (x.kind === 'leave' && x.mode === 'daily') {
+      aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
+    } else if (x.kind === 'mission' && x.mode === 'daily') {
+      aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
+    }
+  });
+  const workDaysTs = recountEmpMonthWorkDays(obj, year, month, code);
+
   const key = year + '-' + month;
   if (!obj.monthlyData) obj.monthlyData = {};
   if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
   if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
   const md = obj.monthlyData[key][code];
-  // فقط ساعت‌ها — روز کارکرد / مرخصی روزانه / مأموریت روزانه دست نخورده می‌ماند
+  // انتقال کامل تایم‌شیت → ورود داده ماهانه
+  md.workDays = Math.round(workDaysTs) || 0;
+  md.leaveDays = Math.round(aLeave * 100) / 100;
+  md.missionDays = Math.round(aMission * 100) / 100;
   md.hourlyLeave = Math.round(aHourly * 100) / 100;
   md.missionHours = Math.round(aMissionH * 100) / 100;
   md.otHours = approvedOt;
@@ -3620,7 +3668,7 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
-      workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); var stored = Number(row.workDays); if (stored && Number.isInteger(stored) && stored > 0) return stored; return Math.round(r) || 0; })(),
+      workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); return Math.round(r) || 0; })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
       missionDays: Math.round(aMission * 100) / 100,
@@ -3638,7 +3686,35 @@ async function handleAdminTimesheet(request, who, env) {
   });
   rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code), 'fa'); });
 
-  // monthlyData در حافظه پر شده؛ ذخیره پایدار هنگام ذخیره ورود/خروج یا همگام‌سازی کلاینت
+  // همگام‌سازی همه ردیف‌ها با monthlyData و ذخیره پایدار برای ورود داده ماهانه
+  try {
+    const mdKeyAll = year + '-' + month;
+    if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
+    if (!gd.obj.monthlyData[mdKeyAll]) gd.obj.monthlyData[mdKeyAll] = {};
+    rows.forEach(function (rr) {
+      if (!rr || !rr.code) return;
+      const ck = String(rr.code);
+      if (!gd.obj.monthlyData[mdKeyAll][ck]) gd.obj.monthlyData[mdKeyAll][ck] = {};
+      const mdA = gd.obj.monthlyData[mdKeyAll][ck];
+      if (rr.workDays != null) mdA.workDays = Math.round(Number(rr.workDays) || 0);
+      if (rr.leaveDays != null) mdA.leaveDays = Number(rr.leaveDays) || 0;
+      if (rr.missionDays != null) mdA.missionDays = Number(rr.missionDays) || 0;
+      else if (rr.missions != null) mdA.missionDays = Number(rr.missions) || 0;
+      if (rr.hourlyLeave != null) mdA.hourlyLeave = Number(rr.hourlyLeave) || 0;
+      if (rr.missionHours != null) mdA.missionHours = Number(rr.missionHours) || 0;
+      if (rr.otHours != null) mdA.otHours = Number(rr.otHours) || 0;
+      if (rr.otHoursTotal != null) mdA.otHoursTotal = Number(rr.otHoursTotal) || 0;
+      if (rr.otHoursUnapproved != null) mdA.otHoursUnapproved = Number(rr.otHoursUnapproved) || 0;
+      if (rr.nightHours != null) mdA.nightHours = Number(rr.nightHours) || 0;
+      if (rr.excessAbsenceHours != null) mdA.excessAbsenceHours = Number(rr.excessAbsenceHours) || 0;
+      if (rr.hourlyAbsenceHours != null) mdA.hourlyAbsenceHours = Number(rr.hourlyAbsenceHours) || 0;
+      mdA._fromTimesheet = true;
+      mdA._timesheetSyncedAt = new Date().toISOString();
+    });
+    if (rows.length && !(filterCode && rows.length === 1)) {
+      try { await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin'); } catch (ePutAll) { console.error('md put all', ePutAll); }
+    }
+  } catch (eSyncAll) { console.error('monthlyData sync all', eSyncAll); }
 
   // Day-by-day sheet when a single employee code is selected (Excel-like)
   let daily = null;
