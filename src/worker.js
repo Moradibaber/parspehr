@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261004v14" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v13" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1769,7 +1769,7 @@ function getDayMeta(obj, y, m, d, contractType) {
         fullDay: hasHalf ? false : (item.fullDay !== false),
         closeFrom: item.closeFrom || null,
         closeTo: item.closeTo || null,
-        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
+        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : (isCond ? false : true),
         otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
         applyFloat: item.applyFloat != null ? !!item.applyFloat : false,
         reason: item.reason ? String(item.reason).trim() : ''
@@ -1952,20 +1952,31 @@ function computeDayTimesheet(cal, punches, opts) {
     compensated = 0;
   } else if (condFull && present > 0) {
     // تعطیل شرایطی تمام‌روز
+    // otDuringOfficial=بله → کل حضور (غیرشب) = اضافه‌کار
+    // otDuringOfficial=خیر و otAfterOfficial=بله → فقط بعد از پایان موظفی
+    // هر دو خیر → بدون اضافه‌کار
+    delay = 0;
+    earlyLeave = 0;
+    compensated = 0;
     if (dayMeta.otDuringOfficial) {
       ot = Math.max(0, present - nightMin);
       workPresent = 0;
     } else {
-      // فقط بعد از موظفی اضافه‌کار
-      ot = 0;
       workPresent = Math.min(present, official);
-      if (dayMeta.otAfterOfficial && lastOut != null && end != null && lastOut > end) {
-        ot = Math.max(0, lastOut - end - nightMin); // تقریبی
+      ot = 0;
+      if (dayMeta.otAfterOfficial && end != null) {
+        let afterEnd = 0;
+        completePairs.forEach(function (p) {
+          let a = p.inn, b = p.out;
+          if (a == null || b == null) return;
+          if (b < a) b += 24 * 60;
+          afterEnd += overlapMinutes(a, b, end, b);
+        });
+        const nightAfter = (lastOut != null && typeof nightMinutesInPair === 'function')
+          ? nightMinutesInPair(end, lastOut) : 0;
+        ot = Math.max(0, afterEnd - nightAfter);
       }
     }
-    delay = 0;
-    earlyLeave = 0;
-    compensated = 0;
   } else if (condHalf) {
     // تعطیل شرایطی از ساعت closeFrom
     const cf = timeToMinutes(dayMeta.closeFrom);
@@ -2032,13 +2043,14 @@ function computeDayTimesheet(cal, punches, opts) {
     // اما nightInAfter ممکن است شامل دقایقی باشد که در جبران بودند؛ تقریبی قابل قبول:
     ot = Math.max(0, stayed - nightInAfter);
     // شب‌کاری گزارش‌شده همان کل حضور در ۲۲–۶ است (شامل بعد از شیفت)
-  } else if (isHoliday || condFull) {
-    // تعطیل: حضور غیرشب = اضافه‌کار، حضور شب = شب‌کاری
+  } else if (isHoliday && !(dayMeta && dayMeta.conditional)) {
+    // فقط تعطیل رسمی/هفته — تعطیل شرایطی منطق جدا دارد (بالا)
     if (present > 0) {
       ot = Math.max(0, present - nightMin);
       workPresent = 0;
     }
   }
+  // condFull: ot/workPresent از بلوک شرایطی حفظ می‌شود
   ot = Math.max(0, ot || 0);
   // early OT جدا از ot نگه داشته می‌شود (earlyOtMin)
 
@@ -3573,21 +3585,26 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   });
   const workDaysTs = recountEmpMonthWorkDays(obj, year, month, code);
 
-  // فقط خروجی محاسبه‌شده — بدون نوشتن روی monthlyData (جلوگیری از همگام‌سازی ناخواسته)
-  return {
-    workDays: Math.round(workDaysTs) || 0,
-    leaveDays: Math.round(aLeave * 100) / 100,
-    missionDays: Math.round(aMission * 100) / 100,
-    hourlyLeave: Math.round(aHourly * 100) / 100,
-    missionHours: Math.round(aMissionH * 100) / 100,
-    otHours: approvedOt,
-    otHoursTotal: sumOt,
-    otHoursUnapproved: unapprovedOt,
-    nightHours: sumNight,
-    hourlyAbsenceHours: Math.round((sumAbsMin / 60) * 100) / 100,
-    excessAbsenceHours: Math.round((excessMin / 60) * 100) / 100,
-    _fromTimesheet: true
-  };
+  const key = year + '-' + month;
+  if (!obj.monthlyData) obj.monthlyData = {};
+  if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
+  if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
+  const md = obj.monthlyData[key][code];
+  // انتقال کامل تایم‌شیت → ورود داده ماهانه
+  md.workDays = Math.round(workDaysTs) || 0;
+  md.leaveDays = Math.round(aLeave * 100) / 100;
+  md.missionDays = Math.round(aMission * 100) / 100;
+  md.hourlyLeave = Math.round(aHourly * 100) / 100;
+  md.missionHours = Math.round(aMissionH * 100) / 100;
+  md.otHours = approvedOt;
+  md.otHoursTotal = sumOt;
+  md.otHoursUnapproved = unapprovedOt;
+  md.nightHours = sumNight;
+  md.hourlyAbsenceHours = Math.round((sumAbsMin / 60) * 100) / 100;
+  md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
+  md._fromTimesheet = true;
+  md._timesheetSyncedAt = new Date().toISOString();
+  return md;
 }
 
 function fillAllEmployeesMonthFromAttendance(obj, year, month) {
@@ -3944,7 +3961,10 @@ async function handleAdminTimesheet(request, who, env) {
       md.excessAbsenceMin = excessMin;
       md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
       md._timesheetSyncedAt = new Date().toISOString();
-      // فقط در حافظهٔ پاسخ — ذخیره پایدار فقط با «ذخیره ورود/خروج» تا همگام‌سازی بی‌وقفه نشود
+      // ذخیره پایدار تا شیت ورود داده ببیند
+      try {
+        await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+      } catch (ePut) { console.error('md put', ePut); }
     } catch (eMd) { console.error('monthlyData sync', eMd); }
     daily = {
       code: rows[0].code,
