@@ -55,19 +55,6 @@
     white-space: nowrap;
   }
   .tab-btn.active { background: var(--primary); color: #fff; }
-
-  .psp-subtabs {
-    display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;
-    background:#f0fdfa; padding:6px; border-radius:10px; border:1px solid #99f6e4;
-  }
-  .psp-subtabs .psp-subbtn {
-    padding:5px 10px; border:1px solid #99f6e4; background:#fff; border-radius:6px;
-    font-size:0.75rem; font-weight:600; cursor:pointer; color:#0f766e; font-family:inherit;
-  }
-  .psp-subtabs .psp-subbtn.active {
-    background:#0f766e; color:#fff; border-color:#0f766e;
-  }
-
   .panel { display: none; } .panel.active { display: block; }
   .card {
     background: var(--card); border-radius: 10px; padding: 16px; margin-bottom: 12px;
@@ -106,24 +93,6 @@
     gap: 4px; align-items: center; margin-bottom: 6px;
   }
   .custom-item-row input, .custom-item-row select { padding: 5px 7px; font-size: 0.8rem; }
-
-  #empModal > div { max-width: 960px !important; padding: 12px 14px !important; }
-  #empModal .form-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important; gap: 6px 8px !important; }
-  #empModal .form-group { gap: 2px !important; }
-  #empModal .form-group label { font-size: 0.7rem !important; }
-  #empModal .form-group input, #empModal .form-group select, #empModal .form-group textarea {
-    padding: 4px 6px !important; font-size: 0.78rem !important;
-  }
-  #empModal .section-title { font-size: 0.85rem !important; margin-bottom: 8px !important; margin-top: 10px !important; }
-  #empModal .custom-item-row {
-    grid-template-columns: 1fr 0.55fr 0.9fr 0.55fr 0.35fr 0.35fr 0.65fr 0.55fr 26px !important;
-    gap: 3px !important; margin-bottom: 4px !important;
-  }
-  #empModal .custom-item-row input, #empModal .custom-item-row select {
-    padding: 3px 4px !important; font-size: 0.72rem !important;
-  }
-  #empModal .custom-item-row > div { min-width: 0 !important; }
-
   #empFilterRow th { padding: 4px; background: #f0fdfa; }
   #empFilterRow input, #empFilterRow select {
     width: 100%; padding: 4px 6px; font-size: 0.75rem; border: 1px solid #99f6e4;
@@ -362,12 +331,12 @@
 
   <div class="tabs no-print">
     <button class="tab-btn active" data-tab="employees">کارکنان فعال</button>
-    <button class="tab-btn" data-tab="inactive" style="display:none" data-psp-child="1">غیر فعال‌ها</button>
+    <button class="tab-btn" data-tab="inactive">غیر فعال‌ها</button>
     <button class="tab-btn" data-tab="allowances">آیتم‌های حقوق و مزایا</button>
-    <button class="tab-btn" data-tab="customitems" style="display:none" data-psp-child="1">آیتم‌های سفارشی</button>
-    <button class="tab-btn" data-tab="settings" style="display:none" data-psp-child="1">نرخ بیمه و مالیات</button>
-    <button class="tab-btn" data-tab="dataentry" style="display:none" data-psp-child="1">ورود داده‌های ماهانه</button>
-    <button class="tab-btn" data-tab="monthlyvars" style="display:none" data-psp-child="1">ثابت‌های ماهانه</button>
+    <button class="tab-btn" data-tab="customitems">آیتم‌های سفارشی</button>
+    <button class="tab-btn" data-tab="settings">نرخ بیمه و مالیات</button>
+    <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
+    <button class="tab-btn" data-tab="monthlyvars">ثابت‌های ماهانه</button>
     <button class="tab-btn" data-tab="colorder">ترتیب ستون‌های ورود داده</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
@@ -381,10 +350,9 @@
     <button class="tab-btn" data-tab="insurancetax">خروجی بیمه و مالیات</button>
     <button class="tab-btn" data-tab="salarygrade">تعیین حقوق</button>
     <button class="tab-btn" data-tab="adjhistory">تاریخچه اصلاحات</button>
-    <button class="tab-btn" data-tab="changelog" style="display:none" data-psp-child="1">لاگ تغییرات</button>
+    <button class="tab-btn" data-tab="changelog">لاگ تغییرات</button>
     <button class="tab-btn" data-tab="permissions" id="tabPermissionsBtn">دسترسی اپراتور</button>
     <button class="tab-btn" data-tab="pending" id="tabPendingBtn">تایید تغییرات</button>
-    <button class="tab-btn" data-tab="portalatt" id="pspPortalTabBtn">مأموریت/مرخصی و سایر</button>
   </div>
 
   <div class="panel active" id="panel-employees">
@@ -404,7 +372,7 @@
           <thead>
             <tr>
               <th>کد</th><th>نام</th><th>نوع قرارداد</th><th>سمت</th><th>مدیریت/معاونت</th><th>واحد</th><th>گروه</th><th>محل کار</th>
-              <th>تاریخ استخدام</th><th>حقوق پایه</th><th>بانک</th><th>معافیت</th><th>وام</th><th>مانده مرخصی</th><th>عملیات</th>
+              <th>تاریخ استخدام</th><th>حقوق پایه</th><th>بانک</th><th>معافیت</th><th>وام</th><th>عملیات</th>
             </tr>
             <tr id="empFilterRow">
               <th><select class="emp-filter" data-col="0" onchange="filterEmployeesTable()"><option value="">همه</option></select></th>
@@ -461,7 +429,6 @@
         </div>
       </div>
       <p id="bulkPreview" style="font-size:0.78rem;color:#0f766e;margin-top:8px;"></p>
-
     </div>
   </div>
 
@@ -554,46 +521,10 @@
   <div class="panel" id="panel-settings">
     <div class="card">
       <div class="section-title">نرخ بیمه و مالیات ۱۴۰۵</div>
-      
-      <div class="section-title">سیاست مرخصی استحقاقی</div>
-      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        سقف مرخصی استحقاقی سالانه بر اساس <b>نوع قرارداد</b> و در صورت تعریف، <b>گروه کاری</b> (اولویت با گروه).
-        اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
-      </p>
-      <div class="form-grid" style="margin-bottom:12px;">
-        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
-        <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
-      </div>
-      <div style="margin-bottom:12px;overflow-x:auto;">
-        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس نوع قرارداد</div>
-        <table style="max-width:520px;" id="leavePolicyByContract">
-          <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
-          <tbody>
-            <tr><td>عادی</td><td><input type="number" class="leave-ct-days" data-ct="normal" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>روزمزد</td><td><input type="number" class="leave-ct-days" data-ct="daily" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>ساعتی</td><td><input type="number" class="leave-ct-days" data-ct="hourly" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div style="margin-bottom:14px;">
-        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس گروه کاری (اختیاری — اولویت بالاتر)</div>
-        <div id="leaveGroupPolicyList"></div>
-        <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
-      </div>
-
-      <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
-        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;">
-          <span style="font-weight:700;color:#0f766e;font-size:0.85rem;">انتقال مانده مرخصی به سال جدید</span>
-          <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده</button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی همه فعال‌ها</button>
-        </div>
-      </div>
-      <div class="section-title" style="font-size:0.88rem;margin-bottom:8px;">نرخ‌ها و ضرایب</div>
       <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
         <div class="form-group"><label>بیمه سهم کارفرما (%)</label><input type="number" id="insEmployer" value="23" step="0.1"></div>
         <div class="form-group"><label>ضریب اضافه‌کاری</label><input type="number" id="overtimeFactor" value="1.4" step="0.1"></div>
-        <div class="form-group"><label>سقف اضافه‌کار پیش‌فرض (ساعت)</label><input type="number" id="maxOtHours" value="0" min="0" step="1" title="۰=بدون سقف؛ سقف فردی در کارت کارمند"></div>
         <div class="form-group"><label>ضریب شب‌کاری</label><input type="number" id="nightFactor" value="1.35" step="0.05"></div>
         <div class="form-group"><label>ضریب نوبت صبح و عصر (%)</label><input type="number" id="shiftMorningEvening" value="10" step="0.5" title="طبق ماده ۵۶ قانون کار"></div>
         <div class="form-group"><label>ضریب نوبت صبح/عصر و شب (%)</label><input type="number" id="shiftWithNight" value="22.5" step="0.5" title="صبح و شب یا عصر و شب"></div>
@@ -763,7 +694,7 @@
         <div class="form-group"><label>کد اقتصادی</label><input type="text" id="co_ecoCode" placeholder="کد/شماره اقتصادی" dir="ltr"></div>
         <div class="form-group"><label>کلاسه پرونده مالیاتی</label><input type="text" id="co_taxFileNo" placeholder="شماره کلاسه پرونده" dir="ltr"></div>
         <div class="form-group"><label>کد واحد مالیاتی</label><input type="text" id="co_taxUnit" placeholder="کد اداره/واحد مالیاتی" dir="ltr"></div>
-        <div class="form-group"><label>شناسه حافظه مالیاتی</label><input type="text" id="co_taxMemory" placeholder="شناسه یکتای سامانه مودیان" dir="ltr"></div>
+        <div class="form-group"><label>شناسه یکتای حافظه مالیاتی (اختیاری)</label><input type="text" id="co_taxMemory" placeholder="سامانه مودیان" dir="ltr"></div>
       </div>
 
       <div class="section-title" style="font-size:0.9rem;margin-top:14px;">تأمین اجتماعی — کارگاه و پیمان</div>
@@ -1061,7 +992,7 @@
         <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
         <button class="btn btn-outline" onclick="downloadDataTemplate()">دانلود نمونه اکسل ورود داده</button>
         <button class="btn btn-outline" onclick="document.getElementById('dataImportFile').click()">بارگذاری اکسل ورود داده</button>
-        <input type="file" id="dataImportFile" accept=".csv,.txt,.tsv,text/csv" style="display:none" onchange="importDataFromExcel(event)">
+        <input type="file" id="dataImportFile" accept=".csv" style="display:none" onchange="importDataFromExcel(event)">
         <span style="width:1px;height:24px;background:#99f6e4;margin:0 4px;"></span>
         <label style="font-size:0.75rem;font-weight:600;color:#0f766e;display:flex;align-items:center;gap:4px;">
           عرض ستون
@@ -1114,7 +1045,6 @@
         <button class="btn btn-success" onclick="runCalculation()">اجرای محاسبه</button>
         <button class="btn btn-outline" onclick="lockPayrollBaseline()">قفل مبنای پرداخت‌شده</button>
         <button class="btn btn-warning" onclick="openAdjustmentWizard()">محاسبه مغایرت (اصلاح)</button>
-        <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
         <b>قفل مبنا:</b> بعد از پرداخت قطعی حقوق ماه، با رمز ادمین یک نسخه ثابت از محاسبه ذخیره می‌شود.
@@ -1165,7 +1095,7 @@
         <div class="form-group"><label>گروه</label><select id="dashFilterGroup"><option value="">همه</option></select></div>
         <div class="form-group"><label>محل کار</label><select id="dashFilterWorkplace"><option value="">همه</option></select></div>
         <div class="form-group"><label>نوع قرارداد</label>
-          <select id="dashFilterContract" class="contract-type-filter">
+          <select id="dashFilterContract">
             <option value="">همه</option>
             <option value="normal">عادی</option>
             <option value="daily">روزمزد</option>
@@ -1306,7 +1236,7 @@
         <b>عیدی/سنوات:</b> مبنای مزد روزانه = جمع مشمول عیدی/سنوات از حکم ÷ ۳۰.
         حداقل عیدی = ۶۰ روز × مزد روزانه | حداکثر = ۹۰ روز × حداقل مزد قانون کار (تناسب کارکرد ÷ ۳۶۵). مالیات عیدی: معاف تا ۴۰۰ میلیون؛ مازاد ۱۰٪.
         <br>
-        <b>مرخصی:</b> استحقاقی = (کارکرد سال ÷ ۳۶۵) × سقف. <b>تسویه سالیانه</b> فقط همان سال را صفر می‌کند؛ <b>تسویه نهایی</b> همه سال‌های باز را تجمیع می‌کند. پس از ثبت تسویه، در پرتال «تسویه شد» و مانده صفر دیده می‌شود.
+        <b>مرخصی:</b> استحقاقی = (کارکرد ÷ ۳۶۵) × ۳۰.
         مانده = استحقاقی − استفاده‌شده (مثبت یا منفی).
         قابل پرداخت (روز) = حداقل(مانده ، سقف).
         <b>مبلغ مرخصی</b> = (جمع حکم ÷ ۳۰) × روز قابل پرداخت — می‌تواند منفی (کسر) باشد و با عیدی و سنوات جمع می‌شود.
@@ -1315,12 +1245,6 @@
         <div class="form-group"><label>سال</label><input type="number" id="eidYear" value="1405"></div>
         <div class="form-group"><label>حداقل مزد روزانه قانون کار (ریال)</label><input type="number" id="eidMinDaily" value="5541850"></div>
         <div class="form-group"><label>سقف مرخصی قابل پرداخت (روز)</label><input type="number" id="eidPayableLeaveDays" value="30" min="0" title="روز قابل پرداخت حداکثر تا این سقف؛ اگر مانده منفی باشد مبلغ هم منفی می‌شود"></div>
-        <div class="form-group"><label>نوع تسویه مرخصی</label>
-          <select id="eidLeaveSettlementMode" title="سالیانه: فقط مانده سال انتخاب‌شده | نهایی: تجمیع همه سال‌های تسویه‌نشده">
-            <option value="annual" selected>تسویه سالیانه (پیش‌فرض)</option>
-            <option value="final">تسویه حساب نهایی (تجمیع سال‌های باز)</option>
-          </select>
-        </div>
         <div class="form-group" style="display:flex;align-items:flex-end;">
           <button class="btn btn-success" onclick="runEidCalculation()">محاسبه عیدی، سنوات و مرخصی</button>
         </div>
@@ -1377,20 +1301,11 @@
       <div id="annualTaxSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
       <div class="form-group" style="margin-bottom:10px;">
         <label>کارکنان مشمول تسویه</label>
-        <div style="border:1px solid #99f6e4;border-radius:10px;overflow:hidden;background:#f0fdfa;">
-          <button type="button" id="annualTaxEmpToggle" onclick="toggleAnnualTaxEmpDrop()" style="width:100%;text-align:right;padding:10px 12px;border:0;background:#ecfdf5;cursor:pointer;font-family:inherit;font-size:0.85rem;color:#0f766e;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span id="annualTaxEmpSummary">انتخاب کارکنان — همه</span>
-            <span id="annualTaxEmpChevron" style="font-size:0.75rem;color:#64748b;">▼ باز کردن</span>
-          </button>
-          <div id="annualTaxEmpDropdown" style="display:none;padding:10px;border-top:1px solid #99f6e4;">
-            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;">
-              <input id="annualTaxEmpSearch" placeholder="جستجوی نام یا کد…" oninput="filterAnnualTaxEmpList()" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;">
-              <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(true)">همه</button>
-              <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(false)">هیچ‌کدام</button>
-            </div>
-            <div id="annualTaxEmpList" style="max-height:220px;overflow:auto;font-size:0.78rem;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fff;"></div>
-          </div>
+        <div style="display:flex;gap:6px;margin-bottom:4px;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(true)">همه</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="annualTaxSelectEmps(false)">هیچ‌کدام</button>
         </div>
+        <div id="annualTaxEmpList" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px;"></div>
       </div>
       <div id="annualTaxSummary" style="font-size:0.82rem;color:#0f766e;margin-bottom:8px;"></div>
       <div style="overflow-x:auto;">
@@ -1473,8 +1388,6 @@
   </div>
 
   
-    <!-- پنل مأموریت/مرخصی توسط Worker تزریق می‌شود (امنیت) -->
-  <div class="panel" id="panel-portalatt" data-psp-host="1"></div>
   <div class="panel" id="panel-permissions">
     <div class="card">
       <div class="section-title">مدیریت کاربران و دسترسی‌ها</div>
@@ -1641,7 +1554,7 @@
         <div class="form-group"><label>محل کار</label><input type="text" id="e_workplace"></div>
         <div class="form-group"><label>استان محل سکونت</label><input type="text" id="e_province"></div>
         <div class="form-group"><label>شهر محل سکونت</label><input type="text" id="e_city"></div>
-        <div class="form-group"><label>تاریخ استخدام (شمسی)</label><input type="text" id="e_hireDate" placeholder="1402/05/15" onchange="onHireDateChangeLeave()"></div>
+        <div class="form-group"><label>تاریخ استخدام (شمسی)</label><input type="text" id="e_hireDate" placeholder="1402/05/15"></div>
         <div class="form-group"><label>تاریخ پایان همکاری</label><input type="text" id="e_endDate" placeholder="1405/06/20"></div>
         <div class="form-group">
           <label>دلیل پایان همکاری</label>
@@ -1744,17 +1657,6 @@
         <div class="form-group">
           <label>باقی‌مانده وام <span id="loanLockIcon" style="display:none;cursor:pointer;user-select:none;" title="دابل‌کلیک برای باز کردن قفل" ondblclick="promptUnlockLoan()">🔒</span></label>
           <input type="number" id="e_loanRemaining" value="0" min="0">
-        </div>
-        <div class="form-group">
-          <label>مانده مرخصی سال جاری (روز)</label>
-          <input type="number" id="e_leaveBalance" value="" step="0.01" inputmode="decimal" readonly style="background:#f1f5f9;cursor:not-allowed;" title="فقط از طریق تعدیل +/−">
-        </div>
-        <div class="form-group">
-          <label>سقف اضافه‌کار ماهانه (ساعت)</label>
-          <input type="number" id="e_maxOtHours" value="" min="0" step="1" placeholder="خالی = پیش‌فرض سیستم" title="۰ = بدون سقف؛ خالی = پیش‌فرض سیستم">
-        </div>
-        <div class="form-group" style="display:flex;align-items:flex-end;">
-          <button type="button" class="btn btn-outline btn-sm" onclick="calcProratedLeaveBalance()" title="محاسبه مانده تناسبی از تاریخ استخدام">محاسبه تناسبی مرخصی</button>
         </div>
       </div>
 
@@ -1933,12 +1835,6 @@ var OPERATOR_PERM_DEFS = [
   { group: 'لاگ و تاریخچه', items: [
     { key: 'adj_history', label: 'مشاهده تاریخچه اصلاحات' },
     { key: 'changelog', label: 'مشاهده لاگ تغییرات' }
-  ]},
-  { group: 'پرتال مأموریت/مرخصی و قرارداد', items: [
-    { key: 'portal_att', label: 'تب مأموریت/مرخصی و سایر (تایم‌شیت، انواع، مجوزها)' },
-    { key: 'portal_contracts', label: 'مدیریت قراردادهای کارکنان' },
-    { key: 'portal_view_cfg', label: 'تنظیم نمایش حکم و مشخصات در پرتال کارمند' },
-    { key: 'portal_grants', label: 'صدور مجوز مرخصی/مأموریت' }
   ]}
 ];
 
@@ -1986,11 +1882,7 @@ function defaultOperatorPermissions() {
     salary_grade: true,
     cloud: false,
     adj_history: true,
-    changelog: false,
-    portal_att: true,
-    portal_contracts: true,
-    portal_view_cfg: false,
-    portal_grants: true
+    changelog: false
   };
 }
 
@@ -2888,11 +2780,6 @@ function applyTabVisibilityByPerm() {
   };
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn) {
     var tab = btn.dataset.tab;
-    // child tabs always stay hidden from main strip
-    if (btn.getAttribute('data-psp-child') === '1' || PSP_CHILD_TO_PARENT[tab]) {
-      btn.style.display = 'none';
-      return;
-    }
     if (tab === 'pending' || tab === 'permissions') {
       btn.style.display = isAdmin() ? '' : 'none';
       return;
@@ -2905,7 +2792,6 @@ function applyTabVisibilityByPerm() {
     if (!perm) { btn.style.display = ''; return; }
     btn.style.display = hasPerm(perm) ? '' : 'none';
   });
-  try { pspHideChildTabs(); } catch (e) {}
 }
 
 function pushPending(type, summary, payload) {
@@ -3076,93 +2962,14 @@ var CONTRACT_TYPE_LABELS = {
   daily: 'روزمزد',
   hourly: 'ساعتی'
 };
-
-function getContractTypesListLocal() {
-  var list = (data.settings && data.settings.contractTypesList) || [];
-  if (!list.length) {
-    list = [
-      { id: 'normal', name: 'عادی' },
-      { id: 'daily', name: 'روزمزد' },
-      { id: 'hourly', name: 'ساعتی' }
-    ];
-  }
-  return list;
-}
-function refreshContractTypeSelects(selected) {
-  var list = getContractTypesListLocal();
-  // merge ids seen on employees
-  var seen = {};
-  list.forEach(function(t){ seen[t.id] = true; });
-  (data.employees || []).forEach(function(e) {
-    if (e && e.contractType && !seen[e.contractType]) {
-      list.push({ id: e.contractType, name: e.contractType });
-      seen[e.contractType] = true;
-    }
-  });
-  var sels = [document.getElementById('e_contractType')];
-  document.querySelectorAll('select.contract-type-select').forEach(function(s){ sels.push(s); });
-  // فیلتر داشبورد و سایر شیت‌ها (با گزینه «همه»)
-  var filterSels = [];
-  ['dashFilterContract'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) filterSels.push(el);
-  });
-  document.querySelectorAll('select.contract-type-filter').forEach(function(s){ filterSels.push(s); });
-  sels.forEach(function(sel) {
-    if (!sel) return;
-    var cur = selected != null ? selected : sel.value;
-    sel.innerHTML = list.map(function(t) {
-      return '<option value="' + t.id + '">' + (t.name || t.id) + '</option>';
-    }).join('');
-    if (cur && list.some(function(t){ return t.id === cur; })) sel.value = cur;
-  });
-  filterSels.forEach(function(sel) {
-    if (!sel) return;
-    var cur = sel.value;
-    sel.innerHTML = '<option value="">همه</option>' + list.map(function(t) {
-      return '<option value="' + t.id + '">' + (t.name || t.id) + '</option>';
-    }).join('');
-    if (cur) sel.value = cur;
-  });
-  // جدول سقف مرخصی بر اساس نوع قرارداد
-  try { refreshLeavePolicyContractRows(); } catch (e) {}
-}
-function refreshLeavePolicyContractRows() {
-  var tb = document.querySelector('#leavePolicyByContract tbody');
-  if (!tb) return;
-  var list = getContractTypesListLocal();
-  var lp = (data.settings && data.settings.leavePolicy) || {};
-  var bct = lp.byContractType || {};
-  var annual = lp.annualDays != null ? lp.annualDays : 26;
-  var html = '';
-  list.forEach(function(t) {
-    var v = bct[t.id] != null ? bct[t.id] : annual;
-    html += '<tr><td>' + (t.name || t.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + t.id + '" value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
-  });
-  tb.innerHTML = html;
-}
-
 function contractTypeLabel(ct) {
   ct = ct || 'normal';
   if (CONTRACT_TYPE_LABELS[ct]) return CONTRACT_TYPE_LABELS[ct];
-  try {
-    var list = (data.settings && data.settings.contractTypesList) || [];
-    for (var i = 0; i < list.length; i++) {
-      if (list[i] && list[i].id === ct) return list[i].name || ct;
-    }
-  } catch (e) {}
   return String(ct);
 }
-/** همه انواع قرارداد: لیست تنظیمات + کارکنان */
+/** همه انواع قرارداد موجود در کارکنان + پیش‌فرض‌ها */
 function getKnownContractTypes() {
-  var set = {};
-  var list = (typeof getContractTypesListLocal === 'function') ? getContractTypesListLocal() : [];
-  (list || []).forEach(function(t) {
-    if (t && t.id) set[t.id] = true;
-  });
-  if (!Object.keys(set).length) {
-    set.normal = true; set.daily = true; set.hourly = true;
-  }
+  var set = { normal: true, daily: true, hourly: true };
   (data.employees || []).forEach(function(e) {
     if (e && e.contractType) set[e.contractType] = true;
   });
@@ -3207,69 +3014,29 @@ function renderSheetOrgFilters(containerId, prefix, onChangeFn) {
   var box = document.getElementById(containerId);
   if (!box) return;
   var onchange = onChangeFn || ('apply' + prefix.charAt(0).toUpperCase() + prefix.slice(1) + 'Filters()');
-  var prevChecked = {};
-  document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) {
-    prevChecked[cb.value] = cb.checked;
-  });
-  var hadPrev = Object.keys(prevChecked).length > 0;
   var cts = getKnownContractTypes();
-  var checkedCount = 0;
   var ctHtml = cts.map(function(ct) {
-    var ck = hadPrev ? !!prevChecked[ct] : true;
-    if (ck) checkedCount++;
-    return '<label class="check-label" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
-      '<input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '"' + (ck ? ' checked' : '') +
-      ' onchange="updateSheetCtSummary(\'' + prefix + '\');' + onchange + '"> ' +
-      '<span>' + contractTypeLabel(ct) + '</span></label>';
+    return '<label class="check-label" style="margin-left:10px;"><input type="checkbox" class="' + prefix + '-ct-filter" value="' + ct + '" checked onchange="' + onchange + '"> ' + contractTypeLabel(ct) + '</label>';
   }).join('');
-  var summaryTxt = (!cts.length) ? 'نوع قرارداد — خالی'
-    : (checkedCount === cts.length) ? 'نوع قرارداد — همه (' + cts.length + ')'
-    : (!checkedCount) ? 'نوع قرارداد — هیچ‌کدام'
-    : 'نوع قرارداد — ' + checkedCount + ' از ' + cts.length;
   box.innerHTML =
     '<div style="border:1px solid #ccfbf1;border-radius:10px;padding:10px 12px;background:#f8fffe;">' +
     '<div style="font-weight:600;color:#0f766e;font-size:0.82rem;margin-bottom:8px;">فیلتر سازمانی و نوع قرارداد</div>' +
-    '<div class="form-grid" style="margin-bottom:10px;">' +
+    '<div class="form-grid" style="margin-bottom:8px;">' +
     '<div class="form-group"><label>مدیریت/معاونت</label><select id="' + prefix + 'FilterMgmt" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>واحد</label><select id="' + prefix + 'FilterUnit" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>گروه</label><select id="' + prefix + 'FilterGroup" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>محل کار</label><select id="' + prefix + 'FilterWorkplace" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '<div class="form-group"><label>سمت</label><select id="' + prefix + 'FilterPosition" onchange="' + onchange + '"><option value="">همه</option></select></div>' +
     '</div>' +
-    '<div style="border:1px solid #99f6e4;border-radius:10px;overflow:hidden;background:#ecfdf5;">' +
-    '<button type="button" id="' + prefix + 'CtToggle" onclick="toggleSheetCtDrop(\'' + prefix + '\')" style="width:100%;text-align:right;padding:9px 12px;border:0;background:#ecfdf5;cursor:pointer;font-family:inherit;font-size:0.82rem;color:#0f766e;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-    '<span id="' + prefix + 'CtSummary">' + summaryTxt + '</span>' +
-    '<span id="' + prefix + 'CtChevron" style="font-size:0.75rem;color:#64748b;">▼ باز کردن</span></button>' +
-    '<div id="' + prefix + 'CtDropdown" style="display:none;padding:8px 10px;border-top:1px solid #99f6e4;background:#fff;">' +
-    '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
-    '<button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',true);updateSheetCtSummary(\'' + prefix + '\');' + onchange + '">همه</button>' +
-    '<button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);updateSheetCtSummary(\'' + prefix + '\');' + onchange + '">هیچ‌کدام</button>' +
-    '</div>' +
-    '<div style="max-height:180px;overflow:auto;font-size:0.8rem;">' + ctHtml + '</div>' +
-    '</div></div></div>';
+    '<div style="font-size:0.8rem;">نوع قرارداد: ' + ctHtml +
+    ' <button type="button" class="btn btn-outline btn-sm" style="margin-right:8px;" onclick="sheetCtSelectAll(\'' + prefix + '\',true);' + onchange + '">همه</button>' +
+    ' <button type="button" class="btn btn-outline btn-sm" onclick="sheetCtSelectAll(\'' + prefix + '\',false);' + onchange + '">هیچ‌کدام</button></div>' +
+    '</div>';
   fillSelectOptions(document.getElementById(prefix + 'FilterMgmt'), uniqueEmpFieldValues('management'));
   fillSelectOptions(document.getElementById(prefix + 'FilterUnit'), uniqueEmpFieldValues('unit'));
   fillSelectOptions(document.getElementById(prefix + 'FilterGroup'), uniqueEmpFieldValues('group'));
   fillSelectOptions(document.getElementById(prefix + 'FilterWorkplace'), uniqueEmpFieldValues('workplace'));
   fillSelectOptions(document.getElementById(prefix + 'FilterPosition'), uniqueEmpFieldValues('position'));
-}
-function toggleSheetCtDrop(prefix) {
-  var dd = document.getElementById(prefix + 'CtDropdown');
-  var ch = document.getElementById(prefix + 'CtChevron');
-  if (!dd) return;
-  var open = dd.style.display === 'none' || !dd.style.display;
-  dd.style.display = open ? 'block' : 'none';
-  if (ch) ch.textContent = open ? '▲ بستن' : '▼ باز کردن';
-}
-function updateSheetCtSummary(prefix) {
-  var all = document.querySelectorAll('.' + prefix + '-ct-filter');
-  var checked = document.querySelectorAll('.' + prefix + '-ct-filter:checked');
-  var sum = document.getElementById(prefix + 'CtSummary');
-  if (!sum) return;
-  if (!all.length) sum.textContent = 'نوع قرارداد — خالی';
-  else if (checked.length === all.length) sum.textContent = 'نوع قرارداد — همه (' + all.length + ')';
-  else if (!checked.length) sum.textContent = 'نوع قرارداد — هیچ‌کدام';
-  else sum.textContent = 'نوع قرارداد — ' + checked.length + ' از ' + all.length;
 }
 function sheetCtSelectAll(prefix, on) {
   document.querySelectorAll('.' + prefix + '-ct-filter').forEach(function(cb) { cb.checked = !!on; });
@@ -3281,6 +3048,7 @@ function getSheetFilterState(prefix) {
   }
   var cts = [];
   document.querySelectorAll('.' + prefix + '-ct-filter:checked').forEach(function(cb) { cts.push(cb.value); });
+  // اگر هیچ‌کدام تیک نبود، هیچ‌کس رد نشود با خالی بودن — صریحاً هیچ قرارداد
   return {
     management: val(prefix + 'FilterMgmt'),
     unit: val(prefix + 'FilterUnit'),
@@ -3307,7 +3075,7 @@ function empMatchesSheetFilter(emp, prefixOrState) {
   if (st.workplace && (emp.workplace || '') !== st.workplace) return false;
   if (st.position && (emp.position || '') !== st.position) return false;
   var ct = emp.contractType || 'normal';
-  var hasCtUi = prefix ? !!document.querySelector('.' + prefix + '-ct-filter') : (st.contractTypes !== undefined);
+  var hasCtUi = prefix ? !!document.querySelector('.' + prefix + '-ct-filter') : false;
   if (hasCtUi) {
     if (!st.contractTypes || !st.contractTypes.length) return false;
     if (st.contractTypes.indexOf(ct) < 0) return false;
@@ -3316,6 +3084,7 @@ function empMatchesSheetFilter(emp, prefixOrState) {
 }
 function filterEmployeesBySheet(prefix, list) {
   var src = list || getActiveEmployees();
+  // اگر فیلتر UI هنوز رندر نشده، همه را برگردان
   if (!document.getElementById(prefix + 'FilterUnit') && !document.querySelector('.' + prefix + '-ct-filter')) {
     return src;
   }
@@ -3857,185 +3626,12 @@ function syncEmployeeCustomsToAllowances() {
   });
 }
 
-
-// ---- Sub-tabs: hide moved tabs from main strip; show as sub-tabs under parent ----
-var PSP_SUBTAB_GROUPS = {
-  employees: [
-    { tab: 'employees', label: 'کارکنان فعال' },
-    { tab: 'inactive', label: 'غیر فعال‌ها' }
-  ],
-  allowances: [
-    { tab: 'allowances', label: 'آیتم‌های حقوق و مزایا' },
-    { tab: 'customitems', label: 'آیتم‌های سفارشی' },
-    { tab: 'monthlyvars', label: 'ثابت‌های ماهانه' }
-  ],
-  annualtax: [
-    { tab: 'annualtax', label: 'تسویه مالیات سالانه' },
-    { tab: 'settings', label: 'نرخ بیمه و مالیات' }
-  ],
-  pending: [
-    { tab: 'pending', label: 'تایید تغییرات' },
-    { tab: 'changelog', label: 'لاگ تغییرات' }
-  ],
-  payroll: [
-    { tab: 'payroll', label: 'محاسبه و نتیجه' },
-    { tab: 'dataentry', label: 'ورود داده‌های ماهانه' }
-  ]
-};
-var PSP_CHILD_TO_PARENT = {};
-Object.keys(PSP_SUBTAB_GROUPS).forEach(function(parent) {
-  PSP_SUBTAB_GROUPS[parent].forEach(function(c) {
-    if (c.tab !== parent) PSP_CHILD_TO_PARENT[c.tab] = parent;
-  });
-});
-
-function pspEnsureSubtabsBar(parentTab) {
-  var group = PSP_SUBTAB_GROUPS[parentTab];
-  if (!group) return null;
-  var barId = 'psp-subtabs-bar-' + parentTab;
-  var bar = document.getElementById(barId);
-  if (bar) return bar;
-  bar = document.createElement('div');
-  bar.id = barId;
-  bar.className = 'psp-subtabs no-print';
-  bar.setAttribute('data-parent', parentTab);
-  group.forEach(function(item) {
-    var b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'psp-subbtn' + (item.tab === parentTab ? ' active' : '');
-    b.setAttribute('data-subtab', item.tab);
-    b.textContent = item.label;
-    b.onclick = function(ev) {
-      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
-      pspActivateSubtab(parentTab, item.tab);
-    };
-    bar.appendChild(b);
-  });
-  return bar;
-}
-
-function pspPlaceSubtabsBar(parentTab, hostPanel) {
-  if (!hostPanel) return;
-  var bar = pspEnsureSubtabsBar(parentTab);
-  if (!bar) return;
-  // remove any OTHER duplicate subtab bars inside this panel
-  hostPanel.querySelectorAll('.psp-subtabs').forEach(function(el) {
-    if (el !== bar) el.parentNode.removeChild(el);
-  });
-  // move bar to top of host (not clone)
-  if (bar.parentNode !== hostPanel || hostPanel.firstChild !== bar) {
-    hostPanel.insertBefore(bar, hostPanel.firstChild);
-  }
-}
-
-function pspActivateSubtab(parentTab, subTab) {
-  var group = PSP_SUBTAB_GROUPS[parentTab];
-  if (!group) return;
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-  var parentBtn = document.querySelector('.tab-btn[data-tab="' + parentTab + '"]');
-  if (parentBtn) parentBtn.classList.add('active');
-  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-  var target = document.getElementById('panel-' + subTab);
-  if (target) target.classList.add('active');
-  // one bar only, moved onto the visible panel
-  if (target) pspPlaceSubtabsBar(parentTab, target);
-  var bar = document.getElementById('psp-subtabs-bar-' + parentTab);
-  if (bar) {
-    bar.querySelectorAll('.psp-subbtn').forEach(function(btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
-    });
-  }
-  try {
-    if (subTab === 'inactive' && typeof renderInactive === 'function') renderInactive();
-    if (subTab === 'customitems') {
-      if (typeof seedCustomTemplatesFromEmployees === 'function') seedCustomTemplatesFromEmployees();
-      if (typeof renderCustomTemplates === 'function') renderCustomTemplates();
-      if (typeof fillCtApplyFilters === 'function') fillCtApplyFilters();
-      if (typeof refreshCtApplyEmpList === 'function') refreshCtApplyEmpList();
-    }
-    if (subTab === 'monthlyvars' && typeof renderMonthlyVars === 'function') renderMonthlyVars();
-    if (subTab === 'settings' && typeof loadSettingsToForm === 'function') loadSettingsToForm();
-    if (subTab === 'changelog') {
-      if (typeof isAdmin === 'function' && !isAdmin()) {
-        alert('فقط ادمین به لاگ دسترسی دارد.');
-        pspActivateSubtab(parentTab, parentTab);
-        return;
-      }
-      if (typeof renderChangeLog === 'function') renderChangeLog();
-    }
-    if (subTab === 'employees' && typeof renderEmployees === 'function') renderEmployees();
-    if (subTab === 'allowances') {
-      if (typeof syncEmployeeCustomsToAllowances === 'function') syncEmployeeCustomsToAllowances();
-      if (typeof renderAllowances === 'function') renderAllowances();
-    }
-    if (subTab === 'pending' && typeof renderPending === 'function') renderPending();
-    if (subTab === 'payroll' && typeof renderSheetOrgFilters === 'function') {
-      try { renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()'); } catch (e) {}
-    }
-    if (subTab === 'dataentry') { /* open panel only */ }
-    if (subTab === 'annualtax') {
-      try {
-        var yEl = document.getElementById('annualTaxYear');
-        if (yEl && data && data.settings) yEl.value = data.settings.currentYear || 1405;
-        if (typeof renderSheetOrgFilters === 'function') renderSheetOrgFilters('annualTaxSheetFilters', 'annualTax', 'applyAnnualTaxFilters()');
-        if (typeof fillAnnualTaxEmpList === 'function') fillAnnualTaxEmpList();
-      } catch (e) {}
-    }
-  } catch (e) { console.error(e); }
-}
-
-function pspHideChildTabs() {
-  Object.keys(PSP_CHILD_TO_PARENT).forEach(function(child) {
-    var btn = document.querySelector('.tab-btn[data-tab="' + child + '"]');
-    if (btn) {
-      btn.style.display = 'none';
-      btn.setAttribute('data-psp-child', '1');
-    }
-  });
-  // remove any duplicate bars left from older versions
-  document.querySelectorAll('.psp-subtabs').forEach(function(el) {
-    var parent = el.getAttribute('data-parent');
-    var id = el.id || '';
-    if (parent && id !== 'psp-subtabs-bar-' + parent) {
-      try { el.parentNode.removeChild(el); } catch (e) {}
-    }
-  });
-  // dedupe: if multiple bars with same id-less class under same panel, keep first
-  document.querySelectorAll('.panel').forEach(function(panel) {
-    var bars = panel.querySelectorAll('.psp-subtabs');
-    if (bars.length > 1) {
-      for (var i = 1; i < bars.length; i++) {
-        try { bars[i].parentNode.removeChild(bars[i]); } catch (e) {}
-      }
-    }
-  });
-}
-
-// Patch: when parent tab clicked, show its sub-bar; intercept child if somehow shown
-document.addEventListener('DOMContentLoaded', function() {
-  setTimeout(pspHideChildTabs, 100);
-});
-setTimeout(pspHideChildTabs, 500);
-setTimeout(pspHideChildTabs, 1500);
-
-
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    var tabId = btn.dataset.tab;
-    // if this is a hidden child tab clicked programmatically, still allow
-    if (btn.getAttribute('data-psp-child') === '1' && PSP_CHILD_TO_PARENT[tabId]) {
-      pspActivateSubtab(PSP_CHILD_TO_PARENT[tabId], tabId);
-      return;
-    }
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
-    var panelEl = document.getElementById('panel-'+tabId);
-    if (panelEl) panelEl.classList.add('active');
-    if (PSP_SUBTAB_GROUPS[tabId]) {
-      pspActivateSubtab(tabId, tabId);
-      // fall through for original side effects of parent
-    }
+    document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab==='employees') {
       const y = Number(document.getElementById('dataYear') && document.getElementById('dataYear').value) || data.settings.currentYear || 1405;
       const m = Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
@@ -4422,41 +4018,10 @@ function renderInsuranceCeilingsForm() {
 }
 
 function loadSettingsToForm() {
-  const s = data.settings || {};
-  // همیشه مقدار پیش‌فرض داشته باش تا فیلد خالی نماند
-  if (s.insEmployee == null || s.insEmployee === '') s.insEmployee = 7;
-  if (s.insEmployer == null || s.insEmployer === '') s.insEmployer = 23;
-  if (s.overtimeFactor == null || s.overtimeFactor === '') s.overtimeFactor = 1.4;
-  if (s.nightFactor == null || s.nightFactor === '') s.nightFactor = 1.35;
-  data.settings.insEmployee = s.insEmployee;
-  data.settings.insEmployer = s.insEmployer;
-  var ie = document.getElementById('insEmployee');
-  var ir = document.getElementById('insEmployer');
-  var ot = document.getElementById('overtimeFactor');
-  if (ie) ie.value = (s.insEmployee != null && s.insEmployee !== '') ? s.insEmployee : 7;
-  if (ir) ir.value = (s.insEmployer != null && s.insEmployer !== '') ? s.insEmployer : 23;
-  if (ot) ot.value = (s.overtimeFactor != null && s.overtimeFactor !== '') ? s.overtimeFactor : 1.4;
-  var mot = document.getElementById('maxOtHours');
-  if (mot) mot.value = (s.maxOtHours != null && s.maxOtHours !== '') ? s.maxOtHours : 0;
-  if (ie && (ie.value === '' || ie.value === 'undefined' || ie.value === 'null')) ie.value = 7;
-  if (ir && (ir.value === '' || ir.value === 'undefined' || ir.value === 'null')) ir.value = 23;
-  try {
-    var lp = (data.settings && data.settings.leavePolicy) || {};
-    var la = document.getElementById('leaveAnnualDays');
-    var lc = document.getElementById('leaveCarryMax');
-    if (la) la.value = lp.annualDays != null ? lp.annualDays : 26;
-    if (lc) lc.value = lp.carryMax != null ? lp.carryMax : 9;
-    var bct = lp.byContractType || {};
-    var elN = document.getElementById('leaveCt_normal');
-    var elD = document.getElementById('leaveCt_daily');
-    var elH = document.getElementById('leaveCt_hourly');
-    if (elN) elN.value = bct.normal != null ? bct.normal : (lp.annualDays != null ? lp.annualDays : 26);
-    if (elD) elD.value = bct.daily != null ? bct.daily : (lp.annualDays != null ? lp.annualDays : 26);
-    if (elH) elH.value = bct.hourly != null ? bct.hourly : 0;
-    try { refreshContractTypeSelects(); } catch (e) {}
-    renderLeaveGroupPolicyRows(lp.byGroup || {});
-  } catch (e) {}
-
+  const s = data.settings;
+  document.getElementById('insEmployee').value = s.insEmployee;
+  document.getElementById('insEmployer').value = s.insEmployer;
+  document.getElementById('overtimeFactor').value = s.overtimeFactor;
   document.getElementById('nightFactor').value = s.nightFactor || 1.35;
   if (document.getElementById('shiftMorningEvening')) document.getElementById('shiftMorningEvening').value = s.shiftMorningEvening != null ? s.shiftMorningEvening : 10;
   if (document.getElementById('shiftWithNight')) document.getElementById('shiftWithNight').value = s.shiftWithNight != null ? s.shiftWithNight : 22.5;
@@ -4516,44 +4081,6 @@ function saveSettings() {
   data.settings.insEmployee = Number(document.getElementById('insEmployee').value)||7;
   data.settings.insEmployer = Number(document.getElementById('insEmployer').value)||23;
   data.settings.overtimeFactor = Number(document.getElementById('overtimeFactor').value)||1.4;
-  try { var mot=document.getElementById('maxOtHours'); data.settings.maxOtHours = mot ? (Number(mot.value)||0) : 0; } catch(e){}
-  try {
-    var la = document.getElementById('leaveAnnualDays');
-    var lc = document.getElementById('leaveCarryMax');
-    var elN = document.getElementById('leaveCt_normal');
-    var elD = document.getElementById('leaveCt_daily');
-    var elH = document.getElementById('leaveCt_hourly');
-    var byGroup = {};
-    document.querySelectorAll('#leaveGroupPolicyList .leave-grp-row').forEach(function(row) {
-      var g = (row.querySelector('.leave-grp-name') || {}).value;
-      var d = (row.querySelector('.leave-grp-days') || {}).value;
-      g = String(g || '').trim();
-      if (!g) return;
-      var n = Number(d);
-      if (isNaN(n) || n < 0) n = 0;
-      byGroup[g] = n;
-    });
-    data.settings.leavePolicy = {
-      annualDays: la ? Number(la.value) || 0 : 26,
-      carryMax: lc ? Number(lc.value) || 0 : 0,
-      byContractType: (function(){
-        var annual = la ? Number(la.value) || 0 : 26;
-        var out = {};
-        document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
-          var id = inp.getAttribute('data-ct') || inp.id && String(inp.id).replace(/^leaveCt_/, '');
-          if (!id) return;
-          var n = Number(inp.value);
-          if (isNaN(n) || n < 0) n = annual;
-          out[id] = n;
-        });
-        if (!Object.keys(out).length) {
-          out = { normal: annual, daily: annual, hourly: 0 };
-        }
-        return out;
-      })(),
-      byGroup: byGroup
-    };
-  } catch (e) {}
   data.settings.nightFactor = Number(document.getElementById('nightFactor').value)||1.35;
   data.settings.shiftMorningEvening = Number(document.getElementById('shiftMorningEvening') && document.getElementById('shiftMorningEvening').value) || 10;
   data.settings.shiftWithNight = Number(document.getElementById('shiftWithNight') && document.getElementById('shiftWithNight').value) || 22.5;
@@ -4601,27 +4128,6 @@ function renderEmployeeCustomItems() {
     <div class="custom-item-row">
       <input type="text" placeholder="نام آیتم (مثلاً معوقه اقماری بهمن)" value="${ci.name||''}" onchange="tempCustomItems[${idx}].name=this.value">
       <input type="number" placeholder="مبلغ" value="${ci.amount||0}" min="0" onchange="tempCustomItems[${idx}].amount=Number(this.value)||0">
-      <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;">
-        <input type="text" id="ciFormula_${idx}" placeholder="فرمول (اختیاری)" value="${ci.formula||''}" onchange="tempCustomItems[${idx}].formula=this.value" style="min-width:140px;">
-        <select onchange="insertFormulaVar(${idx}, this.value); this.value='';" style="font-size:0.72rem;padding:2px 4px;" title="یک متغیر انتخاب کنید تا به فرمول اضافه شود">
-          <option value="">+ افزودن متغیر…</option>
-          <option value="basicSalary">basicSalary — حقوق پایه</option>
-          <option value="workDays">workDays — روز کارکرد</option>
-          <option value="leaveDays">leaveDays — روز مرخصی</option>
-          <option value="hourlyLeave">hourlyLeave — مرخصی ساعتی</option>
-          <option value="missionDays">missionDays — روز مأموریت</option>
-          <option value="missionHours">missionHours — ساعت مأموریت</option>
-          <option value="otHours">otHours — اضافه‌کار</option>
-          <option value="nightHours">nightHours — شب‌کاری</option>
-          <option value="shiftDays">shiftDays — روز نوبت</option>
-          <option value="amount">amount — مبلغ آیتم</option>
-          <option value="children">children — تعداد اولاد</option>
-          <option value="dailyRate">dailyRate — مزد روزانه</option>
-          <option value="hourlyRate">hourlyRate — مزد ساعتی</option>
-          <option value="functionalDays">functionalDays — کارکرد خالص</option>
-          <option value="seniorityBase">seniorityBase — پایه سنوات</option>
-        </select>
-      </div>
       <select onchange="tempCustomItems[${idx}].entryType=this.value">
         <option value="workdays" ${ci.entryType==='workdays'?'selected':''}>بر اساس کارکرد</option>
         <option value="quantity" ${ci.entryType==='quantity'?'selected':''}>بر اساس تعداد</option>
@@ -4653,7 +4159,7 @@ function addEmployeeCustomItem() {
   const y = Number((data.settings && data.settings.currentYear) || 1405);
   const m = Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
   tempCustomItems.push({
-    name: '', amount: 0, formula: '', entryType: 'workdays', isDeduction: false, isFixed: false,
+    name: '', amount: 0, entryType: 'workdays', isDeduction: false, isFixed: false,
     duration: 'always', enabled: true, startYear: y, startMonth: m
   });
   renderEmployeeCustomItems();
@@ -4848,9 +4354,6 @@ function openEmployeeModal(editId = null) {
     const emp = data.employees.find(e => e.code === editId);
     if (!emp) return;
     document.getElementById('empModalTitle').textContent = 'ویرایش کارمند';
-    try { refreshContractTypeSelects(emp.contractType); } catch(e) {}
-    window.__editingEmpLeaveBalance = (emp.leaveBalance != null ? emp.leaveBalance : null);
-    try { var lb=document.getElementById('e_leaveBalance'); if(lb) lb.value = (typeof displayEmpLeaveBalance==='function' ? displayEmpLeaveBalance(emp) : (emp.leaveBalance!=null?emp.leaveBalance:'')); } catch(e) {}
     document.getElementById('editEmpId').value = emp.code;
     const map = {
       code:'e_code', nationalId:'e_nationalId', firstName:'e_firstName', lastName:'e_lastName',
@@ -4860,14 +4363,13 @@ function openEmployeeModal(editId = null) {
       basicSalary:'e_basicSalary', seniorityBase:'e_seniorityBase',
       bankName:'e_bankName', accountNumber:'e_accountNumber', insuranceNo:'e_insuranceNo',
       children:'e_children', gender:'e_gender', marital:'e_marital', exemption:'e_exemption', status:'e_status', statusStart:'e_statusStart', statusEnd:'e_statusEnd',
-      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining', leaveBalance:'e_leaveBalance', maxOtHours:'e_maxOtHours',
+      loanAmount:'e_loanAmount', loanInstallments:'e_loanInstallments', loanRemaining:'e_loanRemaining',
       taxPercent:'e_taxPercent'
     };
     Object.keys(map).forEach(k => {
       const el = document.getElementById(map[k]);
       if (!el) return;
       if (k === 'taxPercent') el.value = (emp.taxPercent === 50 ? '50' : '100');
-      else if (k === 'maxOtHours') el.value = (emp.maxOtHours != null && emp.maxOtHours !== '') ? emp.maxOtHours : '';
       else el.value = emp[k] ?? (['basicSalary','seniorityBase','children','loanAmount','loanInstallments','loanRemaining'].includes(k) ? 0 : (k==='status'?'active':''));
     });
     document.getElementById('e_contractType').value = emp.contractType || 'normal';
@@ -4895,8 +4397,6 @@ function openEmployeeModal(editId = null) {
     document.getElementById('e_notes').value = emp.notes || '';
   } else {
     document.getElementById('empModalTitle').textContent = 'افزودن کارمند';
-    try { refreshContractTypeSelects('normal'); } catch(e) {}
-    window.__editingEmpLeaveBalance = null;
   }
   renderEmployeeCustomItems();
 }
@@ -5052,8 +4552,6 @@ function saveEmployee(e) {
     statusEnd: document.getElementById('e_statusEnd') ? document.getElementById('e_statusEnd').value.trim() : '',
     notes: document.getElementById('e_notes').value.trim(),
     loanAmount, loanInstallments: installments, loanRemaining: remaining,
-    leaveBalance: (function(){ var el=document.getElementById('e_leaveBalance'); var existing=(window.__editingEmpLeaveBalance!=null)?window.__editingEmpLeaveBalance:(el&&el.value!==''?Number(el.value):null); return existing!=null && !isNaN(existing) ? existing : (el ? Number(el.value) : 0); })(),
-    maxOtHours: (function(){ var el=document.getElementById('e_maxOtHours'); if(!el||el.value===''||el.value==null) return null; return Number(el.value); })(),
     monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
     loanLocked: currentLoanLocked || false,
     customItems: tempCustomItems.filter(c => c.name && c.name.trim()).map(c => {
@@ -5184,7 +4682,6 @@ function renderEmployees() {
       <td>${emp.bankName||'—'}</td>
       <td>${exMap[emp.exemption]||'—'}</td>
       <td>${formatNumber(emp.loanRemaining||0)}${emp.loanLocked ? ' 🔒' : ''}</td>
-      <td>${typeof displayEmpLeaveBalance==='function' ? displayEmpLeaveBalance(emp) : (emp.leaveBalance != null ? emp.leaveBalance : '—')}</td>
       <td class="actions">
         <button class="btn btn-outline btn-sm" onclick="openEmployeeModal('${emp.code}')">ویرایش</button>
         <button class="btn btn-danger btn-sm" onclick="setEmployeeStatus('${emp.code}','inactive')">غیر فعال</button>
@@ -5265,7 +4762,7 @@ function empBaseHeaders() {
     'تاریخ استخدام','تاریخ پایان همکاری','دلیل پایان همکاری',
     'نوع قرارداد','حقوق پایه ماهانه','پایه سنوات ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
     'تعداد اولاد','وضعیت تأهل','معافیت','مالیات','وضعیت','کسر بیمه تکمیلی',
-    'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','مانده مرخصی استحقاقی','سقف اضافه‌کار ماهانه','توضیحات'
+    'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','توضیحات'
   ];
 }
 
@@ -5279,7 +4776,6 @@ function downloadEmployeeTemplate() {
     extra.push('نحوه:' + n);
     extra.push('ثابت:' + n);
     extra.push('مدت:' + n);
-    extra.push('فرمول:' + n);
   });
   const headers = baseHeaders.concat(extra);
   let csv = headers.map(h => '"' + String(h).replace(/"/g,'""') + '"').join(',') + '\n';
@@ -5293,7 +4789,7 @@ function downloadEmployeeTemplate() {
     '1405/01/01','','',
     'عادی','0','0','0','0','نام بانک','شماره حساب','شماره بیمه',
     '0','مجرد','هیچ‌کدام','100','فعال','خیر',
-    '0','0','0','26','40','توضیح نمونه'
+    '0','0','0','توضیح نمونه'
   ];
   const sampleExtra = [];
   customNames.forEach(function() {
@@ -5301,7 +4797,6 @@ function downloadEmployeeTemplate() {
     sampleExtra.push('کارکرد');    // نحوه
     sampleExtra.push('خیر');       // ثابت
     sampleExtra.push('همیشه');     // مدت
-    sampleExtra.push('');          // فرمول (مثلاً workDays*50000)
   });
   pushRow(sampleBase.concat(sampleExtra));
 
@@ -5345,8 +4840,6 @@ function importEmployeesFromExcel(event) {
         suppIns: find(['کسر بیمه تکمیلی']),
         loanAmount: find(['مبلغ کل وام','مبلغ وام']),
         loanInstallments: find(['تعداد اقساط','اقساط']), loanRemaining: find(['باقی‌مانده','باقی مانده']),
-        leaveBalance: find(['مانده مرخصی','مرخصی استحقاقی']),
-        maxOtHours: find(['سقف اضافه‌کار','سقف اضافه']),
         notes: find(['توضیحات'])
       };
       // ستون‌های آیتم: نام آیتم = مبلغ | نحوه:نام | کسر:نام | ثابت:نام | مدت:نام | مبلغ:نام
@@ -5359,14 +4852,12 @@ function importEmployeesFromExcel(event) {
         const mDed = /^کسر[:：]\s*(.+)$/.exec(h);
         const mFix = /^ثابت[:：]\s*(.+)$/.exec(h);
         const mDur = /^مدت[:：]\s*(.+)$/.exec(h);
-        const mFormula = /^فرمول[:：]\s*(.+)$/.exec(h);
         if (mAmt) { if (!customCols[mAmt[1]]) customCols[mAmt[1]] = {}; customCols[mAmt[1]].amount = i; }
         else if (mType) { if (!customCols[mType[1]]) customCols[mType[1]] = {}; customCols[mType[1]].entryType = i; }
         else if (mDed) { if (!customCols[mDed[1]]) customCols[mDed[1]] = {}; customCols[mDed[1]].isDeduction = i; }
         else if (mFix) { if (!customCols[mFix[1]]) customCols[mFix[1]] = {}; customCols[mFix[1]].isFixed = i; }
         else if (mDur) { if (!customCols[mDur[1]]) customCols[mDur[1]] = {}; customCols[mDur[1]].duration = i; }
-        else if (mFormula) { if (!customCols[mFormula[1]]) customCols[mFormula[1]] = {}; customCols[mFormula[1]].formula = i; }
-        else if (h && !baseSet[h] && !/^(نحوه|کسر|ثابت|مدت|مبلغ|فرمول)[:：]/.test(h)) {
+        else if (h && !baseSet[h] && !/^(نحوه|کسر|ثابت|مدت|مبلغ)[:：]/.test(h)) {
           // خود نام آیتم به‌عنوان ستون مبلغ
           if (!customCols[h]) customCols[h] = {};
           if (customCols[h].amount == null) customCols[h].amount = i;
@@ -5440,12 +4931,10 @@ function importEmployeesFromExcel(event) {
             else if (/^5$|پنج\s*ماه/i.test(dv)) duration = '5';
             else duration = 'always';
           }
-          const formula = c.formula != null ? String(get(c.formula) || '').trim() : '';
-          if (amount > 0 || isDeduction || name === 'کسر بیمه تکمیلی' || c.entryType != null || formula) {
+          if (amount > 0 || isDeduction || name === 'کسر بیمه تکمیلی' || c.entryType != null) {
             customItems.push({
               name: name, amount: amount, entryType: entryType,
-              isDeduction: isDeduction, isFixed: isFixed, duration: duration,
-              formula: formula
+              isDeduction: isDeduction, isFixed: isFixed, duration: duration
             });
           }
         });
@@ -5469,8 +4958,6 @@ function importEmployeesFromExcel(event) {
           marital, exemption, taxPercent, status,
           notes: get(idx.notes) || '',
           loanAmount, loanInstallments: installments, loanRemaining: remaining,
-          leaveBalance: (function(){ var v = get(idx.leaveBalance); if(v===''||v==null) return 26; var n=Number(v); return isNaN(n)?26:n; })(),
-          maxOtHours: (function(){ var v = get(idx.maxOtHours); if(v===''||v==null) return null; var n=Number(v); return isNaN(n)?null:n; })(),
           monthlyLoan: (loanAmount > 0 && installments > 0) ? Math.ceil(loanAmount / installments) : 0,
           loanLocked: false, customItems: customItems
         };
@@ -5939,7 +5426,7 @@ function loadDataEntry() {
   pruneOrphanQtyKeys(key, allQtyNames);
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
-  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
+  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
   // ستون‌های پویا با ترتیب ذخیره‌شده (ثابت ماهانه + تعدادی / کسورات / معوقه)
   var orderedCols = resolveDataEntryColOrder();
   var fixedVars = [];
@@ -6000,11 +5487,9 @@ function loadDataEntry() {
       '<td><input class="' + wdClass + '" type="number" min="0"' + maxAttr + ' value="' + wd + '" title="' + titleHint + '" ' +
       'onchange="updateDataField(\'' + emp.code + '\',\'workDays\',this.value,this)"' + clampAttr + '></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.leaveDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'leaveDays\',this.value)"></td>' +
-      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.hourlyLeave||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'hourlyLeave\',this)" title="مرخصی ساعتی HH:MM"></td>' +
-
-      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionDays\',this.value)" title="روز مأموریت تأییدشده"></td>' +
-      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.missionHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'missionHours\',this)" title="مأموریت ساعتی HH:MM"></td>' +      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.otHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'otHours\',this)" title="اضافه‌کار HH:MM"></td>' +
-      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.nightHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'nightHours\',this)" title="شب‌کاری HH:MM"></td>' +
+      '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.hourlyLeave||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'hourlyLeave\',this.value)" title="ساعات مرخصی ساعتی"></td>' +
+      '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
+      '<td><input class="data-input" type="number" min="0" value="' + (row.nightHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value)"></td>' +
       '<td><select class="data-input" style="width:68px;font-size:0.65rem;padding:1px;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
         '<option value="none"' + ((row.shiftType||'none')==='none'?' selected':'') + '>ندارد</option>' +
         '<option value="me"' + ((row.shiftType||'')==='me'?' selected':'') + '>صبح‌عصر ۱۰٪</option>' +
@@ -6040,32 +5525,6 @@ function clampWorkDaysInput(el, maxAllowed) {
   else el.classList.remove('workdays-incomplete');
 }
 
-
-function hoursToHM(hours) {
-  var mins = Math.round((Number(hours) || 0) * 60);
-  if (mins < 0) mins = 0;
-  var h = Math.floor(mins / 60), m = mins % 60;
-  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-}
-function parseHMtoHours(str) {
-  str = String(str || '').trim();
-  if (!str) return 0;
-  if (/^\d+(\.\d+)?$/.test(str) && str.indexOf(':') < 0) return Number(str) || 0;
-  var s = str.replace(/[^0-9:]/g, '');
-  if (/^\d{3,4}$/.test(s)) {
-    while (s.length < 4) s = '0' + s;
-    return (parseInt(s.slice(0, 2), 10) || 0) + (parseInt(s.slice(2, 4), 10) || 0) / 60;
-  }
-  var p = s.split(':');
-  var hh = parseInt(p[0], 10) || 0, mm = parseInt(p[1] || '0', 10) || 0;
-  return hh + mm / 60;
-}
-function onHourFieldChange(code, field, el) {
-  var hours = parseHMtoHours(el.value);
-  el.value = hoursToHM(hours);
-  updateDataField(code, field, hours, el);
-}
-
 function updateDataField(code, field, value, el) {
   const key = getDataKey();
   const parts = String(key).split('-');
@@ -6087,15 +5546,6 @@ function updateDataField(code, field, value, el) {
         if (num < maxAllowed) el.classList.add('workdays-incomplete');
         else el.classList.remove('workdays-incomplete');
       }
-    }
-  }
-  if (field === 'otHours') {
-    var empOt = (data.employees || []).find(function(e) { return String(e.code) === String(code); });
-    var maxOt = (typeof getEmpMaxOtHours === 'function') ? getEmpMaxOtHours(empOt) : Number((data.settings && data.settings.maxOtHours) || 0);
-    if (maxOt > 0 && num > maxOt) {
-      num = maxOt;
-      if (el) el.value = (typeof hoursToHM === 'function') ? hoursToHM(maxOt) : maxOt;
-      alert('سقف اضافه‌کار این نفر ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.');
     }
   }
   data.monthlyData[key][code][field] = num;
@@ -6187,9 +5637,7 @@ function importDataFromExcel(event) {
         leaveDays: bh.findIndex(h => h.includes('روز مرخصی') || (h.includes('مرخصی') && !h.includes('ساعتی'))),
         hourlyLeave: bh.findIndex(h => h.includes('مرخصی ساعتی') || h.includes('ساعتی')),
         otHours: bh.findIndex(h => h.includes('اضافه‌کار') || h.includes('اضافه کار')),
-        nightHours: bh.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار')),
-        shiftType: bh.findIndex(h => h.includes('نوع نوبت') || h === 'نوبت'),
-        shiftDays: bh.findIndex(h => h.includes('روز نوبت'))
+        nightHours: bh.findIndex(h => h.includes('شب‌کار') || h.includes('شب کار'))
       };
       const varIdx = {};
       getMonthlyVars(true).forEach(v => { const i = headers.findIndex(h => h === v.name); if (i >= 0) varIdx[v.id] = i; });
@@ -6225,15 +5673,6 @@ function importDataFromExcel(event) {
         if (idx.hourlyLeave >= 0) row.hourlyLeave = Number((cols[idx.hourlyLeave]||'').replace(/"/g,'')) || 0;
         if (idx.otHours >= 0) row.otHours = Number((cols[idx.otHours]||'').replace(/"/g,'')) || 0;
         if (idx.nightHours >= 0) row.nightHours = Number((cols[idx.nightHours]||'').replace(/"/g,'')) || 0;
-        if (idx.shiftType >= 0 && cols[idx.shiftType] !== undefined) {
-          var st = String(cols[idx.shiftType]||'').replace(/"/g,'').trim();
-          if (st === 'صبح و عصر' || st === 'صبح‌و‌عصر') row.shiftType = 'morning_evening';
-          else if (st === 'با شب' || st === 'شب') row.shiftType = 'with_night';
-          else if (st === 'هر سه' || st === 'سه‌نوبت') row.shiftType = 'all_three';
-          else if (st) row.shiftType = st;
-          else row.shiftType = 'none';
-        }
-        if (idx.shiftDays >= 0 && cols[idx.shiftDays] !== undefined) row.shiftDays = Number((cols[idx.shiftDays]||'').replace(/"/g,'')) || 0;
         if (!row.vars) row.vars = {};
         Object.keys(varIdx).forEach(id => { row.vars[id] = Number(String(cols[varIdx[id]]||'').replace(/"/g,'')) || 0; });
         if (!row.qty) row.qty = {};
@@ -6257,7 +5696,7 @@ function importDataFromExcel(event) {
 }
 
 /* ---- Payroll calculation runs on the server (POST /api/payroll). The rules are no longer in this file. ---- */
-const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
+const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
 
 function buildPayrollRequest(year, month, skipLoanSE) {
   const key = year + '-' + month;
@@ -7140,7 +6579,6 @@ function renderEidResults(results) {
     return;
   }
   let html = '<table><thead><tr>' +
-    '<th><input type="checkbox" id="eidSelectAll" checked title="انتخاب همه" onchange="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=document.getElementById(\'eidSelectAll\').checked})"></th>' +
     '<th>کد</th><th>نام</th><th>تاریخ استخدام</th>' +
     '<th>روز کارکرد</th><th>مرخصی استفاده‌شده</th><th>استحقاقی</th><th>مانده</th><th>قابل پرداخت (روز)</th>' +
     '<th>جمع حکم</th><th>مزد روزانه مرخصی</th><th>مبلغ مرخصی</th>' +
@@ -7164,7 +6602,6 @@ function renderEidResults(results) {
          ')</span>')
       : '';
     html += '<tr' + trStyle + '>' +
-      '<td><input type="checkbox" class="eid-settle-cb" data-code="' + r.code + '" checked></td>' +
       '<td>' + r.code + '</td><td>' + r.fullName + nameExtra + '</td><td>' + (r.hireDate || '—') + '</td>' +
       '<td>' + formatDecimal(r.workDays, 1) + '</td>' +
       '<td>' + formatDecimal(r.leaveUsed, 1) + '</td>' +
@@ -7182,19 +6619,13 @@ function renderEidResults(results) {
       '<td style="font-weight:800;color:#16a34a;">' + formatNumber(r.totalPay) + '</td></tr>';
   });
   html += '</tbody><tfoot><tr style="background:#f0fdfa;font-weight:700;">' +
-    '<td colspan="11">جمع کل</td>' +
+    '<td colspan="10">جمع کل</td>' +
     '<td>' + formatNumber(sumLeave) + '</td>' +
     '<td colspan="2"></td>' +
     '<td>' + formatNumber(sumEid) + '</td><td>' + formatNumber(sumTax) + '</td>' +
     '<td>' + formatNumber(sumEid - sumTax) + '</td><td>' + formatNumber(sumSev) + '</td>' +
     '<td>' + formatNumber(sumTotal) + '</td></tr></tfoot></table>';
-  html += '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">' +
-    '<button class="btn btn-outline btn-sm" onclick="exportEidExcel()">خروجی اکسل عیدی، سنوات و مرخصی</button>' +
-    '<button class="btn btn-warning btn-sm" onclick="applyEidLeaveToBalances()">ثبت تسویه مرخصی برای افراد تیک‌خورده</button>' +
-    '<button class="btn btn-outline btn-sm" type="button" onclick="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=true})">انتخاب همه</button>' +
-    '<button class="btn btn-outline btn-sm" type="button" onclick="document.querySelectorAll(\'.eid-settle-cb\').forEach(function(c){c.checked=false})">حذف انتخاب</button>' +
-    '</div>' +
-    '<p style="font-size:0.75rem;color:#64748b;margin-top:6px;">ثبت روی مانده: برای روز قابل‌پرداخت مثبت از مانده کم می‌شود. فقط یک‌بار پس از محاسبه نهایی بزنید.</p>';
+  html += '<div style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="exportEidExcel()">خروجی اکسل عیدی، سنوات و مرخصی</button></div>';
   box.innerHTML = html;
 }
 
@@ -7765,38 +7196,11 @@ function autoDeactivateByEndDate(refYear, refMonth) {
  * (دقیق نیست ولی بهتر از صفر است؛ پس از محاسبهٔ مجدد ماه‌ها فیلد taxable ذخیره می‌شود)
  */
 
-function toggleAnnualTaxEmpDrop() {
-  var dd = document.getElementById('annualTaxEmpDropdown');
-  var ch = document.getElementById('annualTaxEmpChevron');
-  if (!dd) return;
-  var open = dd.style.display === 'none' || !dd.style.display;
-  dd.style.display = open ? 'block' : 'none';
-  if (ch) ch.textContent = open ? '▲ بستن' : '▼ باز کردن';
-}
-function updateAnnualTaxEmpSummary() {
-  var all = document.querySelectorAll('.annual-tax-emp');
-  var checked = document.querySelectorAll('.annual-tax-emp:checked');
-  var sum = document.getElementById('annualTaxEmpSummary');
-  if (!sum) return;
-  if (!all.length) sum.textContent = 'انتخاب کارکنان — خالی';
-  else if (checked.length === all.length) sum.textContent = 'انتخاب کارکنان — همه (' + all.length + ' نفر)';
-  else if (!checked.length) sum.textContent = 'انتخاب کارکنان — هیچ‌کس انتخاب نشده';
-  else sum.textContent = 'انتخاب کارکنان — ' + checked.length + ' از ' + all.length + ' نفر';
-}
-function filterAnnualTaxEmpList() {
-  var q = ((document.getElementById('annualTaxEmpSearch') || {}).value || '').trim().toLowerCase();
-  document.querySelectorAll('#annualTaxEmpList label[data-search]').forEach(function(lab) {
-    var s = lab.getAttribute('data-search') || '';
-    lab.style.display = (!q || s.indexOf(q) >= 0) ? '' : 'none';
-  });
-}
 function fillAnnualTaxEmpList() {
   const box = document.getElementById('annualTaxEmpList');
   if (!box) return;
   const year = Number(document.getElementById('annualTaxYear').value) || 1405;
   const until = Number(document.getElementById('annualTaxUntilMonth').value) || 12;
-  const prev = {};
-  document.querySelectorAll('.annual-tax-emp').forEach(function(cb) { prev[cb.value] = cb.checked; });
   const codes = {};
   for (let m = 1; m <= until; m++) {
     ((data.payrolls[year + '-' + m]) || []).forEach(function(r) {
@@ -7809,27 +7213,16 @@ function fillAnnualTaxEmpList() {
   const keys = Object.keys(codes).sort();
   if (!keys.length) {
     box.innerHTML = '<div class="empty">برای این بازه محاسبه ماهانه‌ای نیست.</div>';
-    updateAnnualTaxEmpSummary();
     return;
   }
   box.innerHTML = keys.map(function(c) {
-    var ck = (prev[c] === undefined) ? true : !!prev[c];
-    var name = codes[c] || c;
-    return '<label class="check-label" data-search="' + (c + ' ' + name).toLowerCase().replace(/"/g, '') + '" style="display:flex;gap:8px;padding:4px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
-      '<input type="checkbox" class="annual-tax-emp" value="' + c + '"' + (ck ? ' checked' : '') + ' onchange="updateAnnualTaxEmpSummary()">' +
-      '<span>' + name + ' — ' + c + '</span></label>';
+    return '<label class="check-label" style="display:flex;gap:8px;padding:4px;border-bottom:1px solid #f1f5f9;cursor:pointer;">' +
+      '<input type="checkbox" class="annual-tax-emp" value="' + c + '" checked>' +
+      '<span>' + c + ' — ' + codes[c] + '</span></label>';
   }).join('');
-  updateAnnualTaxEmpSummary();
 }
 function annualTaxSelectEmps(on) {
-  var q = ((document.getElementById('annualTaxEmpSearch') || {}).value || '').trim().toLowerCase();
-  document.querySelectorAll('#annualTaxEmpList label[data-search]').forEach(function(lab) {
-    var s = lab.getAttribute('data-search') || '';
-    if (q && s.indexOf(q) < 0) return;
-    var cb = lab.querySelector('.annual-tax-emp');
-    if (cb) cb.checked = !!on;
-  });
-  updateAnnualTaxEmpSummary();
+  document.querySelectorAll('.annual-tax-emp').forEach(function(cb) { cb.checked = !!on; });
 }
 function getAnnualTaxSelectedCodes() {
   const codes = [];
@@ -10306,9 +9699,11 @@ async function syncMergeDoc(name, depth) {
     var conflicts = [];
     var merged = syncMerge3(base.obj, cur, remoteObj, 'remote', '', conflicts);
     if (conflicts.length) {
-      // همیشه نسخه سرور در تداخل
-      conflicts = [];
-      merged = syncMerge3(base.obj, cur, remoteObj, 'remote', '', conflicts);
+      var keepMine = confirm('همزمان با شما، شخص دیگری هم همین مورد را تغییر داده است (' + conflicts.length + ' مورد).\n\nOK = مقدار این دستگاه (شما) نگه داشته شود\nCancel = مقدار سرور (دیگران) نگه داشته شود');
+      if (keepMine) {
+        conflicts = [];
+        merged = syncMerge3(base.obj, cur, remoteObj, 'local', '', conflicts);
+      }
     }
     res = { value: merged, conflicts: conflicts };
   }
@@ -10354,8 +9749,9 @@ async function syncDoc(name, remoteV, editing) {
       return;
     }
     if ((name === 'data' || name === 'settings') && isAdmin && syncHasContent(name, cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
-      // همیشه نسخه سرور (اصلی) — پشتیبان محلی قبل از اعمال
-      try { syncBackupLocal(); } catch (e) {}
+      var what = name === 'data' ? 'داده‌ای' : 'تنظیماتی (اطلاعات شرکت، حساب‌ها، نرخ‌ها)';
+      var useServer = confirm('روی این کامپیوتر ' + what + ' هست که با نسخه سرور فرق دارد.\n\nOK = نسخه سرور (اصلی) گرفته شود — مقدار این کامپیوتر جایگزین می‌شود (یک نسخه پشتیبان نگه داشته می‌شود)\nCancel = مقدار این کامپیوتر به سرور فرستاده شود — نسخه سرور جایگزین می‌شود');
+      if (!useServer) { await syncPush(name, rd.version, cur); return; }
     }
     syncBackupLocal();
     syncApply(name, rd.obj);
@@ -10726,447 +10122,6 @@ try {
   try { showLogin(); } catch (e5) {}
 }
 
-
-async function exportPayrollAccounting() {
-  try {
-    var year = Number(document.getElementById('payYear') && document.getElementById('payYear').value) || (data.settings && data.settings.currentYear) || 1405;
-    var month = Number(document.getElementById('payMonth') && document.getElementById('payMonth').value) || 1;
-    var r = await fetch('/api/admin/accounting-export', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ year: year, month: month })
-    });
-    var j = await r.json();
-    if (!j.ok) { alert(j.message || j.error || 'خطا در خروجی'); return; }
-    var lines = j.lines || [];
-    if (!lines.length) { alert('برای این ماه نتیجه محاسبه یافت نشد. ابتدا محاسبه را اجرا کنید.'); return; }
-    var csv = 'کد,نام,حساب,بدهکار,بستانکار\n';
-    lines.forEach(function(L) {
-      var bed = L.side === 'bed' ? L.amount : '';
-      var bes = L.side === 'bes' ? L.amount : '';
-      csv += [L.code, L.name, L.account, bed, bes].map(function(x) {
-        return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"';
-      }).join(',') + '\n';
-    });
-    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'accounting-payroll-' + year + '-' + month + '.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  } catch (e) {
-    console.error(e);
-    alert('خطا در ارتباط با سرور برای خروجی حسابداری');
-  }
-}
-
-
-function renderLeaveGroupPolicyRows(byGroup) {
-  var box = document.getElementById('leaveGroupPolicyList');
-  if (!box) return;
-  byGroup = byGroup || {};
-  var keys = Object.keys(byGroup);
-  // also suggest existing employee groups not yet in policy
-  try {
-    (data.employees || []).forEach(function(e) {
-      var g = String(e.group || '').trim();
-      if (g && keys.indexOf(g) < 0) keys.push(g);
-    });
-  } catch (e) {}
-  if (!keys.length) {
-    box.innerHTML = '<p style="font-size:0.78rem;color:#64748b;">گروهی تعریف نشده. با «+ افزودن گروه» یا پر کردن فیلد گروه در کارت کارمند اضافه کنید.</p>';
-    return;
-  }
-  var html = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody>';
-  keys.forEach(function(g) {
-    var days = byGroup[g] != null ? byGroup[g] : '';
-    html += '<tr class="leave-grp-row">';
-    html += '<td><input type="text" class="leave-grp-name" value="' + String(g).replace(/"/g, '&quot;') + '" style="width:100%;"></td>';
-    html += '<td><input type="number" class="leave-grp-days" value="' + days + '" min="0" step="1" style="width:100px;"></td>';
-    html += '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  box.innerHTML = html;
-}
-function addLeaveGroupPolicyRow() {
-  var box = document.getElementById('leaveGroupPolicyList');
-  if (!box) return;
-  var tbl = box.querySelector('tbody');
-  if (!tbl) {
-    box.innerHTML = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody></tbody></table>';
-    tbl = box.querySelector('tbody');
-  }
-  var tr = document.createElement('tr');
-  tr.className = 'leave-grp-row';
-  tr.innerHTML = '<td><input type="text" class="leave-grp-name" placeholder="نام گروه" style="width:100%;"></td>' +
-    '<td><input type="number" class="leave-grp-days" value="26" min="0" step="1" style="width:100px;"></td>' +
-    '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
-  tbl.appendChild(tr);
-}
-
-
-/** تعداد روزهای سال شمسی (اسفنـد 29 یا 30) — تقریبی ساده */
-function jalaliDaysInYear(y) {
-  y = Number(y);
-  // قاعده تقریبی کبیسه شمسی
-  var cy = y - 979;
-  var breaks = [1,5,9,13,17,22,26,30];
-  var k = cy % 33;
-  return breaks.indexOf(k) >= 0 ? 366 : 365;
-}
-function jalaliDayOfYear(y, m, d) {
-  var md = [0,31,31,31,31,31,31,30,30,30,30,30,29];
-  if (jalaliDaysInYear(y) === 366) md[12] = 30;
-  var n = 0;
-  for (var i = 1; i < m; i++) n += md[i];
-  return n + d;
-}
-function parseHireJalali(str) {
-  var m = String(str || '').trim().match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
-  if (!m) return null;
-  return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
-}
-/** سقف سالانه برای کارمند از سیاست تنظیمات */
-
-function computeAccruedLeaveDaysLocal(emp, year, month) {
-  var annual = typeof getAnnualLeaveDaysForEmpLocal === 'function' ? getAnnualLeaveDaysForEmpLocal(emp) : 30;
-  var cy = Number(year) || Number((data.settings && data.settings.currentYear) || 1405);
-  var cm = Number(month) || Number((data.settings && data.settings.currentMonth) || (data.settings && data.settings.activeMonth) || 1);
-  if (cm < 1) cm = 1; if (cm > 12) cm = 12;
-  var hd = (emp && emp.hireDate) ? String(emp.hireDate).trim() : '';
-  var parts = hd.split(/[\/\-]/);
-  if (parts.length < 2) return Math.round(annual * (cm / 12) * 100) / 100;
-  var hy = Number(parts[0]), hm = Number(parts[1]);
-  if (hy > cy) return 0;
-  var months = (hy < cy) ? cm : (hm > cm ? 0 : (cm - hm + 1));
-  if (months < 0) months = 0;
-  if (months > 12) months = 12;
-  return Math.round(annual * (months / 12) * 100) / 100;
-}
-function displayEmpLeaveBalance(emp) {
-  if (!emp) return '—';
-  var cy = Number((data.settings && data.settings.currentYear) || 1405);
-  var cm = Number((data.settings && data.settings.currentMonth) || (data.settings && data.settings.activeMonth) || 1);
-  if (emp.leaveYears && emp.leaveYears[String(cy)] && emp.leaveYears[String(cy)].settled) {
-    return '0 (تسویه)';
-  }
-  // همیشه بر اساس سال جاری: استحقاق تناسبی ماه‌های کارکرد − استفاده‌شده (+ تعدیل‌های +)
-  var used = Number(emp.leaveUsedYear) || 0;
-  if (emp.leaveYears && emp.leaveYears[String(cy)] && emp.leaveYears[String(cy)].used != null) {
-    used = Number(emp.leaveYears[String(cy)].used) || 0;
-  }
-  var accrued = computeAccruedLeaveDaysLocal(emp, cy, cm);
-  var adjPos = 0;
-  (emp.leaveAdjustments || []).forEach(function(a) {
-    if (String(a.year) !== String(cy)) return;
-    var d = Number(a.delta) || 0;
-    if (d > 0) adjPos += d;
-  });
-  return Math.round((accrued - used + adjPos) * 100) / 100;
-}
-
-function getAnnualLeaveDaysForEmpLocal(emp) {
-  var pol = (data.settings && data.settings.leavePolicy) || {};
-  var annual = Number(pol.annualDays);
-  if (isNaN(annual) || annual < 0) annual = 26;
-  var grp = String((emp && emp.group) || '').trim();
-  if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
-    var ng = Number(pol.byGroup[grp]);
-    if (!isNaN(ng) && ng >= 0) return ng;
-  }
-  var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
-  if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
-    var nc = Number(pol.byContractType[ct]);
-    if (!isNaN(nc) && nc >= 0) return nc;
-  }
-  return annual;
-}
-/**
- * تناسب: اگر استخدام در سال جاری باشد،
- * استحقاقی = سقف‌سالانه × (روزهای باقی‌مانده از استخدام تا پایان سال) / روزهای سال
- * اگر استخدام قبل از سال جاری باشد → سقف کامل سال جاری
- * نتیجه با دو رقم اعشار
- */
-function computeProratedLeaveDays(emp, year) {
-  year = Number(year) || Number((data.settings && data.settings.currentYear) || 1405);
-  var annual = getAnnualLeaveDaysForEmpLocal(emp);
-  var hire = parseHireJalali(emp && emp.hireDate);
-  if (!hire) return annual;
-  if (hire.y < year) return annual;
-  if (hire.y > year) return 0;
-  var diy = jalaliDaysInYear(year);
-  var doy = jalaliDayOfYear(hire.y, hire.m, hire.d);
-  var remaining = diy - doy + 1; // inclusive from hire day
-  if (remaining < 0) remaining = 0;
-  if (remaining > diy) remaining = diy;
-  var val = annual * (remaining / diy);
-  return Math.round(val * 100) / 100;
-}
-function calcProratedLeaveBalance() {
-  var hireEl = document.getElementById('e_hireDate');
-  var ctEl = document.getElementById('e_contractType');
-  var grpEl = document.getElementById('e_group');
-  var balEl = document.getElementById('e_leaveBalance');
-  if (!balEl) return;
-  var emp = {
-    hireDate: hireEl ? hireEl.value.trim() : '',
-    contractType: ctEl ? ctEl.value : 'normal',
-    group: grpEl ? grpEl.value.trim() : ''
-  };
-  var year = Number((data.settings && data.settings.currentYear) || 1405);
-  var val = computeProratedLeaveDays(emp, year);
-  balEl.value = val;
-  var annual = getAnnualLeaveDaysForEmpLocal(emp);
-  alert('استحقاقی تناسبی برای سال ' + year + ':\n' +
-    'سقف کامل: ' + annual + ' روز\n' +
-    'با توجه به تاریخ استخدام (' + (emp.hireDate || '—') + '): ' + val + ' روز\n\n' +
-    'مقدار در فیلد مانده نوشته شد. در صورت نیاز ذخیره کارمند را بزنید.');
-}
-
-
-function onHireDateChangeLeave() {
-  try {
-    var balEl = document.getElementById('e_leaveBalance');
-    if (!balEl) return;
-    // فقط اگر هنوز مقدار پیش‌فرض/خالی است خودکار تناسب بزن
-    var v = balEl.value;
-    if (v !== '' && v !== '26' && Number(v) !== 26) return;
-    var hireEl = document.getElementById('e_hireDate');
-    var ctEl = document.getElementById('e_contractType');
-    var grpEl = document.getElementById('e_group');
-    var emp = {
-      hireDate: hireEl ? hireEl.value.trim() : '',
-      contractType: ctEl ? ctEl.value : 'normal',
-      group: grpEl ? grpEl.value.trim() : ''
-    };
-    if (!emp.hireDate) return;
-    balEl.value = computeProratedLeaveDays(emp, Number((data.settings && data.settings.currentYear) || 1405));
-  } catch (e) {}
-}
-
-
-function applyLeaveYearRollover() {
-  if (!confirm('مانده مرخصی همه کارکنان فعال بر اساس سقف انتقال و استحقاقی تناسبی سال جاری به‌روز شود؟')) return;
-  var year = Number((data.settings && data.settings.currentYear) || 1405);
-  var pol = (data.settings && data.settings.leavePolicy) || {};
-  var carryMax = Number(pol.carryMax);
-  if (isNaN(carryMax) || carryMax < 0) carryMax = 9;
-  var n = 0;
-  (data.employees || []).forEach(function(emp) {
-    if (!emp || emp.status === 'inactive') return;
-    var prev = Number(emp.leaveBalance);
-    if (isNaN(prev)) prev = 0;
-    var carry = Math.min(prev, carryMax);
-    var entitled = computeProratedLeaveDays(emp, year);
-    emp.leaveBalance = Math.round((carry + entitled) * 100) / 100;
-    emp.leaveUsedYear = 0;
-    emp.leaveBalanceYear = year;
-    n++;
-  });
-  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
-  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-  alert('انتقال برای ' + n + ' نفر انجام شد.\nسقف انتقال: ' + carryMax + ' روز');
-}
-
-
-function applyEidLeaveToBalances() {
-  var year = Number(document.getElementById('eidYear') && document.getElementById('eidYear').value) || (data.settings && data.settings.currentYear) || 1405;
-  var modeEl = document.getElementById('eidLeaveSettlementMode');
-  var mode = modeEl && modeEl.value === 'final' ? 'final' : 'annual';
-  var rows = (data.eidResults && data.eidResults[year]) || [];
-  if (!rows.length) { alert('ابتدا محاسبه عیدی/سنوات/مرخصی را اجرا کنید.'); return; }
-  var modeLabel = mode === 'final' ? 'نهایی (همه سال‌های باز)' : 'سالیانه (' + year + ')';
-  if (!confirm('تسویه مرخصی «' + modeLabel + '» فقط برای نفرات تیک‌خورده ثبت شود؟\nپس از تسویه سالیانه، مانده آن سال صفر و وضعیت «تسویه شد» می‌شود.')) return;
-  var selected = {};
-  document.querySelectorAll('.eid-settle-cb:checked').forEach(function(c) {
-    selected[String(c.getAttribute('data-code'))] = true;
-  });
-  var selectedCount = Object.keys(selected).length;
-  if (!selectedCount) {
-    alert('حداقل یک نفر را برای تسویه انتخاب کنید.');
-    return;
-  }
-  var n = 0, skipped = 0;
-  rows.forEach(function(r) {
-    if (!r || !r.code) return;
-    if (!selected[String(r.code)]) return;
-    var emp = (data.employees || []).find(function(e) { return String(e.code) === String(r.code); });
-    if (!emp) { skipped++; return; }
-    if (!emp.leaveYears) emp.leaveYears = {};
-    var pay = Number(r.payableLeave);
-    if (isNaN(pay)) pay = 0;
-    function ensureY(y) {
-      var k = String(y);
-      if (!emp.leaveYears[k]) emp.leaveYears[k] = { year: Number(y), entitled: 0, used: 0, remaining: 0, settled: false, settledAt: null, settledMode: null };
-      return emp.leaveYears[k];
-    }
-    if (mode === 'annual') {
-      var row = ensureY(year);
-      if (row.settled) { skipped++; return; }
-      row.remaining = 0;
-      row.settled = true;
-      row.settledAt = new Date().toISOString();
-      row.settledMode = 'annual';
-    } else {
-      Object.keys(emp.leaveYears).forEach(function(yk) {
-        var row = emp.leaveYears[yk];
-        if (!row || row.settled) return;
-        if (Number(yk) > year) return;
-        row.remaining = 0;
-        row.settled = true;
-        row.settledAt = new Date().toISOString();
-        row.settledMode = 'final';
-      });
-      // سال جاری اگر نبود بساز و تسویه کن
-      var cur = ensureY(year);
-      cur.remaining = 0;
-      cur.settled = true;
-      cur.settledAt = new Date().toISOString();
-      cur.settledMode = 'final';
-    }
-    // سازگاری
-    var sum = 0;
-    Object.keys(emp.leaveYears).forEach(function(yk) {
-      var row = emp.leaveYears[yk];
-      if (row && !row.settled) sum += Number(row.remaining) || 0;
-    });
-    emp.leaveBalance = Math.round(sum * 100) / 100;
-    emp.leaveBalanceYear = year;
-    if (!emp._eidLeaveApplied) emp._eidLeaveApplied = {};
-    emp._eidLeaveApplied[year] = { payableLeave: pay, mode: mode, at: new Date().toISOString() };
-    n++;
-  });
-  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
-  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-  alert('تسویه مرخصی (' + modeLabel + ') برای ' + n + ' نفر ثبت شد.' + (skipped ? ('\nرد شده/قبلاً تسویه: ' + skipped) : '') + '\nهمگام‌سازی با سرور را انجام دهید تا در پرتال دیده شود.');
-}
-
-function applyProratedLeaveAllActive() {
-  if (typeof computeProratedLeaveDays !== 'function') {
-    alert('توابع محاسبه تناسبی در دسترس نیست. صفحه را یک‌بار رفرش کنید.');
-    return;
-  }
-  var year = Number((data.settings && data.settings.currentYear) || 1405);
-  if (!confirm('مانده مرخصی همه کارکنان فعال بر اساس تاریخ استخدام و سقف سیاست سال ' + year + ' از نو محاسبه شود؟\nمانده قبلی جایگزین می‌شود.')) return;
-  var n = 0;
-  (data.employees || []).forEach(function(emp) {
-    if (!emp || emp.status === 'inactive') return;
-    var val = computeProratedLeaveDays(emp, year);
-    emp.leaveBalance = val;
-    emp.leaveUsedYear = Number(emp.leaveUsedYear) || 0;
-    emp.leaveBalanceYear = year;
-    n++;
-  });
-  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
-  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-  alert('مانده تناسبی برای ' + n + ' نفر فعال محاسبه شد.');
-}
-
-
-function getBulkFilteredEmployees() {
-  var wp = (document.getElementById('bulkWorkplace') || {}).value || '';
-  var mg = (document.getElementById('bulkManagement') || {}).value || '';
-  var un = (document.getElementById('bulkUnit') || {}).value || '';
-  var gr = (document.getElementById('bulkGroup') || {}).value || '';
-  var pos = (document.getElementById('bulkPosition') || {}).value || '';
-  var ct = (document.getElementById('bulkContract') || {}).value || '';
-  var mar = (document.getElementById('bulkMarital') || {}).value || '';
-  return (data.employees || []).filter(function(e) {
-    if (!e || e.status === 'inactive') return false;
-    if (wp && String(e.workplace || '') !== wp) return false;
-    if (mg && String(e.management || e.deputy || '') !== mg) return false;
-    if (un && String(e.unit || '') !== un) return false;
-    if (gr && String(e.group || '') !== gr) return false;
-    if (pos && String(e.position || '') !== pos) return false;
-    if (ct && String(e.contractType || 'normal') !== ct) return false;
-    if (mar && String(e.marital || '') !== mar) return false;
-    return true;
-  });
-}
-function applyBulkMaxOtHours() {
-  if (typeof requireRole === 'function' && !requireRole(['admin'], 'فقط ادمین می‌تواند ویرایش گروهی کند.')) return;
-  var el = document.getElementById('bulkMaxOtHours');
-  if (!el || el.value === '' || el.value == null) {
-    alert('مقدار سقف را وارد کنید (یا از دکمه پاک کردن سقف فردی استفاده کنید).');
-    return;
-  }
-  var val = Number(el.value);
-  if (isNaN(val) || val < 0) { alert('مقدار نامعتبر'); return; }
-  var emps = getBulkFilteredEmployees();
-  if (!emps.length) { alert('با این فیلتر کسی پیدا نشد.'); return; }
-  if (!confirm('سقف اضافه‌کار ' + val + ' ساعت برای ' + emps.length + ' نفر اعمال شود؟')) return;
-  emps.forEach(function(e) { e.maxOtHours = val; });
-  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
-  try { if (typeof addChangeLog === 'function') addChangeLog('ویرایش گروهی', 'سقف اضافه‌کار', val + ' ساعت برای ' + emps.length + ' نفر'); } catch (e) {}
-  var prev = document.getElementById('bulkOtPreview');
-  if (prev) prev.textContent = 'اعمال شد: ' + emps.length + ' نفر — سقف ' + val + ' ساعت';
-  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-}
-function applyBulkMaxOtHoursClear() {
-  if (typeof requireRole === 'function' && !requireRole(['admin'], 'فقط ادمین می‌تواند ویرایش گروهی کند.')) return;
-  var emps = getBulkFilteredEmployees();
-  if (!emps.length) { alert('با این فیلتر کسی پیدا نشد.'); return; }
-  if (!confirm('سقف فردی اضافه‌کار برای ' + emps.length + ' نفر پاک شود تا از پیش‌فرض تنظیمات استفاده کنند؟')) return;
-  emps.forEach(function(e) { e.maxOtHours = null; });
-  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
-  var prev = document.getElementById('bulkOtPreview');
-  if (prev) prev.textContent = 'سقف فردی برای ' + emps.length + ' نفر پاک شد (پیش‌فرض سیستم).';
-  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
-}
-function getEmpMaxOtHours(emp) {
-  if (emp && emp.maxOtHours != null && emp.maxOtHours !== '') {
-    var n = Number(emp.maxOtHours);
-    if (!isNaN(n) && n >= 0) return n;
-  }
-  var def = Number((data.settings && data.settings.maxOtHours) || 0);
-  return isNaN(def) ? 0 : def;
-}
-
-
-function insertFormulaVar(idx, varName) {
-  if (!varName) return;
-  if (!tempCustomItems[idx]) return;
-  var el = document.getElementById('ciFormula_' + idx);
-  var cur = (el && el.value) != null ? el.value : (tempCustomItems[idx].formula || '');
-  // اگر خالی است فقط متغیر؛ اگر عدد/عملگر دارد متغیر را بچسبان
-  if (!String(cur).trim()) cur = varName;
-  else {
-    var last = String(cur).trim().slice(-1);
-    if (/[0-9A-Za-z_)]$/.test(String(cur).trim())) cur = cur + '*' + varName;
-    else cur = cur + varName;
-  }
-  tempCustomItems[idx].formula = cur;
-  if (el) el.value = cur;
-}
-
 </script>
-
-<script>
-/* PSP: فقط بارگذاری اسکریپت پنل از Worker — منطق در index نیست */
-(function(){
-  if (window.__pspPortalBootLoading || window.__pspPortalAdmin) return;
-  window.__pspPortalBootLoading = true;
-  function fail(msg){
-    var p = document.getElementById('panel-portalatt');
-    if (!p) return;
-    if (document.getElementById('pspSub-ts')) return;
-    p.innerHTML = '<div class="card" style="padding:14px;color:#b91c1c;font-size:0.85rem;line-height:1.6;">'
-      + (msg || 'بارگذاری پنل مأموریت/مرخصی ناموفق.')
-      + '<br><small style="color:#64748b">Worker را دیپلوی کنید و بعد از ورود، این صفحه را سخت‌رفرش کنید (Ctrl+Shift+R).</small></div>';
-  }
-  var s = document.createElement('script');
-  s.src = '/api/admin/portal-boot.js?t=' + Date.now();
-  s.async = true;
-  s.onload = function(){ console.log('[psp] portal-boot.js loaded'); };
-  s.onerror = function(){ console.error('[psp] portal-boot.js failed'); fail('درخواست /api/admin/portal-boot.js ناموفق (401/404/شبکه).'); };
-  document.head.appendChild(s);
-  setTimeout(function(){
-    if (!window.__pspPortalAdmin) fail('اسکریپت پنل اجرا نشد. کنسول و Network را برای portal-boot.js ببینید.');
-  }, 8000);
-})();
-</script>
-
 </body>
 </html>
