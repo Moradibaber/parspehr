@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v6" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v7" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1722,6 +1722,29 @@ function nightMinutesInPair(inn, out) {
  * متادیتای روز از تقویم: تعطیل رسمی / تعطیل شرایطی / نیمه‌روز
  * holidaysByYear[year] می‌تواند رشته تاریخ یا آبجکت باشد
  */
+
+function normalizeHolidayDateStr(s) {
+  s = String(s || '').trim().replace(/\//g, '-');
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return s;
+  return m[1] + '-' + String(Number(m[2])).padStart(2,'0') + '-' + String(Number(m[3])).padStart(2,'0');
+}
+function holidayItemMatchesDay(item, y, m, d) {
+  const keyDash = y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+  const keySlash = y + '/' + String(m).padStart(2,'0') + '/' + String(d).padStart(2,'0');
+  if (item == null) return false;
+  if (typeof item === 'string' || typeof item === 'number') {
+    const s = normalizeHolidayDateStr(item);
+    return s === keyDash || String(item) === keySlash || String(item) === keyDash;
+  }
+  if (typeof item === 'object') {
+    const raw = item.date || item.day || item.d || '';
+    const s = normalizeHolidayDateStr(raw);
+    return s === keyDash || String(raw).replace(/-/g,'/') === keySlash || String(raw) === keySlash;
+  }
+  return false;
+}
+
 function getDayMeta(obj, y, m, d, contractType) {
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
@@ -1732,33 +1755,24 @@ function getDayMeta(obj, y, m, d, contractType) {
   const list = [].concat(listA || [], listB || []);
   let meta = null;
   (list || []).forEach(function (item) {
-    if (item == null) return;
+    if (!holidayItemMatchesDay(item, y, m, d)) return;
     if (typeof item === 'string' || typeof item === 'number') {
-      const s = String(item).replace(/\//g, '-');
-      if (s === keyDash || String(item) === keySlash || String(item) === keyDash) {
-        meta = { date: keySlash, type: 'official', fullDay: true, conditional: false,
-          otDuringOfficial: true, otAfterOfficial: true, applyFloat: false };
-      }
+      meta = { date: keySlash, type: 'official', fullDay: true, conditional: false,
+        otDuringOfficial: true, otAfterOfficial: true, applyFloat: false };
     } else if (typeof item === 'object') {
-      const ds = String(item.date || item.day || '').replace(/\//g, '-');
-      const dsNorm = ds.replace(/^(\d{4})-(\d{1,2})-(\d{1,2})$/, function(_, yy, mm, dd) {
-        return yy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
-      });
-      if (dsNorm === keyDash || ds === keyDash || String(item.date) === keySlash || String(item.date).replace(/-/g,'/') === keySlash) {
-        const isCond = !!(item.conditional || item.type === 'conditional');
-        const hasHalf = !!(item.closeFrom);
-        meta = {
-          date: keySlash,
-          type: item.type || (isCond ? 'conditional' : 'official'),
-          conditional: isCond,
-          fullDay: hasHalf ? false : (item.fullDay !== false),
-          closeFrom: item.closeFrom || null,
-          closeTo: item.closeTo || null,
-          otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
-          otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
-          applyFloat: item.applyFloat != null ? !!item.applyFloat : false
-        };
-      }
+      const isCond = !!(item.conditional || item.type === 'conditional');
+      const hasHalf = !!(item.closeFrom);
+      meta = {
+        date: keySlash,
+        type: item.type || (isCond ? 'conditional' : 'official'),
+        conditional: isCond,
+        fullDay: hasHalf ? false : (item.fullDay !== false),
+        closeFrom: item.closeFrom || null,
+        closeTo: item.closeTo || null,
+        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
+        otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
+        applyFloat: item.applyFloat != null ? !!item.applyFloat : false
+      };
     }
   });
   const wd = jalaliWeekday(y, m, d);
@@ -2110,13 +2124,21 @@ function getHolidaySet(obj, year, contractType) {
 }
 
 function isHolidayOrNonWork(obj, y, m, d, contractType) {
-  const meta = getDayMeta(obj, y, m, d, contractType);
-  if (meta) {
-    // نیمه‌روز شرایطی: روز کاری جزئی (غیبت کامل نگیر)
+  function metaIsFullHoliday(meta) {
+    if (!meta) return false;
     if (meta.conditional && meta.fullDay === false) return false;
-    // تعطیل رسمی، آخر هفته، تعطیل شرایطی تمام‌روز
     return true;
   }
+  if (metaIsFullHoliday(getDayMeta(obj, y, m, d, contractType))) return true;
+  // جستجو در همه تقویم‌های قرارداد (اگر نوع قرارداد کارمند با تقویم ذخیره‌شده فرق داشت)
+  try {
+    const cals = (obj && obj.settings && obj.settings.contractCalendars) || {};
+    const keys = Object.keys(cals);
+    for (let i = 0; i < keys.length; i++) {
+      if (String(keys[i]) === String(contractType || 'normal')) continue;
+      if (metaIsFullHoliday(getDayMeta(obj, y, m, d, keys[i]))) return true;
+    }
+  } catch (e) {}
   return false;
 }
 
@@ -3558,10 +3580,10 @@ async function handleAdminTimesheet(request, who, env) {
         otHoursHM: calc.otHoursHM,
         nightHoursHM: calc.nightHoursHM,
         earlyOtHoursHM: calc.earlyOtHoursHM,
-        hourlyAbsenceMin: calc.hourlyAbsenceMinutes,
-        hourlyAbsenceHours: calc.hourlyAbsenceHours,
-        hourlyAbsenceHM: calc.hourlyAbsenceHM,
-        workHoursHM: calc.workHoursHM,
+        hourlyAbsenceMin: nonWork ? 0 : calc.hourlyAbsenceMinutes,
+        hourlyAbsenceHours: nonWork ? 0 : calc.hourlyAbsenceHours,
+        hourlyAbsenceHM: nonWork ? '' : calc.hourlyAbsenceHM,
+        workHoursHM: nonWork && !(punch.in1||punch.out1||punch.in2||punch.out2) ? '' : calc.workHoursHM,
         incomplete: punchIncompleteFlags(punch),
         manualEdit: !!punch.manualEdit,
         editedBy: punch.editedBy || '',
@@ -3576,6 +3598,34 @@ async function handleAdminTimesheet(request, who, env) {
         isNonWork: nonWork
       };
     }
+
+    // اصلاح مرخصی‌های پوشش خودکار با بازه اشتباه (مثلاً ۰۶:۴۵-۰۶:۴۹ به‌جای ۰۶:۴۵-۰۷:۰۱)
+    try {
+      const reqsAll = gd.obj.attendanceRequests || [];
+      for (let ri = 0; ri < reqsAll.length; ri++) {
+        const x = reqsAll[ri];
+        if (!x || !x.bulkCover || x.mode !== 'hourly') continue;
+        if (String(x.empCode) !== String(filterCode)) continue;
+        const p = parseJalaliYMD(x.startDate);
+        if (!p || p.y !== year || p.m !== month) continue;
+        const dk = year + '-' + String(month).padStart(2,'0') + '-' + String(p.d).padStart(2,'0');
+        const cell = dayMap[dk];
+        if (!cell) continue;
+        if (cell.isNonWork) { x._dropBulk = true; continue; }
+        const punch = { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2, in3: cell.in3, out3: cell.out3, in4: cell.in4, out4: cell.out4 };
+        const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
+        const ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch);
+        if (!ranges.length) { x._dropBulk = true; continue; }
+        // اگر بازه ذخیره‌شده با اولین شکاف واقعی فرق دارد، اصلاح کن
+        const r0 = ranges[0];
+        if (r0.fromTime !== x.fromTime || r0.toTime !== x.toTime) {
+          x.fromTime = r0.fromTime;
+          x.toTime = r0.toTime;
+        }
+      }
+      gd.obj.attendanceRequests = reqsAll.filter(function (x) { return !x._dropBulk; });
+    } catch (eFix) { console.error('bulk fix', eFix); }
+
     (rows[0].requests || []).forEach(function (x) {
       const days = x.mode === 'hourly'
         ? [dateKey(x.startDate)]
