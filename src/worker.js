@@ -3620,7 +3620,7 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
-      workDays: Number(row.workDays) || recountEmpMonthWorkDays(gd.obj, year, month, emp.code),
+      workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); var stored = Number(row.workDays); if (stored && Number.isInteger(stored) && stored > 0) return stored; return Math.round(r) || 0; })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
       missionDays: Math.round(aMission * 100) / 100,
@@ -3813,15 +3813,12 @@ async function handleAdminTimesheet(request, who, env) {
     });
     sumOtH = Math.round(sumOtH * 100) / 100;
     sumNightH = Math.round(sumNightH * 100) / 100;
-    // کسر کار مازاد بر سقف مجاز ماهانه از کارکرد کم می‌شود (هر ساعت = 1/190 ماه ≈ روزانه رسمی)
+    // غیبت ساعتی مازاد روی کارکرد (روز) اثر نمی‌گذارد — کارکرد عدد صحیح روزهای حضور است.
+    // کسر ریالی از excessAbsenceHours در موتور حقوق انجام می‌شود.
     const allowH = Number((gd.obj.settings && gd.obj.settings.monthlyShortfallAllowanceHours) || 0);
     const allowMin = Math.round(allowH * 60);
     const excessMin = Math.max(0, sumAbsMin - allowMin);
-    const officialDayMin = officialWorkMinutes(cal) || 525;
-    if (excessMin > 0 && officialDayMin > 0) {
-      const deductDays = excessMin / officialDayMin;
-      computedWork = Math.max(0, Math.round((computedWork - deductDays) * 100) / 100);
-    }
+    computedWork = Math.max(0, Math.round(Number(computedWork) || 0));
     const otCapA = empOtCeilingHours(emp0);
     const approvedOtA = (otCapA != null) ? Math.min(sumOtH, otCapA) : sumOtH;
     const unapprovedOtA = (otCapA != null) ? Math.max(0, Math.round((sumOtH - otCapA) * 100) / 100) : 0;
@@ -3841,6 +3838,7 @@ async function handleAdminTimesheet(request, who, env) {
     rows[0].otHoursUnapprovedHM = formatHoursHMFromHours(unapprovedOtA);
     rows[0].nightHoursHM = formatHoursHMFromHours(sumNightH);
     rows[0].excessAbsenceMin = excessMin;
+    rows[0].excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
     rows[0].shortfallAllowanceMin = allowMin;
     rows[0].leaveDays = Math.round((function(){
       let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,ct0); }); return n;
@@ -3873,6 +3871,7 @@ async function handleAdminTimesheet(request, who, env) {
       })()*100)/100;
       md.hourlyAbsenceHours = rows[0].hourlyAbsenceHours;
       md.excessAbsenceMin = excessMin;
+      md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
       md._timesheetSyncedAt = new Date().toISOString();
       // ذخیره پایدار تا شیت ورود داده ببیند
       try {
