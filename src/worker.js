@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v8" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v9" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1771,7 +1771,8 @@ function getDayMeta(obj, y, m, d, contractType) {
         closeTo: item.closeTo || null,
         otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
         otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
-        applyFloat: item.applyFloat != null ? !!item.applyFloat : false
+        applyFloat: item.applyFloat != null ? !!item.applyFloat : false,
+        reason: item.reason ? String(item.reason).trim() : ''
       };
     }
   });
@@ -3457,6 +3458,107 @@ async function handleAdminShortfallSettings(request, who, env) {
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
+
+/** جمع کارکرد ماه از تردد + درخواست‌ها → monthlyData */
+function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
+  if (!obj || !emp) return null;
+  const code = String(emp.code);
+  const ct = emp.contractType || 'normal';
+  const cal = getContractCalendar(obj, ct);
+  const dim = daysInJalaliMonth(year, month);
+  const punchStore = ((obj.dailyAttendance || {})[code]) || {};
+  let sumOt = 0, sumNight = 0, sumEarly = 0, sumAbsMin = 0;
+  for (let d = 1; d <= dim; d++) {
+    const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+    const punch = punchStore[dk] || punchStore[dateFa] || {};
+    const nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    const coveredMin = hourlyCoverMinutesOnDay(obj, code, year, month, d);
+    const dlm = dailyLeaveMissionFlags(obj, code, year, month, d);
+    const dayMeta = getDayMeta(obj, year, month, d, ct);
+    const calc = computeDayTimesheet(cal, {
+      in1: punch.in1 || '', out1: punch.out1 || '',
+      in2: punch.in2 || '', out2: punch.out2 || '',
+      in3: punch.in3 || '', out3: punch.out3 || '',
+      in4: punch.in4 || '', out4: punch.out4 || ''
+    }, {
+      isHoliday: nonWork,
+      coveredMinutes: coveredMin,
+      fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
+      unpaidLeave: dlm.unpaidLeave,
+      dayMeta: dayMeta,
+      earlyOtEnabled: !!(emp.earlyOtEnabled || emp.earlyOt)
+    });
+    if (!nonWork) {
+      sumOt += Number(calc.otHours) || 0;
+      sumNight += Number(calc.nightHours) || 0;
+      sumEarly += Number(calc.earlyOtHours) || 0;
+      sumAbsMin += Number(calc.hourlyAbsenceMinutes) || 0;
+    }
+  }
+  sumOt = Math.round(sumOt * 100) / 100;
+  sumNight = Math.round(sumNight * 100) / 100;
+  const allowH = Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
+  const allowMin = Math.round(allowH * 60);
+  const excessMin = Math.max(0, sumAbsMin - allowMin);
+  let workDays = recountEmpMonthWorkDays(obj, year, month, code);
+  const officialDayMin = officialWorkMinutes(cal) || 525;
+  if (excessMin > 0 && officialDayMin > 0) {
+    workDays = Math.max(0, Math.round((workDays - excessMin / officialDayMin) * 100) / 100);
+  }
+  const otCap = empOtCeilingHours(emp);
+  const approvedOt = (otCap != null) ? Math.min(sumOt, otCap) : sumOt;
+  const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((sumOt - otCap) * 100) / 100) : 0;
+
+  let aLeave = 0, aHourly = 0, aMission = 0, aMissionH = 0;
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (String(x.empCode) !== code || x.status !== 'approved') return;
+    const p = parseJalaliYMD(x.startDate);
+    if (!p) return;
+    if (x.kind === 'leave' && x.mode === 'daily') {
+      aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
+    } else if (x.kind === 'leave' && x.mode === 'hourly' && p.y === year && p.m === month) {
+      aHourly += hoursBetween(x.fromTime, x.toTime);
+    } else if (x.kind === 'mission' && x.mode === 'daily') {
+      aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
+    } else if (x.kind === 'mission' && x.mode === 'hourly' && p.y === year && p.m === month) {
+      aMissionH += hoursBetween(x.fromTime, x.toTime);
+    }
+  });
+
+  const key = year + '-' + month;
+  if (!obj.monthlyData) obj.monthlyData = {};
+  if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
+  if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
+  const md = obj.monthlyData[key][code];
+  md.workDays = workDays;
+  md.leaveDays = Math.round(aLeave * 100) / 100;
+  md.hourlyLeave = Math.round(aHourly * 100) / 100;
+  md.missionDays = Math.round(aMission * 100) / 100;
+  md.missionHours = Math.round(aMissionH * 100) / 100;
+  md.otHours = approvedOt;
+  md.otHoursTotal = sumOt;
+  md.otHoursUnapproved = unapprovedOt;
+  md.nightHours = sumNight;
+  md.hourlyAbsenceHours = Math.round((sumAbsMin / 60) * 100) / 100;
+  md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
+  md._fromTimesheet = true;
+  md._timesheetSyncedAt = new Date().toISOString();
+  return md;
+}
+
+function fillAllEmployeesMonthFromAttendance(obj, year, month) {
+  const out = {};
+  (obj.employees || []).forEach(function (emp) {
+    if (emp.status === 'inactive') return;
+    try {
+      out[String(emp.code)] = fillEmployeeMonthFromAttendance(obj, year, month, emp);
+    } catch (e) { console.error('fillMonth', emp.code, e); }
+  });
+  return out;
+}
+
+
 async function handleAdminTimesheet(request, who, env) {
   try {
   if (who.role !== 'admin' && who.role !== 'operator') {
@@ -3510,25 +3612,41 @@ async function handleAdminTimesheet(request, who, env) {
         if (p && p.y === year && p.m === month) aMissionH += hoursBetween(x.fromTime, x.toTime);
       }
     });
-    const baseWork = recountEmpMonthWorkDays(gd.obj, year, month, emp.code);
+    let filled = null;
+    try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
+    const mdRow = filled || row || {};
     rows.push({
       code: emp.code,
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
-      workDays: baseWork,
+      workDays: mdRow.workDays != null ? mdRow.workDays : recountEmpMonthWorkDays(gd.obj, year, month, emp.code),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Math.round(aHourly * 100) / 100,
       missionDays: Math.round(aMission * 100) / 100,
       missionHours: Math.round(aMissionH * 100) / 100,
-      otHours: Number(row.otHours) || 0,
-      nightHours: Number(row.nightHours) || 0,
+      otHours: Number(mdRow.otHours) || 0,
+      otHoursTotal: Number(mdRow.otHoursTotal) || 0,
+      otHoursUnapproved: Number(mdRow.otHoursUnapproved) || 0,
+      nightHours: Number(mdRow.nightHours) || 0,
+      hourlyAbsenceHours: Number(mdRow.hourlyAbsenceHours) || 0,
+      excessAbsenceHours: Number(mdRow.excessAbsenceHours) || 0,
       missions: Math.round(aMission * 100) / 100,
       leaves: Math.round(aLeave * 100) / 100,
       requests: empReqs
     });
   });
   rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code), 'fa'); });
+
+  // ذخیره monthlyData پرشده از کارکرد (برای شیت ورود داده)
+  try {
+    if (!filterCode) {
+      const putMd = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+      if (putMd && putMd.ok !== false && !putMd.fail && !putMd.conflict && putMd.version != null) {
+        gd.version = putMd.version;
+      }
+    }
+  } catch (ePutAll) { console.error('put all md', ePutAll); }
 
   // Day-by-day sheet when a single employee code is selected (Excel-like)
   let daily = null;
@@ -3597,8 +3715,17 @@ async function handleAdminTimesheet(request, who, env) {
         leaveHourly: '',
         missionDaily: '',
         missionHourly: '',
-        note: '',
-        isNonWork: nonWork
+        note: (function(){
+          if (!nonWork || !dayMeta) return '';
+          if (dayMeta.conditional || dayMeta.type === 'conditional') {
+            var t = 'تعطیل شرایطی';
+            if (dayMeta.reason) t += ' — ' + dayMeta.reason;
+            return t;
+          }
+          return '';
+        })(),
+        isNonWork: nonWork,
+        dayMeta: dayMeta || null
       };
     }
 
@@ -4462,7 +4589,8 @@ async function handleAdminSaveHolidays(request, who, env) {
         closeTo: item.closeTo || null,
         otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
         otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
-        applyFloat: item.applyFloat != null ? !!item.applyFloat : false
+        applyFloat: item.applyFloat != null ? !!item.applyFloat : false,
+        reason: item.reason ? String(item.reason).trim() : ''
       };
       if (!o.date) return null;
       return o;
