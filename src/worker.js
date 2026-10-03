@@ -1762,6 +1762,18 @@ function getDayMeta(obj, y, m, d, contractType) {
   return meta;
 }
 
+/** همیشه HH:MM — مثلاً 00:00 یا 08:45 یا 32:20 */
+function formatHoursHM(mins) {
+  mins = Math.round(Number(mins) || 0);
+  if (mins < 0) mins = 0;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+function formatHoursHMFromHours(hours) {
+  return formatHoursHM(Math.round((Number(hours) || 0) * 60));
+}
+
 function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
@@ -2032,21 +2044,18 @@ function computeDayTimesheet(cal, punches, opts) {
   }
   // فرمت ساعت: دقیقه → «ساعت:دقیقه» مثلاً 8:45
   function fmtHM(mins) {
-    mins = Math.round(Number(mins) || 0);
-    if (mins <= 0) return 0;
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    if (m === 0) return h;
-    return h + ':' + String(m).padStart(2, '0');
+    return formatHoursHM(mins);
   }
 
+  // تجمیع اضافه‌کار قبل با اضافه‌کار معمول
+  const otTotal = Math.round((ot || 0) + (earlyOtMin || 0));
   return {
     officialMinutes: official,
     presentMinutes: Math.round(present),
     delayMinutes: Math.round(delay),
     earlyLeaveMinutes: Math.round(earlyLeave),
     compensatedMinutes: Math.round(compensated),
-    otMinutes: Math.round(ot),
+    otMinutes: otTotal,
     shortfallMinutes: Math.round(shortfall),
     hourlyAbsenceMinutes: Math.round(shortfall),
     hourlyAbsenceHours: Math.round((shortfall / 60) * 100) / 100,
@@ -2062,8 +2071,8 @@ function computeDayTimesheet(cal, punches, opts) {
     lastOut: lastOut != null ? minutesToTime(lastOut) : null,
     requiredEnd: requiredEnd != null ? minutesToTime(requiredEnd) : null,
     workHours: Math.round((displayWorkMin / 60) * 100) / 100,
-    otHours: Math.round((ot / 60) * 100) / 100,
-    otHoursHM: fmtHM(ot),
+    otHours: Math.round((otTotal / 60) * 100) / 100,
+    otHoursHM: fmtHM(otTotal),
     nightMinutes: Math.round(nightMin || 0),
     nightHours: Math.round(((nightMin || 0) / 60) * 100) / 100,
     nightHoursHM: fmtHM(nightMin || 0),
@@ -2811,6 +2820,7 @@ async function handleEmpTimesheet(request, env) {
       manualEdit: !!punch.manualEdit,
       editedBy: punch.editedBy || '',
       editedAt: punch.editedAt || '',
+      editedFields: punch.editedFields || {},
       leaveDaily: '',
       leaveHourly: '',
       missionDaily: '',
@@ -3524,6 +3534,7 @@ async function handleAdminTimesheet(request, who, env) {
         manualEdit: !!punch.manualEdit,
         editedBy: punch.editedBy || '',
         editedAt: punch.editedAt || '',
+        editedFields: punch.editedFields || {},
         compensatedMin: calc.compensatedMinutes,
         leaveDaily: '',
         leaveHourly: '',
@@ -3567,12 +3578,12 @@ async function handleAdminTimesheet(request, who, env) {
     let computedWork = recountEmpMonthWorkDays(gd.obj, year, month, filterCode);
     let sumOtH = 0, sumNightH = 0, sumEarlyOtH = 0, sumAbsMin = 0;
     daysArr.forEach(function (d) {
-      sumOtH += Number(d.otHours) || 0;
+      sumOtH += Number(d.otHours) || 0; // شامل اضافه‌کار قبل
       sumEarlyOtH += Number(d.earlyOtHours) || 0;
       sumNightH += Number(d.nightHours) || 0;
       sumAbsMin += Number(d.hourlyAbsenceMin) || 0;
     });
-    sumOtH = Math.round((sumOtH + sumEarlyOtH) * 100) / 100;
+    sumOtH = Math.round(sumOtH * 100) / 100;
     sumNightH = Math.round(sumNightH * 100) / 100;
     // کسر کار مازاد بر سقف مجاز ماهانه از کارکرد کم می‌شود (هر ساعت = 1/190 ماه ≈ روزانه رسمی)
     const allowH = Number((gd.obj.settings && gd.obj.settings.monthlyShortfallAllowanceHours) || 0);
@@ -3676,18 +3687,26 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         in4: String(d.in4 || '').trim(), out4: String(d.out4 || '').trim(),
         note: cleanTimesheetNote(d.note)
       };
-      // علامت ویرایش دستی
-      const changed = ['in1','out1','in2','out2','in3','out3','in4','out4'].some(function(k){
-        return String(prev[k]||'') !== String(rec[k]||'');
+      // علامت ویرایش دستی per-field
+      const fields = ['in1','out1','in2','out2','in3','out3','in4','out4'];
+      const editedFields = Object.assign({}, prev.editedFields || {});
+      let any = false;
+      fields.forEach(function(k){
+        if (String(prev[k]||'') !== String(rec[k]||'')) {
+          editedFields[k] = true;
+          any = true;
+        }
       });
-      if (changed) {
+      if (any) {
         rec.manualEdit = true;
         rec.editedBy = who.name || who.role || 'admin';
         rec.editedAt = new Date().toISOString();
+        rec.editedFields = editedFields;
       } else if (prev.manualEdit) {
         rec.manualEdit = prev.manualEdit;
         rec.editedBy = prev.editedBy;
         rec.editedAt = prev.editedAt;
+        rec.editedFields = prev.editedFields || {};
       }
       // اگر همه خالی → حذف
       if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.in3 && !rec.out3 && !rec.in4 && !rec.out4 && !rec.note) {
@@ -3721,7 +3740,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         if (calc.presentMinutes > 0 || calc.otMinutes > 0 || calc.nightMinutes > 0) {
           if (!nonWork && calc.workHours > 0) workDays++;
           sumWorkMin += calc.presentMinutes;
-          sumOt += (calc.otMinutes || 0) + (calc.earlyOtMinutes || 0);
+          sumOt += (calc.otMinutes || 0); // otMinutes already includes earlyOt
           sumNight += calc.nightMinutes || 0;
           sumEarly += calc.earlyOtMinutes || 0;
           sumDelay += calc.delayMinutes;
@@ -6098,7 +6117,8 @@ async function loadTimesheet(){
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceHours)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); }
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
     html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
-    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+(j.hourlyLeave!=null?j.hourlyLeave:0)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+(j.missionHours!=null?j.missionHours:0)+'</td><td>'+(j.otHours!=null?j.otHours:0)+(j.otHoursUnapproved?(' / تأیید نشده '+j.otHoursUnapproved):'')+'</td><td>'+(j.nightHours!=null?j.nightHours:0)+'</td><td>'+(Math.round(sumAbs*100)/100)+'</td></tr></table>';
+    function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
+    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+_hm(j.hourlyLeave)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+_hm(j.missionHours)+'</td><td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td><td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td><td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td></tr></table>';
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.daily&&j.daily.workHoursHM?j.daily.workHoursHM:sumWork.toFixed(2))+'</b> | اضافه‌کار: <b>'+(j.otHoursHM||j.otHoursTotalHM||sumOt.toFixed(2))+'</b> | تأیید نشده: <b>'+(j.otHoursUnapprovedHM||'00:00')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM||'00:00')+'</b> | غیبت ساعتی: <b>'+(j.hourlyAbsenceHM||'00:00')+'</b></p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
