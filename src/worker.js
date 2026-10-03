@@ -3604,6 +3604,16 @@ async function handleAdminTimesheet(request, who, env) {
     rows[0].otHoursTotal = sumOtH;
     rows[0].otHoursUnapproved = unapprovedOtA;
     rows[0].otCeilingHours = otCapA;
+    rows[0].nightHours = sumNightH;
+    rows[0].earlyOtHours = Math.round(sumEarlyOtH * 100) / 100;
+    rows[0].hourlyAbsenceHours = Math.round((sumAbsMin / 60) * 100) / 100;
+    rows[0].hourlyAbsenceHM = formatHoursHM(sumAbsMin);
+    rows[0].otHoursHM = formatHoursHMFromHours(approvedOtA);
+    rows[0].otHoursTotalHM = formatHoursHMFromHours(sumOtH);
+    rows[0].otHoursUnapprovedHM = formatHoursHMFromHours(unapprovedOtA);
+    rows[0].nightHoursHM = formatHoursHMFromHours(sumNightH);
+    rows[0].excessAbsenceMin = excessMin;
+    rows[0].shortfallAllowanceMin = allowMin;
     rows[0].leaveDays = Math.round((function(){
       let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,ct0); }); return n;
     })()*100)/100;
@@ -3614,6 +3624,24 @@ async function handleAdminTimesheet(request, who, env) {
       let n=0; reqList.forEach(function(x){ if(x.kind==='mission'&&x.mode==='daily') n+=countAllDaysInMonth(x.startDate,x.endDate||x.startDate,year,month); }); return n;
     })()*100)/100;
     rows[0].leaves = rows[0].leaveDays;
+    // همگام‌سازی با monthlyData برای شیت محاسبه حقوق
+    try {
+      const mdKey = year + '-' + month;
+      if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
+      if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
+      const codeKey = String(filterCode);
+      if (!gd.obj.monthlyData[mdKey][codeKey]) gd.obj.monthlyData[mdKey][codeKey] = {};
+      const md = gd.obj.monthlyData[mdKey][codeKey];
+      md.workDays = computedWork;
+      md.otHours = approvedOtA;
+      md.otHoursTotal = sumOtH;
+      md.otHoursUnapproved = unapprovedOtA;
+      md.nightHours = sumNightH;
+      md.leaveDays = rows[0].leaveDays;
+      md.hourlyLeave = rows[0].hourlyLeave;
+      md.missionDays = rows[0].missions;
+      md._timesheetSyncedAt = new Date().toISOString();
+    } catch (eMd) { console.error('monthlyData sync', eMd); }
     daily = {
       code: rows[0].code,
       fullName: rows[0].fullName,
