@@ -6000,11 +6000,11 @@ function loadDataEntry() {
       '<td><input class="' + wdClass + '" type="number" min="0"' + maxAttr + ' value="' + wd + '" title="' + titleHint + '" ' +
       'onchange="updateDataField(\'' + emp.code + '\',\'workDays\',this.value,this)"' + clampAttr + '></td>' +
       '<td><input class="data-input" type="number" min="0" value="' + (row.leaveDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'leaveDays\',this.value)"></td>' +
-      '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.hourlyLeave||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'hourlyLeave\',this.value)" title="ساعات مرخصی ساعتی"></td>' +
+      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.hourlyLeave||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'hourlyLeave\',this)" title="مرخصی ساعتی HH:MM"></td>' +
 
       '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionDays\',this.value)" title="روز مأموریت تأییدشده"></td>' +
-      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionHours\',this.value)" title="ساعات مأموریت تأییدشده"></td>' +      '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
-      '<td><input class="data-input" type="number" min="0" value="' + (row.nightHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value)"></td>' +
+      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.missionHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'missionHours\',this)" title="مأموریت ساعتی HH:MM"></td>' +      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.otHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'otHours\',this)" title="اضافه‌کار HH:MM"></td>' +
+      '<td><input class="data-input" type="text" dir="ltr" value="' + hoursToHM(row.nightHours||0) + '" onchange="onHourFieldChange(\'' + emp.code + '\',\'nightHours\',this)" title="شب‌کاری HH:MM"></td>' +
       '<td><select class="data-input" style="width:68px;font-size:0.65rem;padding:1px;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
         '<option value="none"' + ((row.shiftType||'none')==='none'?' selected':'') + '>ندارد</option>' +
         '<option value="me"' + ((row.shiftType||'')==='me'?' selected':'') + '>صبح‌عصر ۱۰٪</option>' +
@@ -6040,6 +6040,32 @@ function clampWorkDaysInput(el, maxAllowed) {
   else el.classList.remove('workdays-incomplete');
 }
 
+
+function hoursToHM(hours) {
+  var mins = Math.round((Number(hours) || 0) * 60);
+  if (mins < 0) mins = 0;
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+}
+function parseHMtoHours(str) {
+  str = String(str || '').trim();
+  if (!str) return 0;
+  if (/^\d+(\.\d+)?$/.test(str) && str.indexOf(':') < 0) return Number(str) || 0;
+  var s = str.replace(/[^0-9:]/g, '');
+  if (/^\d{3,4}$/.test(s)) {
+    while (s.length < 4) s = '0' + s;
+    return (parseInt(s.slice(0, 2), 10) || 0) + (parseInt(s.slice(2, 4), 10) || 0) / 60;
+  }
+  var p = s.split(':');
+  var hh = parseInt(p[0], 10) || 0, mm = parseInt(p[1] || '0', 10) || 0;
+  return hh + mm / 60;
+}
+function onHourFieldChange(code, field, el) {
+  var hours = parseHMtoHours(el.value);
+  el.value = hoursToHM(hours);
+  updateDataField(code, field, hours, el);
+}
+
 function updateDataField(code, field, value, el) {
   const key = getDataKey();
   const parts = String(key).split('-');
@@ -6068,7 +6094,7 @@ function updateDataField(code, field, value, el) {
     var maxOt = (typeof getEmpMaxOtHours === 'function') ? getEmpMaxOtHours(empOt) : Number((data.settings && data.settings.maxOtHours) || 0);
     if (maxOt > 0 && num > maxOt) {
       num = maxOt;
-      if (el) el.value = maxOt;
+      if (el) el.value = (typeof hoursToHM === 'function') ? hoursToHM(maxOt) : maxOt;
       alert('سقف اضافه‌کار این نفر ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.');
     }
   }
