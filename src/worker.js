@@ -1738,12 +1738,17 @@ function getDayMeta(obj, y, m, d, contractType) {
       }
     } else if (typeof item === 'object') {
       const ds = String(item.date || item.day || '').replace(/\//g, '-');
-      if (ds === keyDash || String(item.date) === keySlash) {
+      const dsNorm = ds.replace(/^(\d{4})-(\d{1,2})-(\d{1,2})$/, function(_, yy, mm, dd) {
+        return yy + '-' + String(mm).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
+      });
+      if (dsNorm === keyDash || ds === keyDash || String(item.date) === keySlash || String(item.date).replace(/-/g,'/') === keySlash) {
+        const isCond = !!(item.conditional || item.type === 'conditional');
+        const hasHalf = !!(item.closeFrom);
         meta = {
           date: keySlash,
-          type: item.type || (item.conditional ? 'conditional' : 'official'),
-          conditional: !!(item.conditional || item.type === 'conditional'),
-          fullDay: item.fullDay !== false && !item.closeFrom,
+          type: item.type || (isCond ? 'conditional' : 'official'),
+          conditional: isCond,
+          fullDay: hasHalf ? false : (item.fullDay !== false),
           closeFrom: item.closeFrom || null,
           closeTo: item.closeTo || null,
           otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
@@ -2103,8 +2108,9 @@ function getHolidaySet(obj, year, contractType) {
 function isHolidayOrNonWork(obj, y, m, d, contractType) {
   const meta = getDayMeta(obj, y, m, d, contractType);
   if (meta) {
-    // نیمه‌روز شرایطی: هنوز روز کاری جزئی است ولی فلگ جدا دارد
-    if (meta.conditional && !meta.fullDay) return false;
+    // نیمه‌روز شرایطی: روز کاری جزئی (غیبت کامل نگیر)
+    if (meta.conditional && meta.fullDay === false) return false;
+    // تعطیل رسمی، آخر هفته، تعطیل شرایطی تمام‌روز
     return true;
   }
   return false;
@@ -6142,12 +6148,13 @@ async function loadTimesheet(){
     var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
     var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
     var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
-    if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceHours)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); }
+    if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
     html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
     html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+_hm(j.hourlyLeave)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+_hm(j.missionHours)+'</td><td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td><td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td><td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td></tr></table>';
-    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.daily&&j.daily.workHoursHM?j.daily.workHoursHM:sumWork.toFixed(2))+'</b> | اضافه‌کار: <b>'+(j.otHoursHM||j.otHoursTotalHM||sumOt.toFixed(2))+'</b> | تأیید نشده: <b>'+(j.otHoursUnapprovedHM||'00:00')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM||'00:00')+'</b> | غیبت ساعتی: <b>'+(j.hourlyAbsenceHM||'00:00')+'</b></p>';
+    function _hm2(h){var m=Math.round((Number(h)||0)*60);if(m<=0)return '';var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
+    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> | اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> | غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b></p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
       var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
@@ -6162,12 +6169,12 @@ async function loadTimesheet(){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
-        var abs=d.hourlyAbsenceHM?d.hourlyAbsenceHM:((d.hourlyAbsenceHours!=null&&d.hourlyAbsenceHours>0)?d.hourlyAbsenceHours:'');
+        var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
         function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
         html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
         for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
         html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'?d.otHoursHM:'')+'</td>';
+        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
         html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
         html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
         html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
