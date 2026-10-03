@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-10-03-v7';",
-  "  try { console.log('%c[psp] portal-boot 2026-10-03-v7 loaded', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-10-03-v8';",
+  "  try { console.log('%c[psp] portal-boot 2026-10-03-v8 loaded', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  if (window.__pspPortalAdmin) return;",
   "  function pspMinToHM(mins) {",
   "    mins = Math.round(Number(mins) || 0);",
@@ -334,7 +334,7 @@ export default [
   "      '<div class=\"form-group\"><label>سال</label><input type=\"number\" id=\"pspTsYear\" value=\"1405\"></div>' +",
   "      '<div class=\"form-group\"><label>ماه</label><select id=\"pspTsMonth\"><option value=\"1\">1</option><option value=\"2\">2</option><option value=\"3\">3</option><option value=\"4\">4</option><option value=\"5\">5</option><option value=\"6\">6</option><option value=\"7\">7</option><option value=\"8\">8</option><option value=\"9\">9</option><option value=\"10\">10</option><option value=\"11\">11</option><option value=\"12\">12</option></select></div>' +",
   "      '<div class=\"form-group\"><label>کد پرسنلی</label><input id=\"pspTsCode\" placeholder=\"خالی = همه\" autocomplete=\"off\"></div>' +",
-  "      '<div class=\"form-group\"><label>کد مدیر</label><div style=\"display:flex;gap:8px;align-items:center;\"><input id=\"pspTsMgr\" placeholder=\"فیلتر زیرمجموعه\" autocomplete=\"off\" style=\"flex:1;min-width:0;\"><button type=\"button\" class=\"btn btn-primary btn-sm\" id=\"pspTsLoad\" data-boot=\"2026-10-03-v7\" style=\"white-space:nowrap;flex-shrink:0;\">نمایش</button><span id=\"pspBootVerBadge\" style=\"font-size:0.7rem;color:#0f766e;margin-right:8px;\">boot:2026-10-03-v7</span></div></div>' +",
+  "      '<div class=\"form-group\"><label>کد مدیر</label><div style=\"display:flex;gap:8px;align-items:center;\"><input id=\"pspTsMgr\" placeholder=\"فیلتر زیرمجموعه\" autocomplete=\"off\" style=\"flex:1;min-width:0;\"><button type=\"button\" class=\"btn btn-primary btn-sm\" id=\"pspTsLoad\" data-boot=\"2026-10-03-v8\" style=\"white-space:nowrap;flex-shrink:0;\">نمایش</button><span id=\"pspBootVerBadge\" style=\"font-size:0.7rem;color:#0f766e;margin-right:8px;\">boot:2026-10-03-v8</span></div></div>' +",
   "      '</div>' +",
   "      '<p style=\"font-size:0.78rem;color:#64748b;margin:6px 0 10px;\">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید.</p>' +",
   "      '<div class=\"form-grid\" style=\"margin-bottom:10px;align-items:end;\">' +",
