@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v9" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v10" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2052,10 +2052,22 @@ function computeDayTimesheet(cal, punches, opts) {
   const holidayFull = isHoliday || (dayMeta && dayMeta.fullDay && (dayMeta.conditional || dayMeta.type === 'conditional' || dayMeta.type === 'official' || dayMeta.type === 'weekend'));
   if (holidayFull) {
     shortfall = 0;
+  } else if (condHalf && dayMeta && dayMeta.closeFrom) {
+    // موظفی فقط تا ساعت تعطیل شرایطی
+    const cf = timeToMinutes(dayMeta.closeFrom);
+    let officialHalf = (cf != null && start != null && cf > start) ? (cf - start) : official;
+    if (sched.hasBreak && !sched.breakCountsAsWork) {
+      const bs = timeToMinutes(sched.breakStart);
+      const be = timeToMinutes(sched.breakEnd);
+      if (bs != null && be != null && cf != null && bs < cf) {
+        officialHalf = Math.max(0, officialHalf - Math.max(0, Math.min(be, cf) - bs));
+      }
+    }
+    shortfall = Math.max(0, officialHalf - workPresent - covered);
   } else if (opts.unpaidLeave) {
-    shortfall = official; // کل روز غیبت
+    shortfall = official;
   } else if (opts.fullDayLeaveOrMission) {
-    shortfall = 0; // مرخصی/مأموریت روزانه جایگزین کارکرد است
+    shortfall = 0;
   } else {
     shortfall = Math.max(0, official - present - covered);
   }
@@ -3489,11 +3501,13 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       dayMeta: dayMeta,
       earlyOtEnabled: !!(emp.earlyOtEnabled || emp.earlyOt)
     });
+    const hasPunch = !!(punch.in1 || punch.out1 || punch.in2 || punch.out2 || punch.in3 || punch.out3 || punch.in4 || punch.out4);
     if (!nonWork) {
       sumOt += Number(calc.otHours) || 0;
       sumNight += Number(calc.nightHours) || 0;
       sumEarly += Number(calc.earlyOtHours) || 0;
-      sumAbsMin += Number(calc.hourlyAbsenceMinutes) || 0;
+      // فقط روزهایی که تردد دارند در جمع کسری می‌آیند (روز بدون تردد = عدم کارکرد، نه کسری تمام‌روز)
+      if (hasPunch) sumAbsMin += Number(calc.hourlyAbsenceMinutes) || 0;
     }
   }
   sumOt = Math.round(sumOt * 100) / 100;
@@ -3501,11 +3515,8 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   const allowH = Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
   const allowMin = Math.round(allowH * 60);
   const excessMin = Math.max(0, sumAbsMin - allowMin);
+  // روز کارکرد فقط از شمارش واقعی — کسر مازاد در حقوق (حکم/۱۹۰) اعمال می‌شود نه اینجا
   let workDays = recountEmpMonthWorkDays(obj, year, month, code);
-  const officialDayMin = officialWorkMinutes(cal) || 525;
-  if (excessMin > 0 && officialDayMin > 0) {
-    workDays = Math.max(0, Math.round((workDays - excessMin / officialDayMin) * 100) / 100);
-  }
   const otCap = empOtCeilingHours(emp);
   const approvedOt = (otCap != null) ? Math.min(sumOt, otCap) : sumOt;
   const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((sumOt - otCap) * 100) / 100) : 0;
@@ -3638,15 +3649,7 @@ async function handleAdminTimesheet(request, who, env) {
   });
   rows.sort(function (a, b) { return String(a.code).localeCompare(String(b.code), 'fa'); });
 
-  // ذخیره monthlyData پرشده از کارکرد (برای شیت ورود داده)
-  try {
-    if (!filterCode) {
-      const putMd = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
-      if (putMd && putMd.ok !== false && !putMd.fail && !putMd.conflict && putMd.version != null) {
-        gd.version = putMd.version;
-      }
-    }
-  } catch (ePutAll) { console.error('put all md', ePutAll); }
+  // monthlyData در حافظه پر شده؛ ذخیره پایدار هنگام ذخیره ورود/خروج یا همگام‌سازی کلاینت
 
   // Day-by-day sheet when a single employee code is selected (Excel-like)
   let daily = null;
@@ -3716,9 +3719,10 @@ async function handleAdminTimesheet(request, who, env) {
         missionDaily: '',
         missionHourly: '',
         note: (function(){
-          if (!nonWork || !dayMeta) return '';
+          if (!dayMeta) return '';
           if (dayMeta.conditional || dayMeta.type === 'conditional') {
             var t = 'تعطیل شرایطی';
+            if (dayMeta.closeFrom) t += ' از ' + dayMeta.closeFrom;
             if (dayMeta.reason) t += ' — ' + dayMeta.reason;
             return t;
           }
