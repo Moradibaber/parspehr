@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v6" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1726,7 +1726,10 @@ function getDayMeta(obj, y, m, d, contractType) {
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
   const cal = getContractCalendar(obj, contractType);
-  const list = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
+  const listA = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
+  const listB = (obj && obj.settings && obj.settings.holidaysByYear && (obj.settings.holidaysByYear[String(y)] || obj.settings.holidaysByYear[y])) || [];
+  // ادغام: اول قرارداد، بعد سراسری
+  const list = [].concat(listA || [], listB || []);
   let meta = null;
   (list || []).forEach(function (item) {
     if (item == null) return;
@@ -3091,11 +3094,10 @@ function applyFloatToMorningGaps(gaps, cal, punches) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
-  const floatM = sched.floatMinutes || 0;
+  const floatM = Number(sched.floatMinutes) || 0;
   const forceComp = !!sched.floatCompensate;
-  if (start == null || end == null || !gaps.length) return { gaps: gaps, compensated: 0 };
+  if (start == null || end == null || !gaps || !gaps.length) return { gaps: gaps || [], compensated: 0 };
 
-  // lastOut از جفت کامل
   let lastOut = null, firstIn = null;
   const list = [];
   if (punches && typeof punches === 'object' && !Array.isArray(punches)) {
@@ -3103,31 +3105,43 @@ function applyFloatToMorningGaps(gaps, cal, punches) {
       if (p.incomplete) return;
       if (p.a != null && p.b != null) list.push({ a: p.a, b: p.b });
     });
+  } else if (Array.isArray(punches)) {
+    punches.forEach(function (p) {
+      const a = timeToMinutes(p.in != null ? p.in : p.inn);
+      const b = timeToMinutes(p.out);
+      if (a != null && b != null) list.push({ a: a, b: b < a ? b + 24 * 60 : b });
+    });
   }
   list.forEach(function (p) {
-    if (p.a == null || p.b == null) return;
     if (firstIn == null || p.a < firstIn) firstIn = p.a;
     if (lastOut == null || p.b > lastOut) lastOut = p.b;
   });
   if (firstIn == null || lastOut == null) return { gaps: gaps, compensated: 0 };
 
   const morningDelay = Math.max(0, firstIn - start);
+  // شناوری فقط وقتی تأخیر ≤ سقف شناوری (مثلاً ۱۵د). ورود ۰۷:۰۱ با شروع ۰۶:۴۵ = ۱۶د → بدون شناوری
   const withinFloat = morningDelay > 0 && morningDelay <= floatM;
-  const canComp = withinFloat || forceComp;
-  if (!canComp || morningDelay <= 0) return { gaps: gaps, compensated: 0 };
+  // جبران فقط: داخل شناوری (خودکار) یا با تیک floatCompensate
+  if (!withinFloat && !forceComp) return { gaps: gaps, compensated: 0 };
+  if (morningDelay <= 0) return { gaps: gaps, compensated: 0 };
 
   const stayedPast = Math.max(0, lastOut - end);
-  let maxComp = morningDelay;
-  if (withinFloat && !forceComp) maxComp = Math.min(morningDelay, floatM);
-  const compensated = Math.min(maxComp, stayedPast);
+  // داخل شناوری: سقف جبران = min(تأخیر، float، ماندن بعد از end)
+  // خارج شناوری با تیک جبران: min(تأخیر، ماندن بعد از end) — بدون سقف float
+  let maxComp;
+  if (withinFloat) maxComp = Math.min(morningDelay, floatM, stayedPast);
+  else maxComp = Math.min(morningDelay, stayedPast);
+  const compensated = Math.max(0, maxComp);
   if (compensated <= 0) return { gaps: gaps, compensated: 0 };
 
-  // از ابتدای شکاف‌هایی که از start شروع می‌شوند کم کن
+  // جبران فقط از ابتدای شکاف صبح (از start تا firstIn) کم می‌شود
   let left = compensated;
   const out = [];
   gaps.forEach(function (g) {
     if (left <= 0) { out.push(g); return; }
-    if (g.fromMin === start || (g.fromMin >= start && g.fromMin < firstIn)) {
+    // فقط شکاف‌هایی که به بازه تأخیر صبح مربوط‌اند
+    if (g.toMin <= start || g.fromMin >= firstIn) { out.push(g); return; }
+    if (g.fromMin < firstIn && g.toMin > start) {
       const skip = Math.min(left, g.minutes);
       left -= skip;
       const nf = g.fromMin + skip;
@@ -3321,6 +3335,17 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         results.push({ code: code, fullName: emp.fullName || '', ok: true, created: planned.length, planned: planned, shortHours: Math.round(totalShortMin / 60 * 100) / 100 });
         continue;
       }
+
+      // حذف پوشش‌های خودکار قبلی همان روز تا بازه اشتباه نماند
+      const planDates = {};
+      planned.forEach(function (pl) { planDates[pl.dateFa] = true; });
+      gd.obj.attendanceRequests = (gd.obj.attendanceRequests || []).filter(function (x) {
+        if (String(x.empCode) !== String(emp.code)) return true;
+        if (!x.bulkCover) return true;
+        const sd = String(x.startDate || '').replace(/-/g, '/');
+        if (planDates[sd]) return false;
+        return true;
+      });
 
       let n = 0;
       planned.forEach(function (pl) {
