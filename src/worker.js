@@ -6139,9 +6139,9 @@ async function loadTimesheet(){
         html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
         for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
         html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="'+tdE+'">'+(d.otHoursHM?d.otHoursHM:(d.otHours||''))+'</td>';
-        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM||'')+'</td>';
-        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM||'')+'</td>';
+        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'?d.otHoursHM:'')+'</td>';
+        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
+        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
         html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
         html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
         html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
