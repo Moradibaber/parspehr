@@ -666,9 +666,10 @@ export function makeEngine(data) {
       let totalAllow = 0, totalDeductions = 0;
       let insBase = basicAmount, taxBase = basicAmount + otAmount + nightAmount + shiftAmount;
       const itemDetails = [];
+      // فقط یک‌بار در totalDeductions (فیش: ردیف «سایر کسورات») — نه منفی در لیست مزایا
       if (shortfallDeduction > 0) {
         totalDeductions += shortfallDeduction;
-        itemDetails.push({ name: 'کسر کار (مازاد غیبت ساعتی)', amount: -shortfallDeduction });
+        // بدون itemDetails تا در فیش هم در مزایا و هم در کسورات دوبار نیاید
       }
   
       data.allowances.filter(a => isActiveAllowance(a) && !a.fromEmployee).forEach(a => {
