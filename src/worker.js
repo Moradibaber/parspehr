@@ -2031,7 +2031,8 @@ function computeDayTimesheet(cal, punches, opts) {
   // - روز عادی → کمبود پس از حضور + پوشش ساعتی
   const covered = Number(opts.coveredMinutes) || 0;
   let shortfall = 0;
-  if (isHoliday) {
+  const holidayFull = isHoliday || (dayMeta && dayMeta.fullDay && (dayMeta.conditional || dayMeta.type === 'conditional' || dayMeta.type === 'official' || dayMeta.type === 'weekend'));
+  if (holidayFull) {
     shortfall = 0;
   } else if (opts.unpaidLeave) {
     shortfall = official; // کل روز غیبت
@@ -3581,6 +3582,29 @@ async function handleAdminTimesheet(request, who, env) {
       });
     });
     const daysArr = Object.keys(dayMap).sort().map(function (k) { return dayMap[k]; });
+    
+    // صفر کردن غیبت در روز مرخصی/مأموریت روزانه (بدون تداخل) و روز تعطیل
+    Object.keys(dayMap).forEach(function (dk) {
+      const cell = dayMap[dk];
+      if (!cell) return;
+      if (cell.isNonWork) {
+        cell.hourlyAbsenceMin = 0;
+        cell.hourlyAbsenceHours = 0;
+        cell.hourlyAbsenceHM = '';
+        if (!cell.in1 && !cell.out1 && !cell.in2 && !cell.out2) {
+          cell.workHours = 0;
+          cell.workHoursHM = '';
+          cell.otHours = 0;
+          cell.otHoursHM = '';
+        }
+      }
+      if ((cell.leaveDaily || cell.missionDaily) && !cell.leaveConflict && !cell.missionConflict) {
+        cell.hourlyAbsenceMin = 0;
+        cell.hourlyAbsenceHours = 0;
+        cell.hourlyAbsenceHM = '';
+      }
+    });
+
     let computedWork = recountEmpMonthWorkDays(gd.obj, year, month, filterCode);
     let sumOtH = 0, sumNightH = 0, sumEarlyOtH = 0, sumAbsMin = 0;
     daysArr.forEach(function (d) {
