@@ -1941,8 +1941,10 @@ function computeDayTimesheet(cal, punches, opts) {
   // روز تعطیل/غیرکاری یا تعطیل شرایطی
   let workPresent = present;
   const dayMeta = opts.dayMeta || null;
-  const condFull = dayMeta && dayMeta.conditional && dayMeta.fullDay;
-  const condHalf = dayMeta && dayMeta.conditional && !dayMeta.fullDay && dayMeta.closeFrom;
+  const isCondMeta = !!(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'));
+  // تمام‌روز: شرایطی بدون closeFrom (یا fullDay صریح)
+  const condFull = isCondMeta && !dayMeta.closeFrom && (dayMeta.fullDay !== false);
+  const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
   if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
@@ -2018,30 +2020,27 @@ function computeDayTimesheet(cal, punches, opts) {
   });
 
   if (hasComplete && lastOut != null && end != null && lastOut > end && !isHoliday && !condFull && !condHalf) {
-    // بازه بعد از پایان شیفت
-    const afterStart = end + (compensated || 0); // جبران شناوری از اولِ بعد-از-شیفت مصرف شده
-    let otRangeFrom = end;
-    let otRangeTo = lastOut;
-    // کل ماندن بعد از end
+    // روز عادی: اضافه‌کار فقط بعد از پایان شیفت (منهای شب‌کاری و جبران شناوری)
     let stayed = Math.max(0, lastOut - end);
-    // جبران شناوری از stayed کم می‌شود
     stayed = Math.max(0, stayed - (compensated || 0));
-    // از این stayed، بخش شب را جدا کن
-    // شب داخل [end, lastOut]:
     const nightInAfter = nightMinutesInPair(end, lastOut);
-    // اگر جبران از ابتدای بعد-از-end مصرف شود، شب را از انتهای بازه در نظر می‌گیریم
-    // ساده و شفاف: OT = stayed - nightInAfter (با کف صفر)
-    // اما nightInAfter ممکن است شامل دقایقی باشد که در جبران بودند؛ تقریبی قابل قبول:
     ot = Math.max(0, stayed - nightInAfter);
-    // شب‌کاری گزارش‌شده همان کل حضور در ۲۲–۶ است (شامل بعد از شیفت)
-  } else if (isHoliday || condFull) {
-    // تعطیل: حضور غیرشب = اضافه‌کار، حضور شب = شب‌کاری
-    if (present > 0) {
-      ot = Math.max(0, present - nightMin);
-      workPresent = 0;
-    }
+  } else if (isHoliday && !condFull && !condHalf && present > 0) {
+    // تعطیل رسمی/هفته (نه شرایطی): کل حضور غیرشب = اضافه‌کار
+    // تعطیل شرایطی قبلاً با فلگ otDuringOfficial / otAfterOfficial محاسبه شده — اینجا بازنویسی نشود
+    ot = Math.max(0, present - nightMin);
+    workPresent = 0;
   }
+  // condFull / condHalf: مقدار ot از بلوک بالاتر حفظ می‌شود
   ot = Math.max(0, ot || 0);
+
+  // در تعطیل شرایطی اگر «حضور در موظفی = اضافه‌کار» خاموش باشد، اضافه‌کار قبل از شروع هم صفر
+  if (condFull && dayMeta && dayMeta.otDuringOfficial === false) {
+    earlyOtMin = 0;
+  }
+  if (condHalf && dayMeta && dayMeta.otAfterOfficial === false && dayMeta.otDuringOfficial === false) {
+    earlyOtMin = 0;
+  }
   // early OT جدا از ot نگه داشته می‌شود (earlyOtMin)
 
 
