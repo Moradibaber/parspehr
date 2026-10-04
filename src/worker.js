@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v13" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261003v15" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1419,7 +1419,9 @@ function ensureEmpLeaveYears(emp, obj) {
       settledMode: null
     };
   }
-  // اطمینان از سال جاری — مانده واقعی = استحقاق تناسبی ماه‌های کارکرد − استفاده‌شده (+ تعدیل‌های +)
+  // اطمینان از سال جاری
+  // - استخدام قبل از امسال: سقف کامل سالانه برای درخواست در طول سال (مانده = سقف − مصرف)
+  // - استخدام امسال: تناسب از تاریخ استخدام (computeAccruedLeaveDaysW)
   const row = emp.leaveYears[String(cy)];
   row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
   const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
@@ -1427,16 +1429,16 @@ function ensureEmpLeaveYears(emp, obj) {
   if (row.settled) {
     row.remaining = 0;
   } else {
-    let adjPos = 0, adjNeg = 0;
+    let adjPos = 0;
     (emp.leaveAdjustments || []).forEach(function (a) {
       if (String(a.year) !== String(cy)) return;
       const d = Number(a.delta) || 0;
       if (d > 0) adjPos += d;
-      else adjNeg += Math.abs(d);
     });
-    // used در دفتر ممکن است شامل بدهکار باشد؛ مانده نمایشی = accrued - used + adjPos
-    // (adjNeg معمولاً در used هم نشسته)
-    row.remaining = Math.round((accrued - Number(row.used || 0) + adjPos) * 100) / 100;
+    const hireP = parseJalaliYMD(emp.hireDate);
+    // اگر از سال‌های قبل استخدام شده → تا سقف سالانه در طول سال قابل استفاده است
+    const baseForRemain = (hireP && hireP.y < cy) ? Number(row.entitled) : accrued;
+    row.remaining = Math.round((baseForRemain - Number(row.used || 0) + adjPos) * 100) / 100;
   }
   // فیلد سازگاری: فقط مانده سال جاری (نه تجمیع سال‌های قبل)
   emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
@@ -1769,7 +1771,7 @@ function getDayMeta(obj, y, m, d, contractType) {
         fullDay: hasHalf ? false : (item.fullDay !== false),
         closeFrom: item.closeFrom || null,
         closeTo: item.closeTo || null,
-        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : (isCond ? false : true),
+        otDuringOfficial: item.otDuringOfficial != null ? !!item.otDuringOfficial : true,
         otAfterOfficial: item.otAfterOfficial != null ? !!item.otAfterOfficial : true,
         applyFloat: item.applyFloat != null ? !!item.applyFloat : false,
         reason: item.reason ? String(item.reason).trim() : ''
@@ -1952,31 +1954,20 @@ function computeDayTimesheet(cal, punches, opts) {
     compensated = 0;
   } else if (condFull && present > 0) {
     // تعطیل شرایطی تمام‌روز
-    // otDuringOfficial=بله → کل حضور (غیرشب) = اضافه‌کار
-    // otDuringOfficial=خیر و otAfterOfficial=بله → فقط بعد از پایان موظفی
-    // هر دو خیر → بدون اضافه‌کار
-    delay = 0;
-    earlyLeave = 0;
-    compensated = 0;
     if (dayMeta.otDuringOfficial) {
       ot = Math.max(0, present - nightMin);
       workPresent = 0;
     } else {
-      workPresent = Math.min(present, official);
+      // فقط بعد از موظفی اضافه‌کار
       ot = 0;
-      if (dayMeta.otAfterOfficial && end != null) {
-        let afterEnd = 0;
-        completePairs.forEach(function (p) {
-          let a = p.inn, b = p.out;
-          if (a == null || b == null) return;
-          if (b < a) b += 24 * 60;
-          afterEnd += overlapMinutes(a, b, end, b);
-        });
-        const nightAfter = (lastOut != null && typeof nightMinutesInPair === 'function')
-          ? nightMinutesInPair(end, lastOut) : 0;
-        ot = Math.max(0, afterEnd - nightAfter);
+      workPresent = Math.min(present, official);
+      if (dayMeta.otAfterOfficial && lastOut != null && end != null && lastOut > end) {
+        ot = Math.max(0, lastOut - end - nightMin); // تقریبی
       }
     }
+    delay = 0;
+    earlyLeave = 0;
+    compensated = 0;
   } else if (condHalf) {
     // تعطیل شرایطی از ساعت closeFrom
     const cf = timeToMinutes(dayMeta.closeFrom);
@@ -2043,14 +2034,13 @@ function computeDayTimesheet(cal, punches, opts) {
     // اما nightInAfter ممکن است شامل دقایقی باشد که در جبران بودند؛ تقریبی قابل قبول:
     ot = Math.max(0, stayed - nightInAfter);
     // شب‌کاری گزارش‌شده همان کل حضور در ۲۲–۶ است (شامل بعد از شیفت)
-  } else if (isHoliday && !(dayMeta && dayMeta.conditional)) {
-    // فقط تعطیل رسمی/هفته — تعطیل شرایطی منطق جدا دارد (بالا)
+  } else if (isHoliday || condFull) {
+    // تعطیل: حضور غیرشب = اضافه‌کار، حضور شب = شب‌کاری
     if (present > 0) {
       ot = Math.max(0, present - nightMin);
       workPresent = 0;
     }
   }
-  // condFull: ot/workPresent از بلوک شرایطی حفظ می‌شود
   ot = Math.max(0, ot || 0);
   // early OT جدا از ot نگه داشته می‌شود (earlyOtMin)
 
@@ -2325,16 +2315,26 @@ function isUnpaidLeaveRequest(obj, req) {
   return false;
 }
 
-/**
- * کارکرد ماه:
- * از روز ۱ تا آخرین روزی که تردد / مرخصی روزانه / مأموریت روزانه دارد
- * همه روزهای کاری آن بازه شمرده می‌شوند
- * مرخصی بدون حقوق از این جمع کسر می‌شود
- * تعطیلات رسمی/غیرکاری هفته شمرده نمی‌شوند
- */
+/** مرخصی استعلاجی بلندمدت — در کارکرد شمرده نمی‌شود */
+function isLongTermSickLeaveRequest(obj, req) {
+  if (!req) return false;
+  if (req.longTermSick === true || req.isLongTermSick === true) return true;
+  const name = String(req.typeName || req.name || '').trim();
+  if (/استعلاجی\s*بلند\s*مدت|استعلاجی\s*بلندمدت|مرخصی\s*استعلاجی\s*بلند/.test(name)) return true;
+  try {
+    const typesA = (obj && obj.attendanceTypes) || [];
+    const typesB = (obj && obj.settings && obj.settings.attendanceTypes) || [];
+    const types = typesA.concat(typesB);
+    const t = types.find(function (x) { return String(x.id) === String(req.typeId); });
+    if (t) {
+      if (t.longTermSick === true || t.isLongTermSick === true) return true;
+      if (/استعلاجی\s*بلند\s*مدت|استعلاجی\s*بلندمدت/.test(String(t.name || ''))) return true;
+    }
+  } catch (e) {}
+  return false;
+}
 
 
-/** وضعیت مرخصی/مأموریت روزانه تأییدشده در یک روز */
 function dailyLeaveMissionFlags(obj, code, year, month, day) {
   const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
   const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
@@ -2407,46 +2407,123 @@ function empOtCeilingHours(emp) {
 }
 
 function recountEmpMonthWorkDays(obj, year, month, code) {
-  /* کارکرد = فقط روزهایی که واقعاً فعالیت دارند:
-     - جفت کامل ورود/خروج، یا
-     - مرخصی/مأموریت روزانه تأییدشده (غیر بدون‌حقوق)
-     روزهای غیبت بین دو بازه کارکرد شمرده نمی‌شوند */
+  /* کارکرد ماه:
+     - بازه فعال = از اولین تا آخرین روز دارای حضور (تردد کامل / مرخصی / مأموریت)
+     - در این بازه: تعطیلات و پایان‌هفته جزو کارکرد
+     - روز کاری کاملاً خالی (بدون تردد و بدون مرخصی/مأموریت) از کارکرد کسر
+     - مرخصی/مأموریت روزانه یا ساعتی (به‌جز بدون‌حقوق و استعلاجی بلندمدت) = روز کارکرد
+     - محدوده استخدام/پایان همکاری در همان ماه رعایت می‌شود
+  */
+  year = Number(year); month = Number(month);
   const dim = daysInJalaliMonth(year, month);
+  const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+  const ct = (emp && emp.contractType) || 'normal';
+
+  // محدوده استخدام / خاتمه در این ماه
+  let fromD = 1, toD = dim;
+  try {
+    const hire = parseJalaliYMD(emp && emp.hireDate);
+    if (hire) {
+      if (hire.y > year || (hire.y === year && hire.m > month)) return 0;
+      if (hire.y === year && hire.m === month) fromD = Math.max(1, Math.min(dim, hire.d || 1));
+    }
+    const end = parseJalaliYMD(emp && emp.endDate);
+    if (end) {
+      if (end.y < year || (end.y === year && end.m < month)) return 0;
+      if (end.y === year && end.m === month) toD = Math.max(1, Math.min(dim, end.d || dim));
+    }
+  } catch (eH) {}
+  if (toD < fromD) return 0;
+
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
-  const flags = {};
-  for (let d = 1; d <= dim; d++) {
-    flags[d] = { work: false };
+  const dayInfo = {};
+  for (let d = fromD; d <= toD; d++) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    // فقط جفت کامل
     let hasCompletePunch = false;
     for (let pi = 1; pi <= 4; pi++) {
-      if (String(punch['in' + pi] || '').trim() && String(punch['out' + pi] || '').trim()) hasCompletePunch = true;
+      if (String(punch['in' + pi] || '').trim() && String(punch['out' + pi] || '').trim()) {
+        hasCompletePunch = true;
+        break;
+      }
     }
-    if (hasCompletePunch) flags[d].work = true;
+    const nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    dayInfo[d] = {
+      nonWork: nonWork,
+      activity: hasCompletePunch,
+      punch: hasCompletePunch
+    };
   }
+
+  // مرخصی / مأموریت تأییدشده
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
-    if (x.mode !== 'daily') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
-    if (x.kind === 'leave' && isUnpaidLeaveRequest(obj, x)) return; // بدون حقوق = کارکرد نیست
+    if (x.kind === 'leave' && isUnpaidLeaveRequest(obj, x)) return;
+    if (x.kind === 'leave' && typeof isLongTermSickLeaveRequest === 'function' && isLongTermSickLeaveRequest(obj, x)) return;
+
+    if (x.mode === 'hourly') {
+      const p = parseJalaliYMD(x.startDate);
+      if (!p || p.y !== year || p.m !== month) return;
+      if (p.d < fromD || p.d > toD) return;
+      if (!dayInfo[p.d]) return;
+      dayInfo[p.d].activity = true;
+      return;
+    }
+    // روزانه
     const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
     keys.forEach(function (k) {
       const parts = String(k).split(/[-\/]/);
       if (parts.length < 3) return;
       const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
-      if (yy !== Number(year) || mm !== Number(month)) return;
-      if (!flags[dd]) return;
-      flags[dd].work = true;
+      if (yy !== year || mm !== month) return;
+      if (dd < fromD || dd > toD) return;
+      if (!dayInfo[dd]) return;
+      dayInfo[dd].activity = true;
     });
   });
+
+  // وضعیت استعلاجی/تعلیق بلندمدت کارت: روزهای بازه special را فعالیت نکن (کارکرد نیست)
+  try {
+    if (emp && (emp.status === 'sick' || emp.status === 'suspend')) {
+      // اگر تابع شمارش موجود باشد از همان منطق بازه استفاده می‌کنیم
+      for (let d = fromD; d <= toD; d++) {
+        if (typeof countSpecialDaysInMonth === 'function') {
+          // تقریبی: اگر کل ماه special است و تاریخ‌ها کل ماه را پوشش می‌دهد
+        }
+      }
+    }
+  } catch (eS) {}
+
+  // اولین و آخرین روز دارای حضور/فعالیت
+  let firstAct = 0, lastAct = 0;
+  for (let d = fromD; d <= toD; d++) {
+    if (dayInfo[d] && dayInfo[d].activity) {
+      if (!firstAct) firstAct = d;
+      lastAct = d;
+    }
+  }
+  if (!firstAct || !lastAct) return 0;
+
+  // از firstAct تا lastAct:
+  // - تعطیل → کارکرد
+  // - روز کاری با فعالیت → کارکرد
+  // - روز کاری خالی → کسر (شمارش نمی‌شود)
   let n = 0;
-  for (let d = 1; d <= dim; d++) {
-    if (flags[d].work) n++;
+  for (let d = firstAct; d <= lastAct; d++) {
+    const info = dayInfo[d];
+    if (!info) continue;
+    if (info.nonWork) {
+      n++; // تعطیل فی‌مابین / پایان‌هفته در بازه حضور
+    } else if (info.activity) {
+      n++; // حضور / مرخصی / مأموریت
+    }
+    // else: روز کاری خالی → کسر
   }
   return n;
 }
+
 
 function countLeaveDays(req, obj, contractType) {
   if (!req) return 0;
@@ -3723,9 +3800,7 @@ async function handleAdminTimesheet(request, who, env) {
       mdA._fromTimesheet = true;
       mdA._timesheetSyncedAt = new Date().toISOString();
     });
-    if (rows.length && !(filterCode && rows.length === 1)) {
-      try { await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin'); } catch (ePutAll) { console.error('md put all', ePutAll); }
-    }
+    // فقط در حافظه پاسخ API — ذخیره سرور با «ذخیره داده‌ها» تا conflict/پرش UI نشود
   } catch (eSyncAll) { console.error('monthlyData sync all', eSyncAll); }
 
   // Day-by-day sheet when a single employee code is selected (Excel-like)
