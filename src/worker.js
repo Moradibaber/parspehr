@@ -3801,6 +3801,48 @@ async function handleAdminTimesheet(request, who, env) {
       if (rr.nightHours != null) mdA.nightHours = Number(rr.nightHours) || 0;
       if (rr.excessAbsenceHours != null) mdA.excessAbsenceHours = Number(rr.excessAbsenceHours) || 0;
       if (rr.hourlyAbsenceHours != null) mdA.hourlyAbsenceHours = Number(rr.hourlyAbsenceHours) || 0;
+      // تفکیک مأموریت/مرخصی بر اساس typeName → qty برای ستون‌های نوع‌محور ورود داده
+      try {
+        if (!mdA.qty || typeof mdA.qty !== 'object') mdA.qty = {};
+        var mTotal = Number(rr.missionDays != null ? rr.missionDays : rr.missions) || 0;
+        mdA.qty['ماموریت روزانه'] = mTotal;
+        mdA.qty['مأموریت روزانه'] = mTotal;
+        mdA.qty['تعداد ماموریت روزانه'] = mTotal;
+        mdA.qty['تعداد مأموریت روزانه'] = mTotal;
+        function _normLabS(s) {
+          return String(s || '').replace(/^\s*مأموریت\s*/,'').replace(/^\s*ماموریت\s*/,'').replace(/^\s*مرخصی\s*/,'').replace(/\s+/g,' ').trim();
+        }
+        var byMisS = {}, byLvS = {};
+        (rr.requests || []).forEach(function (x) {
+          if (!x || x.status !== 'approved' || x.mode !== 'daily') return;
+          var lab = _normLabS(x.typeName);
+          if (!lab) lab = 'روزانه';
+          var dN = 0;
+          try {
+            if (x.kind === 'mission') dN = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
+            else dN = countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, null);
+          } catch (eC) { dN = 1; }
+          if (!(dN > 0)) dN = 1;
+          if (x.kind === 'mission') byMisS[lab] = (byMisS[lab] || 0) + dN;
+          else if (x.kind === 'leave') byLvS[lab] = (byLvS[lab] || 0) + dN;
+        });
+        Object.keys(byMisS).forEach(function (lab) {
+          var n = byMisS[lab];
+          mdA.qty['تعداد ماموریت ' + lab] = n;
+          mdA.qty['تعداد مأموریت ' + lab] = n;
+          mdA.qty['ماموریت ' + lab] = n;
+          mdA.qty['مأموریت ' + lab] = n;
+          mdA.qty[lab] = n;
+        });
+        Object.keys(byLvS).forEach(function (lab) {
+          var n = byLvS[lab];
+          mdA.qty['تعداد مرخصی ' + lab] = n;
+          mdA.qty['مرخصی ' + lab] = n;
+          mdA.qty[lab] = n;
+        });
+        mdA._missionByType = byMisS;
+        mdA._leaveByType = byLvS;
+      } catch (eQty) {}
       mdA._fromTimesheet = true;
       mdA._timesheetSyncedAt = new Date().toISOString();
     });
