@@ -715,6 +715,7 @@ export function makeEngine(data) {
         const amt = Number(ci.amount) || 0;
         // فرمول اختیاری روی آیتم (مثلاً: basicSalary*0.1 یا workDays*50000)
         if (ci.formula && String(ci.formula).trim()) {
+          const _totsF = (typeof getDecreeEmpTotals === 'function') ? getDecreeEmpTotals(emp.code) : { decreeSum: 0, eidSum: 0 };
           const fVal = evalSimpleFormula(ci.formula, {
             basicSalary: Number(emp.basicSalary) || 0,
             workDays: workDays,
@@ -730,7 +731,11 @@ export function makeEngine(data) {
             dailyRate: Number(emp.dailyRate) || 0,
             hourlyRate: Number(emp.hourlyRate) || 0,
             functionalDays: functionalDays,
-            seniorityBase: Number(emp.seniorityBase) || 0
+            seniorityBase: Number(emp.seniorityBase) || 0,
+            decree: Number(_totsF.decreeSum) || 0,
+            decreeSum: Number(_totsF.decreeSum) || 0,
+            eidSubject: Number(_totsF.eidSum) || 0,
+            eidSum: Number(_totsF.eidSum) || 0
           });
           if (fVal != null) {
             val = Math.round(Math.abs(fVal));
