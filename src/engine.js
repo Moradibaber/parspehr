@@ -236,7 +236,16 @@ export function makeEngine(data) {
 
   function isCustomItemActive(ci, year, month) {
     if (!ci) return false;
-    if (ci.enabled === false) return false; // غیرفعال: حتی با مبلغ در محاسبه نمی‌آید
+    // هر شکل غیرفعال‌سازی از کارت کارمند
+    if (ci.enabled === false || ci.enabled === 0 || ci.enabled === 'false' || ci.enabled === '0') return false;
+    if (ci.active === false || ci.active === 0 || ci.active === 'false') return false;
+    var enStr = String(ci.enabled == null ? '' : ci.enabled).trim();
+    if (enStr === 'غیرفعال' || enStr === 'inactive' || enStr === 'disabled' || enStr === 'off' || enStr === 'no') return false;
+    var actStr = String(ci.active == null ? '' : ci.active).trim();
+    if (actStr === 'غیرفعال' || actStr === 'inactive' || actStr === 'disabled') return false;
+    var st = String(ci.status || ci.state || '').trim();
+    if (st === 'غیرفعال' || st === 'inactive' || st === 'disabled') return false;
+    // تعداد خالص / quantity هم وقتی غیرفعال‌اند نباید محاسبه شوند (همان شرط بالا کافی است)
     return isCustomItemInDuration(ci, year, month);
   }
 
