@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261004v16" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261004v17" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -4040,9 +4040,22 @@ async function handleAdminTimesheet(request, who, env) {
       md.excessAbsenceMin = excessMin;
       md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
       md._timesheetSyncedAt = new Date().toISOString();
-      // ذخیره پایدار تا شیت ورود داده ببیند
+      // ذخیره پایدار با یک‌بار تلاش مجدد در conflict
       try {
-        await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+        let putR = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+        if (putR && putR.conflict) {
+          const gd2 = await storeGetData(cfg);
+          if (!gd2.fail && gd2.obj) {
+            // فقط monthlyData این ماه را روی نسخه جدید بنویس
+            const mk = year + '-' + month;
+            if (!gd2.obj.monthlyData) gd2.obj.monthlyData = {};
+            if (gd.obj.monthlyData && gd.obj.monthlyData[mk]) {
+              gd2.obj.monthlyData[mk] = gd.obj.monthlyData[mk];
+            }
+            putR = await storePutData(cfg, gd2.version, gd2.obj, (who && who.name) || 'admin');
+          }
+        }
+        if (putR && putR.fail) console.error('md put fail', putR.fail);
       } catch (ePut) { console.error('md put', ePut); }
     } catch (eMd) { console.error('monthlyData sync', eMd); }
     daily = {
