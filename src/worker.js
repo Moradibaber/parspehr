@@ -3358,10 +3358,7 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
     });
     budget -= need;
   });
-  return ranges.filter(function (r) {
-    const a = timeToMinutes(r.fromTime), b = timeToMinutes(r.toTime);
-    return a != null && b != null && b > a && (Number(r.minutes) || 0) > 0;
-  });
+  return ranges;
 }
 function suggestHourlyCoverRange(cal, calc, coverMinutes, punches) {
   const arr = suggestHourlyCoverRanges(cal, calc, coverMinutes, punches);
@@ -3561,6 +3558,52 @@ async function handleAdminBulkHourlyCover(request, who, env) {
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     return jsonResponse({ ok: true, created: created, allowanceHours: allowanceH || 0, results: results });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+
+async function handleAdminDataEntryColWidths(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const w = (gd.obj && gd.obj.settings && gd.obj.settings.dataEntryColWidths) || {};
+    return jsonResponse({ ok: true, widths: (w && typeof w === 'object') ? w : {} });
+  }
+  // فقط ادمین عرض را ذخیره کند
+  if (who.role !== 'admin') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین می‌تواند عرض ستون‌ها را ذخیره کند.' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const incoming = r.body && r.body.widths;
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'widths نامعتبر' }, 400);
+  }
+  // فقط مقادیر رشته‌ای امن (مثل "72px")
+  const clean = {};
+  Object.keys(incoming).forEach(function (k) {
+    const key = String(k || '').trim().slice(0, 120);
+    const val = String(incoming[k] || '').trim().slice(0, 20);
+    if (key && /^\d+(\.\d+)?px$/.test(val)) clean[key] = val;
+  });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj.settings) gd.obj.settings = {};
+    // merge با قبلی تا ستون‌های غایب از دست نروند
+    const prev = (gd.obj.settings.dataEntryColWidths && typeof gd.obj.settings.dataEntryColWidths === 'object')
+      ? gd.obj.settings.dataEntryColWidths : {};
+    gd.obj.settings.dataEntryColWidths = Object.assign({}, prev, clean);
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, widths: gd.obj.settings.dataEntryColWidths });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -3892,69 +3935,31 @@ async function handleAdminTimesheet(request, who, env) {
       };
     }
 
-    // بازسازی کامل bulkCover همان کارمند/ماه از شکاف‌های واقعی (چند بازه در روز + حذف معکوس)
+    // اصلاح مرخصی‌های پوشش خودکار با بازه اشتباه (مثلاً ۰۶:۴۵-۰۶:۴۹ به‌جای ۰۶:۴۵-۰۷:۰۱)
     try {
       const reqsAll = gd.obj.attendanceRequests || [];
-      const keep = [];
-      const daysNeed = {};
-      reqsAll.forEach(function (x) {
-        if (!x) return;
-        if (!x.bulkCover || x.mode !== 'hourly' || String(x.empCode) !== String(filterCode)) {
-          keep.push(x);
-          return;
-        }
+      for (let ri = 0; ri < reqsAll.length; ri++) {
+        const x = reqsAll[ri];
+        if (!x || !x.bulkCover || x.mode !== 'hourly') continue;
+        if (String(x.empCode) !== String(filterCode)) continue;
         const p = parseJalaliYMD(x.startDate);
-        if (!p || p.y !== year || p.m !== month) { keep.push(x); return; }
+        if (!p || p.y !== year || p.m !== month) continue;
         const dk = year + '-' + String(month).padStart(2,'0') + '-' + String(p.d).padStart(2,'0');
-        if (!daysNeed[dk]) daysNeed[dk] = x;
-      });
-      Object.keys(daysNeed).forEach(function (dk) {
         const cell = dayMap[dk];
-        const template = daysNeed[dk] || {};
-        if (!cell || cell.isNonWork) return;
+        if (!cell) continue;
+        if (cell.isNonWork) { x._dropBulk = true; continue; }
         const punch = { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2, in3: cell.in3, out3: cell.out3, in4: cell.in4, out4: cell.out4 };
-        const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2) || !!(cell.in3 && cell.out3), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
-        let ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch) || [];
-        ranges = ranges.filter(function (r) {
-          const a = timeToMinutes(r.fromTime), b = timeToMinutes(r.toTime);
-          return a != null && b != null && b > a;
-        });
-        ranges.forEach(function (r, idx) {
-          keep.push({
-            id: (typeof newRequestId === 'function' ? newRequestId() : ('bc-' + dk + '-' + idx)),
-            empCode: String(filterCode),
-            empName: template.empName || '',
-            managerCode: template.managerCode || '',
-            typeId: template.typeId || '',
-            typeName: template.typeName || 'مرخصی ساعتی (پوشش کسر کار)',
-            deductFromEntitlement: !!template.deductFromEntitlement,
-            kind: template.kind || 'leave',
-            mode: 'hourly',
-            startDate: cell.date || (year + '/' + String(month).padStart(2,'0') + '/' + String(cell.day).padStart(2,'0')),
-            endDate: cell.date || (year + '/' + String(month).padStart(2,'0') + '/' + String(cell.day).padStart(2,'0')),
-            fromTime: r.fromTime,
-            toTime: r.toTime,
-            place: template.place || '',
-            reason: 'ثبت خودکار پوشش کسر کار',
-            status: 'approved',
-            bulkCover: true
-          });
-        });
-      });
-      gd.obj.attendanceRequests = keep;
-      // هم‌سان‌سازی requests ردیف با لیست اصلاح‌شده
-      if (rows[0]) {
-        rows[0].requests = (gd.obj.attendanceRequests || []).filter(function (x) {
-          if (String(x.empCode) !== String(filterCode) || x.status !== 'approved') return false;
-          const p = parseJalaliYMD(x.startDate);
-          if (!p) return false;
-          if (p.y === year && p.m === month) return true;
-          if (x.mode === 'daily' && x.endDate) {
-            return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
-          }
-          return false;
-        });
+        const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
+        const ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch);
+        if (!ranges.length) { x._dropBulk = true; continue; }
+        // اگر بازه ذخیره‌شده با اولین شکاف واقعی فرق دارد، اصلاح کن
+        const r0 = ranges[0];
+        if (r0.fromTime !== x.fromTime || r0.toTime !== x.toTime) {
+          x.fromTime = r0.fromTime;
+          x.toTime = r0.toTime;
+        }
       }
+      gd.obj.attendanceRequests = reqsAll.filter(function (x) { return !x._dropBulk; });
     } catch (eFix) { console.error('bulk fix', eFix); }
 
     (rows[0].requests || []).forEach(function (x) {
@@ -3971,7 +3976,7 @@ async function handleAdminTimesheet(request, who, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
         if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-        if (x.kind === 'leave' && x.mode === 'hourly') { var _a=timeToMinutes(x.fromTime),_b=timeToMinutes(x.toTime); if(_a!=null&&_b!=null&&_b>_a){ var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; } }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
         if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
         if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         
@@ -4903,25 +4908,12 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   if (code) list = list.filter(function (x) { return String(x.empCode) === code; });
-  // اصلاح نمایش/داده بازه‌های معکوس ساعتی (from > to)
-  list = list.map(function (x) {
-    if (!x || x.mode !== 'hourly') return x;
-    const a = timeToMinutes(x.fromTime);
-    const b = timeToMinutes(x.toTime);
-    if (a != null && b != null && a > b) {
-      const copy = Object.assign({}, x);
-      copy.fromTime = x.toTime;
-      copy.toTime = x.fromTime;
-      return copy;
-    }
-    return x;
-  });
   return jsonResponse({ ok: true, requests: list.slice(0, 500) });
 }
 
 async function handleAdminUpdateAttendanceRequest(request, who, env) {
-  if (who.role !== 'admin' && who.role !== 'operator') {
-    return jsonResponse({ ok: false, error: 'forbidden', message: 'دسترسی ویرایش ندارید.' }, 403);
+  if (who.role !== 'admin') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین می‌تواند ویرایش کند.' }, 403);
   }
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -5285,6 +5277,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
   if (path === '/api/admin/bulk-hourly-cover') return handleAdminBulkHourlyCover(request, who, env);
+  if (path === '/api/admin/data-entry-col-widths') return handleAdminDataEntryColWidths(request, who, env);
   if (path === '/api/admin/shortfall-settings') return handleAdminShortfallSettings(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
@@ -5314,21 +5307,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/attendance-request') {
     if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
     if (request.method === 'PUT') return handleAdminUpdateAttendanceRequest(request, who, env);
-    if (request.method === 'POST') {
-      // action=delete برای سازگاری وقتی DELETE توسط پروکسی/مرورگر رد می‌شود
-      try {
-        const peek = await request.clone().json();
-        if (peek && (peek.action === 'delete' || peek.action === 'remove')) {
-          return handleAdminDeleteAttendanceRequest(new Request(request.url, {
-            method: 'DELETE',
-            headers: request.headers,
-            body: JSON.stringify({ id: peek.id })
-          }), who, env);
-        }
-      } catch (ePeek) {}
-      return handleAdminCreateAttendanceRequest(request, who, env);
-    }
-    return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+    return handleAdminCreateAttendanceRequest(request, who, env);
   }
 
   const h = new Headers(request.headers);
