@@ -2985,9 +2985,9 @@ async function handleEmpTimesheet(request, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
       if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_ta=timeToMinutes(x.toTime); if (_fa!=null&&_ta!=null&&_ta>_fa) { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; } }
       if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var _fm=timeToMinutes(x.fromTime),_tm=timeToMinutes(x.toTime); if (_fm!=null&&_tm!=null&&_tm>_fm) { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; } }
       
         if (!x.bulkCover) {
           var bits = [];
@@ -3351,6 +3351,7 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
     if (budget <= 0) return;
     const need = Math.min(g.minutes, budget);
     if (need <= 0) return;
+    if (!(g.fromMin + need > g.fromMin)) return;
     ranges.push({
       fromTime: minutesToHHMM(g.fromMin),
       toTime: minutesToHHMM(g.fromMin + need),
@@ -3358,7 +3359,10 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
     });
     budget -= need;
   });
-  return ranges;
+  return ranges.filter(function (r) {
+    const a = timeToMinutes(r.fromTime), b = timeToMinutes(r.toTime);
+    return a != null && b != null && b > a && (Number(r.minutes) || 0) > 0;
+  });
 }
 function suggestHourlyCoverRange(cal, calc, coverMinutes, punches) {
   const arr = suggestHourlyCoverRanges(cal, calc, coverMinutes, punches);
@@ -3801,48 +3805,6 @@ async function handleAdminTimesheet(request, who, env) {
       if (rr.nightHours != null) mdA.nightHours = Number(rr.nightHours) || 0;
       if (rr.excessAbsenceHours != null) mdA.excessAbsenceHours = Number(rr.excessAbsenceHours) || 0;
       if (rr.hourlyAbsenceHours != null) mdA.hourlyAbsenceHours = Number(rr.hourlyAbsenceHours) || 0;
-      // تفکیک مأموریت/مرخصی بر اساس typeName → qty برای ستون‌های نوع‌محور ورود داده
-      try {
-        if (!mdA.qty || typeof mdA.qty !== 'object') mdA.qty = {};
-        var mTotal = Number(rr.missionDays != null ? rr.missionDays : rr.missions) || 0;
-        mdA.qty['ماموریت روزانه'] = mTotal;
-        mdA.qty['مأموریت روزانه'] = mTotal;
-        mdA.qty['تعداد ماموریت روزانه'] = mTotal;
-        mdA.qty['تعداد مأموریت روزانه'] = mTotal;
-        function _normLabS(s) {
-          return String(s || '').replace(/^\s*مأموریت\s*/,'').replace(/^\s*ماموریت\s*/,'').replace(/^\s*مرخصی\s*/,'').replace(/\s+/g,' ').trim();
-        }
-        var byMisS = {}, byLvS = {};
-        (rr.requests || []).forEach(function (x) {
-          if (!x || x.status !== 'approved' || x.mode !== 'daily') return;
-          var lab = _normLabS(x.typeName);
-          if (!lab) lab = 'روزانه';
-          var dN = 0;
-          try {
-            if (x.kind === 'mission') dN = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
-            else dN = countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, null);
-          } catch (eC) { dN = 1; }
-          if (!(dN > 0)) dN = 1;
-          if (x.kind === 'mission') byMisS[lab] = (byMisS[lab] || 0) + dN;
-          else if (x.kind === 'leave') byLvS[lab] = (byLvS[lab] || 0) + dN;
-        });
-        Object.keys(byMisS).forEach(function (lab) {
-          var n = byMisS[lab];
-          mdA.qty['تعداد ماموریت ' + lab] = n;
-          mdA.qty['تعداد مأموریت ' + lab] = n;
-          mdA.qty['ماموریت ' + lab] = n;
-          mdA.qty['مأموریت ' + lab] = n;
-          mdA.qty[lab] = n;
-        });
-        Object.keys(byLvS).forEach(function (lab) {
-          var n = byLvS[lab];
-          mdA.qty['تعداد مرخصی ' + lab] = n;
-          mdA.qty['مرخصی ' + lab] = n;
-          mdA.qty[lab] = n;
-        });
-        mdA._missionByType = byMisS;
-        mdA._leaveByType = byLvS;
-      } catch (eQty) {}
       mdA._fromTimesheet = true;
       mdA._timesheetSyncedAt = new Date().toISOString();
     });
@@ -3931,31 +3893,61 @@ async function handleAdminTimesheet(request, who, env) {
       };
     }
 
-    // اصلاح مرخصی‌های پوشش خودکار با بازه اشتباه (مثلاً ۰۶:۴۵-۰۶:۴۹ به‌جای ۰۶:۴۵-۰۷:۰۱)
+    // اصلاح پوشش‌های خودکار: همه bulkCover همان روز حذف و از شکاف‌های واقعی بازسازی می‌شود
+    // (جلوگیری از بازه معکوس مثل ۰۷:۰۱-۰۶:۴۵ و تکراری شدن فقط شکاف صبح)
     try {
       const reqsAll = gd.obj.attendanceRequests || [];
-      for (let ri = 0; ri < reqsAll.length; ri++) {
-        const x = reqsAll[ri];
-        if (!x || !x.bulkCover || x.mode !== 'hourly') continue;
-        if (String(x.empCode) !== String(filterCode)) continue;
-        const p = parseJalaliYMD(x.startDate);
-        if (!p || p.y !== year || p.m !== month) continue;
-        const dk = year + '-' + String(month).padStart(2,'0') + '-' + String(p.d).padStart(2,'0');
-        const cell = dayMap[dk];
-        if (!cell) continue;
-        if (cell.isNonWork) { x._dropBulk = true; continue; }
-        const punch = { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2, in3: cell.in3, out3: cell.out3, in4: cell.in4, out4: cell.out4 };
-        const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
-        const ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch);
-        if (!ranges.length) { x._dropBulk = true; continue; }
-        // اگر بازه ذخیره‌شده با اولین شکاف واقعی فرق دارد، اصلاح کن
-        const r0 = ranges[0];
-        if (r0.fromTime !== x.fromTime || r0.toTime !== x.toTime) {
-          x.fromTime = r0.fromTime;
-          x.toTime = r0.toTime;
+      const keep = [];
+      const bulkByDay = {};
+      reqsAll.forEach(function (x) {
+        if (!x) return;
+        if (!x.bulkCover || x.mode !== 'hourly' || String(x.empCode) !== String(filterCode)) {
+          keep.push(x);
+          return;
         }
-      }
-      gd.obj.attendanceRequests = reqsAll.filter(function (x) { return !x._dropBulk; });
+        const p = parseJalaliYMD(x.startDate);
+        if (!p || p.y !== year || p.m !== month) { keep.push(x); return; }
+        const dk = year + '-' + String(month).padStart(2,'0') + '-' + String(p.d).padStart(2,'0');
+        if (!bulkByDay[dk]) bulkByDay[dk] = [];
+        bulkByDay[dk].push(x);
+      });
+      Object.keys(bulkByDay).forEach(function (dk) {
+        const cell = dayMap[dk];
+        const samples = bulkByDay[dk];
+        if (!cell || cell.isNonWork) return; // drop all for non-work
+        const punch = { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2, in3: cell.in3, out3: cell.out3, in4: cell.in4, out4: cell.out4 };
+        const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2) || !!(cell.in3 && cell.out3), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
+        let ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch) || [];
+        // فقط بازه‌های معتبر from < to
+        ranges = ranges.filter(function (r) {
+          const a = timeToMinutes(r.fromTime), b = timeToMinutes(r.toTime);
+          return a != null && b != null && b > a;
+        });
+        const template = samples[0] || {};
+        ranges.forEach(function (r) {
+          keep.push({
+            id: template.id && ranges.length === 1 ? template.id : (typeof newRequestId === 'function' ? newRequestId() : ('bc-' + dk + '-' + r.fromTime)),
+            empCode: String(filterCode),
+            empName: template.empName || '',
+            managerCode: template.managerCode || '',
+            managerName: template.managerName || '',
+            typeId: template.typeId || '',
+            typeName: template.typeName || 'مرخصی ساعتی (پوشش کسر کار)',
+            deductFromEntitlement: !!template.deductFromEntitlement,
+            kind: template.kind || 'leave',
+            mode: 'hourly',
+            startDate: cell.date || (year + '/' + String(month).padStart(2,'0') + '/' + String(cell.day).padStart(2,'0')),
+            endDate: cell.date || (year + '/' + String(month).padStart(2,'0') + '/' + String(cell.day).padStart(2,'0')),
+            fromTime: r.fromTime,
+            toTime: r.toTime,
+            place: template.place || '',
+            reason: template.reason || 'ثبت خودکار پوشش کسر کار',
+            status: template.status || 'approved',
+            bulkCover: true
+          });
+        });
+      });
+      gd.obj.attendanceRequests = keep;
     } catch (eFix) { console.error('bulk fix', eFix); }
 
     (rows[0].requests || []).forEach(function (x) {
@@ -3972,9 +3964,9 @@ async function handleAdminTimesheet(request, who, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
         if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_ta=timeToMinutes(x.toTime); if (_fa!=null&&_ta!=null&&_ta>_fa) { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; } }
         if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'hourly') { var _fm=timeToMinutes(x.fromTime),_tm=timeToMinutes(x.toTime); if (_fm!=null&&_tm!=null&&_tm>_fm) { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; } }
         
         if (!x.bulkCover) {
           var bits = [];
@@ -6633,7 +6625,7 @@ async function loadTimesheet(){
       var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
       html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
       html+='<th style="'+thE+'width:58px">تاریخ</th>';
-      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
+      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:32px">ورود'+hi+'</th><th style="'+thE+'width:32px">خروج'+hi+'</th>';}
       html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه‌کار</th><th style="'+thE+'width:28px">شب‌کاری</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
       html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
       html+='</tr></thead><tbody>';
