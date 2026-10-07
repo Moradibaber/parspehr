@@ -2985,9 +2985,9 @@ async function handleEmpTimesheet(request, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
       if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-      if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_ta=timeToMinutes(x.toTime); if (_fa!=null&&_ta!=null&&_ta>_fa) { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; } }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
       if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'hourly') { var _fm=timeToMinutes(x.fromTime),_tm=timeToMinutes(x.toTime); if (_fm!=null&&_tm!=null&&_tm>_fm) { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; } }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
       
         if (!x.bulkCover) {
           var bits = [];
@@ -3351,7 +3351,6 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
     if (budget <= 0) return;
     const need = Math.min(g.minutes, budget);
     if (need <= 0) return;
-    if (!(g.fromMin + need > g.fromMin)) return;
     ranges.push({
       fromTime: minutesToHHMM(g.fromMin),
       toTime: minutesToHHMM(g.fromMin + need),
@@ -3893,12 +3892,11 @@ async function handleAdminTimesheet(request, who, env) {
       };
     }
 
-    // اصلاح پوشش‌های خودکار: همه bulkCover همان روز حذف و از شکاف‌های واقعی بازسازی می‌شود
-    // (جلوگیری از بازه معکوس مثل ۰۷:۰۱-۰۶:۴۵ و تکراری شدن فقط شکاف صبح)
+    // بازسازی کامل bulkCover همان کارمند/ماه از شکاف‌های واقعی (چند بازه در روز + حذف معکوس)
     try {
       const reqsAll = gd.obj.attendanceRequests || [];
       const keep = [];
-      const bulkByDay = {};
+      const daysNeed = {};
       reqsAll.forEach(function (x) {
         if (!x) return;
         if (!x.bulkCover || x.mode !== 'hourly' || String(x.empCode) !== String(filterCode)) {
@@ -3908,29 +3906,25 @@ async function handleAdminTimesheet(request, who, env) {
         const p = parseJalaliYMD(x.startDate);
         if (!p || p.y !== year || p.m !== month) { keep.push(x); return; }
         const dk = year + '-' + String(month).padStart(2,'0') + '-' + String(p.d).padStart(2,'0');
-        if (!bulkByDay[dk]) bulkByDay[dk] = [];
-        bulkByDay[dk].push(x);
+        if (!daysNeed[dk]) daysNeed[dk] = x;
       });
-      Object.keys(bulkByDay).forEach(function (dk) {
+      Object.keys(daysNeed).forEach(function (dk) {
         const cell = dayMap[dk];
-        const samples = bulkByDay[dk];
-        if (!cell || cell.isNonWork) return; // drop all for non-work
+        const template = daysNeed[dk] || {};
+        if (!cell || cell.isNonWork) return;
         const punch = { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2, in3: cell.in3, out3: cell.out3, in4: cell.in4, out4: cell.out4 };
         const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2) || !!(cell.in3 && cell.out3), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
         let ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch) || [];
-        // فقط بازه‌های معتبر from < to
         ranges = ranges.filter(function (r) {
           const a = timeToMinutes(r.fromTime), b = timeToMinutes(r.toTime);
           return a != null && b != null && b > a;
         });
-        const template = samples[0] || {};
-        ranges.forEach(function (r) {
+        ranges.forEach(function (r, idx) {
           keep.push({
-            id: template.id && ranges.length === 1 ? template.id : (typeof newRequestId === 'function' ? newRequestId() : ('bc-' + dk + '-' + r.fromTime)),
+            id: (typeof newRequestId === 'function' ? newRequestId() : ('bc-' + dk + '-' + idx)),
             empCode: String(filterCode),
             empName: template.empName || '',
             managerCode: template.managerCode || '',
-            managerName: template.managerName || '',
             typeId: template.typeId || '',
             typeName: template.typeName || 'مرخصی ساعتی (پوشش کسر کار)',
             deductFromEntitlement: !!template.deductFromEntitlement,
@@ -3941,13 +3935,26 @@ async function handleAdminTimesheet(request, who, env) {
             fromTime: r.fromTime,
             toTime: r.toTime,
             place: template.place || '',
-            reason: template.reason || 'ثبت خودکار پوشش کسر کار',
-            status: template.status || 'approved',
+            reason: 'ثبت خودکار پوشش کسر کار',
+            status: 'approved',
             bulkCover: true
           });
         });
       });
       gd.obj.attendanceRequests = keep;
+      // هم‌سان‌سازی requests ردیف با لیست اصلاح‌شده
+      if (rows[0]) {
+        rows[0].requests = (gd.obj.attendanceRequests || []).filter(function (x) {
+          if (String(x.empCode) !== String(filterCode) || x.status !== 'approved') return false;
+          const p = parseJalaliYMD(x.startDate);
+          if (!p) return false;
+          if (p.y === year && p.m === month) return true;
+          if (x.mode === 'daily' && x.endDate) {
+            return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
+          }
+          return false;
+        });
+      }
     } catch (eFix) { console.error('bulk fix', eFix); }
 
     (rows[0].requests || []).forEach(function (x) {
@@ -3964,9 +3971,9 @@ async function handleAdminTimesheet(request, who, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
         if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-        if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_ta=timeToMinutes(x.toTime); if (_fa!=null&&_ta!=null&&_ta>_fa) { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; } }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var _a=timeToMinutes(x.fromTime),_b=timeToMinutes(x.toTime); if(_a!=null&&_b!=null&&_b>_a){ var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; } }
         if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'hourly') { var _fm=timeToMinutes(x.fromTime),_tm=timeToMinutes(x.toTime); if (_fm!=null&&_tm!=null&&_tm>_fm) { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; } }
+        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         
         if (!x.bulkCover) {
           var bits = [];
@@ -4896,12 +4903,25 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   if (code) list = list.filter(function (x) { return String(x.empCode) === code; });
+  // اصلاح نمایش/داده بازه‌های معکوس ساعتی (from > to)
+  list = list.map(function (x) {
+    if (!x || x.mode !== 'hourly') return x;
+    const a = timeToMinutes(x.fromTime);
+    const b = timeToMinutes(x.toTime);
+    if (a != null && b != null && a > b) {
+      const copy = Object.assign({}, x);
+      copy.fromTime = x.toTime;
+      copy.toTime = x.fromTime;
+      return copy;
+    }
+    return x;
+  });
   return jsonResponse({ ok: true, requests: list.slice(0, 500) });
 }
 
 async function handleAdminUpdateAttendanceRequest(request, who, env) {
-  if (who.role !== 'admin') {
-    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین می‌تواند ویرایش کند.' }, 403);
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'دسترسی ویرایش ندارید.' }, 403);
   }
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -5294,7 +5314,21 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/attendance-request') {
     if (request.method === 'DELETE') return handleAdminDeleteAttendanceRequest(request, who, env);
     if (request.method === 'PUT') return handleAdminUpdateAttendanceRequest(request, who, env);
-    return handleAdminCreateAttendanceRequest(request, who, env);
+    if (request.method === 'POST') {
+      // action=delete برای سازگاری وقتی DELETE توسط پروکسی/مرورگر رد می‌شود
+      try {
+        const peek = await request.clone().json();
+        if (peek && (peek.action === 'delete' || peek.action === 'remove')) {
+          return handleAdminDeleteAttendanceRequest(new Request(request.url, {
+            method: 'DELETE',
+            headers: request.headers,
+            body: JSON.stringify({ id: peek.id })
+          }), who, env);
+        }
+      } catch (ePeek) {}
+      return handleAdminCreateAttendanceRequest(request, who, env);
+    }
+    return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   }
 
   const h = new Headers(request.headers);
@@ -6625,7 +6659,7 @@ async function loadTimesheet(){
       var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
       html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
       html+='<th style="'+thE+'width:58px">تاریخ</th>';
-      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:32px">ورود'+hi+'</th><th style="'+thE+'width:32px">خروج'+hi+'</th>';}
+      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
       html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه‌کار</th><th style="'+thE+'width:28px">شب‌کاری</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
       html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
       html+='</tr></thead><tbody>';
