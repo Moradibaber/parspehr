@@ -2069,6 +2069,38 @@ function computeDayTimesheet(cal, punches, opts) {
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
+  // ورود بعد از پایان شناوری (مثلاً ۰۷:۰۱ با شروع ۰۶:۴۵ و شناوری ۱۵د): ماندن بیشتر در پایان وقت
+  // تأخیر صبح را جبران نمی‌کند (آن مقدار اضافه‌کار است)؛ بازه ۰۶:۴۵ تا ورود و خروج زودتر از پایان
+  // باید با مرخصی/مأموریت ساعتی پوشش داده شود. پس کارکرد فقط داخل بازه [شروع، پایان] شمرده می‌شود.
+  let presentForShort = present;
+  const beyondFloat = hasComplete && firstIn != null && start != null && end != null &&
+    (firstIn - start) > (floatM || 0) && !compensate;
+  if (beyondFloat && !isHoliday && !condFull && !condHalf && !opts.unpaidLeave &&
+      !opts.fullDayLeaveOrMission && !(dayMeta && dayMeta.fullDay)) {
+    let presentWin = 0;
+    completePairs.forEach(function (p) {
+      let a = p.inn, b = p.out;
+      if (b < a) b += 24 * 60;
+      presentWin += overlapMinutes(a, b, start, end);
+    });
+    if (sched.hasBreak && !sched.breakCountsAsWork) {
+      const bs2 = timeToMinutes(sched.breakStart);
+      const be2 = timeToMinutes(sched.breakEnd);
+      if (bs2 != null && be2 != null) {
+        let br2 = be2 - bs2; if (br2 < 0) br2 += 24 * 60;
+        let covers2 = false;
+        completePairs.forEach(function (p) {
+          let a = p.inn, b = p.out;
+          if (b < a) b += 24 * 60;
+          if (a <= bs2 && b >= be2) covers2 = true;
+        });
+        if (covers2) presentWin = Math.max(0, presentWin - br2);
+      }
+    }
+    presentForShort = Math.min(present, presentWin);
+    workPresent = presentForShort;
+  }
+
   if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
     // تعطیل رسمی/هفته: تمام حضور = اضافه‌کار (شب‌کاری جدا)
     ot = Math.max(0, present - nightMin);
@@ -2192,7 +2224,7 @@ function computeDayTimesheet(cal, punches, opts) {
   } else if (opts.fullDayLeaveOrMission) {
     shortfall = 0;
   } else {
-    shortfall = Math.max(0, official - present - covered);
+    shortfall = Math.max(0, official - presentForShort - covered);
   }
 
   // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
