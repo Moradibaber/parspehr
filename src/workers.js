@@ -1929,11 +1929,10 @@ function computeDayTimesheet(cal, punches, opts) {
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
   const floatM = Number(sched.floatMinutes) || 0;
-  // تیک جبران: از شیفت قرارداد (cal/sched) یا opts یا فلگ روی خود تردد
   const compensate = !!(
     sched.floatCompensate ||
-    opts.floatCompensate ||
     (cal && cal.floatCompensate) ||
+    opts.floatCompensate ||
     (opts.punch && opts.punch.floatCompensate)
   );
   const official = officialWorkMinutes(sched);
@@ -2012,17 +2011,12 @@ function computeDayTimesheet(cal, punches, opts) {
     earlyLeave = Math.max(0, end - lastOut);
   }
 
-  // ── جبران تأخیر ──
-  // canCompensate = داخل شناوری (تأخیر ≤ float)  OR  تیک «جبران با ماندن در پایان»
-  // با جبران: ماندن بعد از end تا سقف تأخیر صبح، تأخیر را صفر و OT را کم می‌کند
-  // بدون جبران: ماندن بعد از end = فقط OT؛ تأخیر صبح دست‌نخورده می‌ماند
+  // جبران: داخل شناوری خودکار، یا با تیک floatCompensate برای هر میزان تأخیر
   const stayedPast0 = (hasComplete && lastOut != null && end != null) ? Math.max(0, lastOut - end) : 0;
   const canCompensate = (!!withinFloat || !!compensate) && delay > 0;
   if (hasComplete && canCompensate && lastOut != null && end != null) {
     let maxComp = delay;
-    // فقط شناوری (بدون تیک): سقف جبران = floatM
     if (withinFloat && !compensate) maxComp = Math.min(delay, floatM || 0);
-    // با تیک جبران: سقف = کل تأخیر (حتی بیش از float)
     compensated = Math.min(maxComp, stayedPast0);
     delay = Math.max(0, delay - compensated);
     ot = Math.max(0, stayedPast0 - compensated);
@@ -2065,12 +2059,9 @@ function computeDayTimesheet(cal, punches, opts) {
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
-  // ── کارکرد و کسری (مبنای واحد) ──
-  // حضور داخل پنجره [start,end] + دقایق جبران‌شده
-  // * بدون تیک، خارج شناوری: جبران=0 → کارکرد=فقط پنجره، کسری=شکاف صبح+عصر
-  // * با تیک (یا داخل شناوری+ماندن): جبران به کارکرد اضافه → کسری کم/صفر
-  // مثال با تیک: ۰۷:۱۰–۱۶:۰۰ → پنجره ۵۰۰ + جبران ۲۵ = ۵۲۵ → کارکرد ۰۸:۴۵، OT ۰۰:۰۵، کسری ۰
-  // مثال بدون تیک: ۰۷:۱۰–۱۶:۰۰ → پنجره ۵۰۰ → کارکرد ۰۸:۲۰، OT ۰۰:۳۰، کسری ۰۰:۲۵
+  // کارکرد = حضور در [start,end] + جبران؛ کسری = موظفی − کارکرد − پوشش
+  // با تیک: ۰۷:۱۰–۱۶:۰۰ → پنجره ۵۰۰ + جبران ۲۵ = ۵۲۵ → کار ۰۸:۴۵، OT ۰۰:۰۵، کسری ۰
+  // بدون تیک: ۰۷:۱۰–۱۶:۰۰ → پنجره ۵۰۰ → کار ۰۸:۲۰، OT ۰۰:۳۰، کسری ۰۰:۲۵
   let presenceInWindow = 0;
   if (start != null && end != null && completePairs.length) {
     completePairs.forEach(function (p) {
@@ -2177,7 +2168,6 @@ function computeDayTimesheet(cal, punches, opts) {
   });
 
   if (hasComplete && lastOut != null && end != null && lastOut > end && !isHoliday && !condFull && !condHalf) {
-    // روز عادی: اضافه‌کار فقط بعد از پایان شیفت (منهای شب‌کاری و جبران)
     let stayed = Math.max(0, lastOut - end);
     stayed = Math.max(0, stayed - (compensated || 0));
     const nightInAfter = nightMinutesInPair(end, lastOut);
