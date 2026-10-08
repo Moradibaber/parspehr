@@ -180,6 +180,9 @@ async function storeGetData(cfg) {
   if (row && row.data) {
     try { obj = JSON.parse(row.data); } catch (e) { return { fail: { reason: 'bad_json', status: 502 } }; }
   }
+  if (obj) {
+    try { mergeAllEmployeeExtras(obj); } catch (eMerge) { /* non-fatal */ }
+  }
   return { version: Number(row.version) || 0, obj: obj };
 }
 
@@ -221,6 +224,12 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               if (p.portalEnabled != null) e.portalEnabled = p.portalEnabled;
             }
             if (!e.portalPassChangedAt && p.portalPassChangedAt) e.portalPassChangedAt = p.portalPassChangedAt;
+            // اگر کلاینت family نفرستاد، از قبلی نگه دار (تا F5 پاک نکند)
+            if (e.family === undefined && p.family) e.family = p.family;
+            if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
+            if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
+            if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
+            if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
           }
         });
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
@@ -228,6 +237,14 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
         if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
+        if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
+          obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
+        }
+        if (prev.obj.employeePhotos && typeof prev.obj.employeePhotos === 'object') {
+          obj.employeePhotos = Object.assign({}, prev.obj.employeePhotos, obj.employeePhotos || {});
+        }
+        try { mergeAllEmployeeExtras(obj); } catch (e2) { /* non-fatal */ }
       }
     }
   } catch (e) { /* non-fatal */ }
@@ -475,6 +492,20 @@ async function handleState(request, who, env, path) {
       if (!r.ok) return storeFailResponse(await storeFail(r));
       const text = (await r.text()).trim();
       if (text.charAt(0) !== '{') return jsonResponse({ ok: false, error: 'store_error' }, 502);
+      // برای سند data: خانواده/عکس را از employeeExtras روی employees برگردان
+      if (rest === 'data') {
+        try {
+          const row = JSON.parse(text);
+          if (row && row.data) {
+            let parsed = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+            if (parsed && typeof parsed === 'object') {
+              mergeAllEmployeeExtras(parsed);
+              row.data = parsed;
+              return jsonResponse(Object.assign({ ok: true }, row));
+            }
+          }
+        } catch (eGet) { /* fallback raw */ }
+      }
       return new Response('{"ok":true,' + text.slice(1), {
         status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
       });
@@ -4428,6 +4459,67 @@ function resyncAllSuppInsuranceItems(obj) {
 }
 
 
+
+/** ذخیره پایدار خانواده/بیمه/پیام — مستقل از فرم اصلی کارمند */
+function ensureEmployeeExtras(obj) {
+  if (!obj.employeeExtras || typeof obj.employeeExtras !== 'object') obj.employeeExtras = {};
+  if (!obj.employeePhotos || typeof obj.employeePhotos !== 'object') obj.employeePhotos = {};
+}
+function snapshotEmpExtra(obj, emp) {
+  if (!obj || !emp || emp.code == null) return;
+  ensureEmployeeExtras(obj);
+  var code = String(emp.code);
+  var photo = (obj.employeePhotos && obj.employeePhotos[code]) || emp.photo || null;
+  obj.employeeExtras[code] = {
+    family: emp.family || { members: [] },
+    suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
+    systemMessages: Array.isArray(emp.systemMessages) ? emp.systemMessages : [],
+    childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
+    children: Number(emp.children) || 0,
+    suppInsuranceDeduct: !!emp.suppInsuranceDeduct,
+    suppInsuranceDeductCount: Number(emp.suppInsuranceDeductCount) || 0,
+    photo: photo,
+    updatedAt: new Date().toISOString()
+  };
+  // customItems مربوط به بیمه تکمیلی را هم نگه دار
+  var suppItems = (emp.customItems || []).filter(function (ci) {
+    return ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''));
+  });
+  if (suppItems.length) obj.employeeExtras[code].suppCustomItems = suppItems;
+}
+function applyEmpExtra(obj, emp) {
+  if (!obj || !emp || emp.code == null) return;
+  ensureEmployeeExtras(obj);
+  var code = String(emp.code);
+  var ex = obj.employeeExtras[code];
+  if (ex) {
+    if (ex.family) emp.family = ex.family;
+    if (ex.suppInsurance) emp.suppInsurance = ex.suppInsurance;
+    if (Array.isArray(ex.systemMessages)) emp.systemMessages = ex.systemMessages;
+    if (ex.childrenEligibleCount != null) emp.childrenEligibleCount = ex.childrenEligibleCount;
+    if (ex.children != null) emp.children = ex.children;
+    emp.suppInsuranceDeduct = !!ex.suppInsuranceDeduct;
+    emp.suppInsuranceDeductCount = Number(ex.suppInsuranceDeductCount) || 0;
+    if (Array.isArray(ex.suppCustomItems) && ex.suppCustomItems.length) {
+      if (!Array.isArray(emp.customItems)) emp.customItems = [];
+      // حذف قبلی‌های تکمیلی و جایگزینی
+      emp.customItems = emp.customItems.filter(function (ci) {
+        return !(ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')));
+      });
+      ex.suppCustomItems.forEach(function (ci) { emp.customItems.push(ci); });
+    }
+  }
+  var ph = (obj.employeePhotos && obj.employeePhotos[code]) || (ex && ex.photo) || emp.photo || null;
+  if (ph) emp.photo = ph;
+}
+function mergeAllEmployeeExtras(obj) {
+  if (!obj || !Array.isArray(obj.employees)) return;
+  ensureEmployeeExtras(obj);
+  obj.employees.forEach(function (emp) {
+    if (emp) applyEmpExtra(obj, emp);
+  });
+}
+
 function storeEmpPhoto(obj, empCode, dataUrl) {
   if (!obj.employeePhotos || typeof obj.employeePhotos !== 'object') obj.employeePhotos = {};
   var code = String(empCode);
@@ -4580,6 +4672,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       }
     }
     refreshSonAgeMessages(gd.obj, emp);
+    snapshotEmpExtra(gd.obj, emp);
     const put = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
