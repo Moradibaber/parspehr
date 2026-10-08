@@ -1419,7 +1419,9 @@ function ensureEmpLeaveYears(emp, obj) {
       settledMode: null
     };
   }
-  // اطمینان از سال جاری — مانده همیشه بر اساس تحقق ماهانه (شامل ماه جاری)
+  // اطمینان از سال جاری
+  // - استخدام قبل از امسال: سقف کامل سالانه برای درخواست در طول سال (مانده = سقف − مصرف)
+  // - استخدام امسال: تناسب از تاریخ استخدام (computeAccruedLeaveDaysW)
   const row = emp.leaveYears[String(cy)];
   row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
   const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
@@ -1433,7 +1435,9 @@ function ensureEmpLeaveYears(emp, obj) {
       const d = Number(a.delta) || 0;
       if (d > 0) adjPos += d;
     });
-    const baseForRemain = accrued;
+    const hireP = parseJalaliYMD(emp.hireDate);
+    // اگر از سال‌های قبل استخدام شده → تا سقف سالانه در طول سال قابل استفاده است
+    const baseForRemain = (hireP && hireP.y < cy) ? Number(row.entitled) : accrued;
     row.remaining = Math.round((baseForRemain - Number(row.used || 0) + adjPos) * 100) / 100;
   }
   // فیلد سازگاری: فقط مانده سال جاری (نه تجمیع سال‌های قبل)
@@ -2661,57 +2665,36 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
   if (!emp) return;
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
-  // از درخواست‌های تأییدشده (کسر از استحقاق) + leaveDays ورود داده ماهانه
+  // reset used for all unsettled years then re-apply from approved leave requests
   Object.keys(emp.leaveYears || {}).forEach(function (yk) {
     const row = emp.leaveYears[yk];
     if (!row || row.settled) return;
-    let usedReq = 0;
+    // keep entitled; recompute used from requests in that year
+    let used = 0;
     (obj.attendanceRequests || []).forEach(function (req) {
       if (String(req.empCode) !== String(empCode)) return;
-      if (req.status !== 'approved' && req.status !== 'approved_l1') return;
+      if (req.status !== 'approved') return;
       if (!req.deductFromEntitlement) return;
       if (req.kind !== 'leave') return;
       const detail = req.leaveDeductDetail;
       if (Array.isArray(detail) && detail.length) {
         detail.forEach(function (d) {
-          if (String(d.year) === String(yk)) usedReq += Number(d.days) || 0;
+          if (String(d.year) === String(yk)) used += Number(d.days) || 0;
         });
       } else {
         const p = parseJalaliYMD(req.startDate);
         const y = p ? p.y : cy;
-        if (String(y) === String(yk)) usedReq += countLeaveDays(req, obj, emp.contractType);
+        if (String(y) === String(yk)) used += countLeaveDays(req, obj);
       }
     });
-    // جمع leaveDays از ورود داده ماهانه همان سال (مرخصی استحقاقی روزانه)
-    let usedMd = 0;
-    const yNum = Number(yk);
-    if (obj.monthlyData && yNum) {
-      for (let m = 1; m <= 12; m++) {
-        const key = yNum + '-' + m;
-        const rec = obj.monthlyData[key] && obj.monthlyData[key][String(empCode)];
-        if (rec) usedMd += Number(rec.leaveDays) || 0;
-      }
-    }
-    // تعدیل منفی
-    let usedAdj = 0;
+    // adjustments negative contribute to used
     (emp.leaveAdjustments || []).forEach(function (a) {
       if (String(a.year) !== String(yk)) return;
-      if (Number(a.delta) < 0) usedAdj += Math.abs(Number(a.delta));
+      if (Number(a.delta) < 0) used += Math.abs(Number(a.delta));
     });
-    // درخواست‌ها و ورود داده ممکن است هم‌پوشانی داشته باشند → بزرگ‌تر را ملاک بگیر، سپس تعدیل را اضافه کن
-    let used = Math.max(usedReq, usedMd) + usedAdj;
-    // اگر هر دو منبع داده دارند و با هم جمع منطقی‌تر است فقط وقتی درخواست‌ها کسر نشده‌اند:
-    // اگر usedReq>0 و usedMd>0 و تقریباً برابرند، max کافی است
     row.used = Math.round(used * 100) / 100;
-    // مانده بر اساس تحقق (سال جاری) یا سقف (سال‌های قبل)
-    let baseRem;
-    if (Number(yk) === cy) {
-      const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
-      row.accrued = accrued;
-      baseRem = Math.round((accrued - row.used) * 100) / 100;
-    } else {
-      baseRem = Math.round((Number(row.entitled || 0) - row.used) * 100) / 100;
-    }
+    const baseRem = Math.round((Number(row.entitled) - row.used) * 100) / 100;
+    // apply positive adjustments to remaining
     let adjPos = 0;
     (emp.leaveAdjustments || []).forEach(function (a) {
       if (String(a.year) !== String(yk)) return;
@@ -2719,9 +2702,8 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
     });
     row.remaining = Math.round((baseRem + adjPos) * 100) / 100;
   });
-  emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
   emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
-  emp.leaveBalanceYear = cy;
 }
 
 function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
@@ -4461,64 +4443,6 @@ async function handleEmpAttendanceTypes(request, env) {
 }
 
 
-
-/** دفتر مرخصی سالانه — بازسازی used از درخواست‌ها و ورود داده */
-async function handleAdminLeaveYears(request, who, env) {
-  if (who.role !== 'admin' && who.role !== 'operator') {
-    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
-  }
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const empCode = String((r.body && r.body.empCode) || '').trim();
-  if (!empCode) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند لازم است.' }, 400);
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === empCode; });
-    if (!emp) return jsonResponse({ ok: false, error: 'not_found', message: 'کارمند یافت نشد.' }, 404);
-    // بازسازی مصرف از روی درخواست‌ها + leaveDays ماهانه (شامل ثبت‌های قبلی)
-    rebuildEmpLeaveUsedFromRequests(gd.obj, empCode);
-    ensureEmpLeaveYears(emp, gd.obj);
-    const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
-    const annual = getAnnualLeaveDaysForEmp(gd.obj, emp);
-    const accrued = computeAccruedLeaveDaysW(gd.obj, emp, cy);
-    const years = listLeaveYearsSorted(emp).map(function (r) {
-      const y = Number(r.year);
-      return {
-        year: y,
-        entitled: y === cy ? annual : (Number(r.entitled) || annual),
-        accrued: y === cy ? accrued : (Number(r.accrued) || Number(r.entitled) || 0),
-        used: Number(r.used) || 0,
-        remaining: r.settled ? 0 : (Number(r.remaining) || 0),
-        settled: !!r.settled,
-        settledAt: r.settledAt || null,
-        settledMode: r.settledMode || null
-      };
-    });
-    emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
-    emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
-    emp.leaveBalanceYear = cy;
-    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) continue;
-    return jsonResponse({
-      ok: true,
-      empCode: empCode,
-      fullName: emp.fullName || '',
-      year: cy,
-      annualDays: annual,
-      accruedCurrent: accrued,
-      leaveBalance: emp.leaveBalance,
-      leaveUsedYear: emp.leaveUsedYear,
-      years: years,
-      adjustments: (emp.leaveAdjustments || []).slice(0, 50)
-    });
-  }
-  return jsonResponse({ ok: false, error: 'conflict' }, 409);
-}
-
 /** تعدیل مانده مرخصی توسط ادمین: علامت + (بستانکار/پیش‌خور مجاز) یا − (بدهکار) */
 async function handleAdminLeaveAdjust(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
@@ -5324,7 +5248,6 @@ async function route(request, env, users, found) {
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
-  if (path === '/api/admin/leave-years') return handleAdminLeaveYears(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
@@ -5942,11 +5865,13 @@ async function handleEmpBalances(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(sess.code); });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  rebuildEmpLeaveUsedFromRequests(gd.obj, String(emp.code));
   ensureEmpLeaveYears(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
+  // همیشه از سیاست فعلی (نه مقدار قدیمی leaveYears.entitled)
   let annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
   const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
+  // فقط سال جاری در پرتال
+  // entitled همیشه از سیاست فعلی
   const years = listLeaveYearsSorted(emp).filter(function (r) { return Number(r.year) === cy; }).map(function (r) {
     const entitledNow = annualForEmp;
     const accruedNow = computeAccruedLeaveDaysW(gd.obj, emp, cy);
