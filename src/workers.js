@@ -2069,25 +2069,25 @@ function computeDayTimesheet(cal, punches, opts) {
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
-  // همیشه کارکرد مبنا = حضور داخل پنجره موظفی [start,end] (+ جبران معتبر)
-  // بدون تیک و تأخیر > شناوری: جبران صفر → کار = فقط پنجره؛ کسری = صبح+عصر
-  // مثال ۰۷:۳۰–۱۵:۰۰: پنجره ۴۵۰ → کار ۰۷:۳۰، کسری ۰۱:۱۵ (نه ۰۸:۴۵)
+  // حضور فقط داخل بازه موظفی [start, end] — مبنای کارکرد و کسری
+  // جبران شناوری/تیک جبران: دقایق compensated به کارکرد اضافه و از کسری کم می‌شود
+  // خارج شناوری بدون تیک جبران: compensated=0 → شکاف صبح + شکاف عصر هر دو کسری‌اند (دو مرخصی/مأموریت)
   let presenceInWindow = 0;
-  if (start != null && end != null && completePairs.length) {
+  if (start != null && end != null) {
     completePairs.forEach(function (p) {
-      var a = p.inn, b = p.out;
+      let a = p.inn, b = p.out;
       if (a == null || b == null) return;
       if (b < a) b += 24 * 60;
       presenceInWindow += overlapMinutes(a, b, start, end);
     });
     if (sched.hasBreak && !sched.breakCountsAsWork) {
-      var bs2 = timeToMinutes(sched.breakStart);
-      var be2 = timeToMinutes(sched.breakEnd);
+      const bs2 = timeToMinutes(sched.breakStart);
+      const be2 = timeToMinutes(sched.breakEnd);
       if (bs2 != null && be2 != null) {
-        var br2 = be2 - bs2; if (br2 < 0) br2 += 24 * 60;
-        var covers2 = false;
+        let br2 = be2 - bs2; if (br2 < 0) br2 += 24 * 60;
+        let covers2 = false;
         completePairs.forEach(function (p) {
-          var a = p.inn, b = p.out;
+          let a = p.inn, b = p.out;
           if (a == null || b == null) return;
           if (b < a) b += 24 * 60;
           if (a <= bs2 && b >= be2) covers2 = true;
@@ -2098,15 +2098,16 @@ function computeDayTimesheet(cal, punches, opts) {
   } else {
     presenceInWindow = present;
   }
-  // جبران فقط اگر واقعاً محاسبه شده (داخل شناوری یا تیک)
-  var creditComp = 0;
-  if (!isHoliday && !condFull && !opts.unpaidLeave && !opts.fullDayLeaveOrMission) {
-    creditComp = Math.max(0, compensated || 0);
-  }
-  var presentForShort = presenceInWindow + creditComp;
+  // کارکرد مؤثر = حضور در پنجره + جبران معتبر (ماندن بعد از پایان که تأخیر صبح را پوشاند)
+  const creditComp = (!isHoliday && !condFull && !opts.unpaidLeave && !opts.fullDayLeaveOrMission)
+    ? (compensated || 0) : 0;
+  let presentForShort = Math.min(present, presenceInWindow + creditComp);
+  // workPresent برای روز عادی از همین مبنا (تعطیل/شرایطی پایین‌تر ممکن است بازنویسی کنند)
   if (!isHoliday && !condFull && !condHalf) {
     workPresent = presentForShort;
   }
+  const beyondFloat = hasComplete && firstIn != null && start != null &&
+    (firstIn - start) > (floatM || 0) && !compensate;
 
   if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
     // تعطیل رسمی/هفته: تمام حضور = اضافه‌کار (شب‌کاری جدا)
@@ -2181,13 +2182,11 @@ function computeDayTimesheet(cal, punches, opts) {
   });
 
   if (hasComplete && lastOut != null && end != null && lastOut > end && !isHoliday && !condFull && !condHalf) {
-    var stayed = Math.max(0, lastOut - end);
+    // روز عادی: اضافه‌کار فقط بعد از پایان شیفت (منهای شب‌کاری و جبران شناوری)
+    let stayed = Math.max(0, lastOut - end);
     stayed = Math.max(0, stayed - (compensated || 0));
-    var nightInAfter = nightMinutesInPair(end, lastOut);
+    const nightInAfter = nightMinutesInPair(end, lastOut);
     ot = Math.max(0, stayed - nightInAfter);
-    workPresent = presentForShort;
-  } else if (hasComplete && !isHoliday && !condFull && !condHalf) {
-    workPresent = presentForShort;
   } else if (isHoliday && !condFull && !condHalf && present > 0) {
     // تعطیل رسمی/هفته (نه شرایطی): کل حضور غیرشب = اضافه‌کار
     // تعطیل شرایطی قبلاً با فلگ otDuringOfficial / otAfterOfficial محاسبه شده — اینجا بازنویسی نشود
@@ -2255,17 +2254,19 @@ function computeDayTimesheet(cal, punches, opts) {
     shortfall = Math.max(0, officialHalf - workPresent - covered);
   } else if (opts.unpaidLeave) {
     shortfall = official;
-  } else if (opts.fullDayLeaveOrMission && !hasComplete) {
+  } else if (opts.fullDayLeaveOrMission) {
     shortfall = 0;
   } else {
+    // کسری = موظفی − (حضور در پنجره + جبران معتبر) − پوشش ساعتی
+    // مثال بدون جبران: ورود ۰۷:۰۱ خروج ۱۵:۲۵ → حضور‌پنجره ۵۰۴، کسری ۲۱ (۱۶ صبح + ۵ عصر)
+    // مثال با جبران: ورود ۰۷:۱۵ خروج ۱۶:۰۰ → حضور‌پنجره ۴۹۵ + جبران ۳۰ = ۵۲۵، کسری ۰
     shortfall = Math.max(0, official - presentForShort - covered);
   }
 
-  // کارکرد نمایشی: حضور در پنجره + پوشش ساعتی (تا سقف موظفی)
-  // مرخصی تمام‌روز فقط وقتی واقعاً daily است و تردد کامل ندارد
+  // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
   let displayWorkMin = workPresent + (isHoliday ? 0 : covered);
   if (!isHoliday && !opts.unpaidLeave) {
-    if (opts.fullDayLeaveOrMission && !hasComplete) displayWorkMin = official;
+    if (opts.fullDayLeaveOrMission) displayWorkMin = official;
     else displayWorkMin = Math.min(official, displayWorkMin);
   }
   // فرمت ساعت: دقیقه → «ساعت:دقیقه» مثلاً 8:45
@@ -2561,11 +2562,9 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
     const sk = String(x.startDate || '').replace(/-/g, '/');
     const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
     if (k !== dateDash && sk !== dateFa) return;
-    var a = timeToMinutes(x.fromTime);
-    var b = timeToMinutes(x.toTime);
-    if (a == null || b == null) return;
-    if (b < a) { var _t = a; a = b; b = _t; } // زمان‌های جابه‌جا را اصلاح کن
-    if (b <= a) return;
+    const a = timeToMinutes(x.fromTime);
+    const b = timeToMinutes(x.toTime);
+    if (a == null || b == null || b <= a) return;
     iv.push([a, b]);
   });
   // اجتماع بازه‌ها: مرخصی/مأموریت ساعتی تکراری یا هم‌پوشان فقط یک‌بار شمرده شود
@@ -2593,11 +2592,9 @@ function hourlyCoverIntervalsOnDay(obj, code, year, month, day) {
     const sk = String(x.startDate || '').replace(/-/g, '/');
     const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
     if (k !== dateDash && sk !== dateFa) return;
-    var a = timeToMinutes(x.fromTime);
-    var b = timeToMinutes(x.toTime);
-    if (a == null || b == null) return;
-    if (b < a) { var _t = a; a = b; b = _t; } // زمان‌های جابه‌جا را اصلاح کن
-    if (b <= a) return;
+    const a = timeToMinutes(x.fromTime);
+    const b = timeToMinutes(x.toTime);
+    if (a == null || b == null || b <= a) return;
     iv.push([a, b]);
   });
   return iv;
@@ -3161,7 +3158,7 @@ async function handleEmpTimesheet(request, env) {
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate), fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -3209,9 +3206,9 @@ async function handleEmpTimesheet(request, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
       if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-      if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_fb=timeToMinutes(x.toTime); var tr; if(_fa!=null&&_fb!=null&&_fb<_fa){tr=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {tr=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
       if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'hourly') { var _ma=timeToMinutes(x.fromTime),_mb=timeToMinutes(x.toTime); var trm; if(_ma!=null&&_mb!=null&&_mb<_ma){trm=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {trm=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
       
         if (!x.bulkCover) {
           var bits = [];
@@ -3476,12 +3473,12 @@ function findOfficialAbsenceGaps(cal, punches) {
 /**
  * اعمال جبران شناوری روی شکاف صبح: ماندن بعد از end، از ابتدای شکاف صبح کم می‌کند
  */
-function applyFloatToMorningGaps(gaps, cal, punches) {
+function applyFloatToMorningGaps(gaps, cal, punches, forceCompOpt) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const floatM = Number(sched.floatMinutes) || 0;
-  const forceComp = !!sched.floatCompensate;
+  const forceComp = forceCompOpt != null ? !!forceCompOpt : !!sched.floatCompensate;
   if (start == null || end == null || !gaps || !gaps.length) return { gaps: gaps || [], compensated: 0 };
 
   let lastOut = null, firstIn = null;
@@ -3561,7 +3558,8 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
 
   // شکاف واقعی + جبران شناوری (ماندن بعد از پایان روی صبح)
   let gaps = findOfficialAbsenceGaps(cal, punches || {});
-  const applied = applyFloatToMorningGaps(gaps, cal, punches || {});
+  const schedSug = normalizeWorkSchedule(cal);
+  const applied = applyFloatToMorningGaps(gaps, cal, punches || {}, !!schedSug.floatCompensate);
   gaps = applied.gaps;
 
   // بودجه: اگر maxCoverMinutes داده شده از آن استفاده؛ وگرنه همه شکاف‌های باقی‌مانده
@@ -3662,7 +3660,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           in2: punch.in2 || '', out2: punch.out2 || '',
           in3: punch.in3 || '', out3: punch.out3 || '',
           in4: punch.in4 || '', out4: punch.out4 || ''
-        }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate), fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
         // تیک «جبران تأخیر با ماندن در پایان»: روزهایی که دیر آمده و بعد از پایان مانده‌اند علامت می‌خورند
         // تا در تایم‌شیت هم همین جبران اعمال شود
         if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dk] && !dryRun) punchStore[dk].floatCompensate = true;
@@ -3852,7 +3850,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       in4: punch.in4 || '', out4: punch.out4 || ''
     }, {
       isHoliday: nonWork,
-      coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate),
+      coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
       fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
       unpaidLeave: dlm.unpaidLeave,
       dayMeta: dayMeta,
@@ -4072,7 +4070,7 @@ async function handleAdminTimesheet(request, who, env) {
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate), fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
+      }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -4138,11 +4136,21 @@ async function handleAdminTimesheet(request, who, env) {
         const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
         const ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch);
         if (!ranges.length) { x._dropBulk = true; continue; }
-        // اگر بازه ذخیره‌شده با اولین شکاف واقعی فرق دارد، اصلاح کن
-        const r0 = ranges[0];
-        if (r0.fromTime !== x.fromTime || r0.toTime !== x.toTime) {
-          x.fromTime = r0.fromTime;
-          x.toTime = r0.toTime;
+        // هم‌تراز کردن با شکاف‌های واقعی: اگر چند شکاف (صبح+عصر) هست، همه پوشش داده شوند
+        // درخواست فعلی با نزدیک‌ترین شکاف هم‌تراز می‌شود؛ شکاف‌های بدون درخواست بعداً در bulk ساخته می‌شوند
+        let best = ranges[0], bestScore = Infinity;
+        const xf = timeToMinutes(x.fromTime), xt = timeToMinutes(x.toTime);
+        ranges.forEach(function (r) {
+          const rf = timeToMinutes(r.fromTime), rt = timeToMinutes(r.toTime);
+          if (rf == null || rt == null) return;
+          let score = 0;
+          if (xf != null) score += Math.abs(rf - xf);
+          if (xt != null) score += Math.abs(rt - xt);
+          if (score < bestScore) { bestScore = score; best = r; }
+        });
+        if (best && (best.fromTime !== x.fromTime || best.toTime !== x.toTime)) {
+          x.fromTime = best.fromTime;
+          x.toTime = best.toTime;
         }
       }
       gd.obj.attendanceRequests = reqsAll.filter(function (x) { return !x._dropBulk; });
@@ -4162,9 +4170,9 @@ async function handleAdminTimesheet(request, who, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
         if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-        if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_fb=timeToMinutes(x.toTime); var tr; if(_fa!=null&&_fb!=null&&_fb<_fa){tr=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {tr=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
         if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'hourly') { var _ma=timeToMinutes(x.fromTime),_mb=timeToMinutes(x.toTime); var trm; if(_ma!=null&&_mb!=null&&_mb<_ma){trm=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {trm=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         
         if (!x.bulkCover) {
           var bits = [];
@@ -5089,7 +5097,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
         const calc = computeDayTimesheet(cal, punch, {
           isHoliday: nonWork,
-          floatCompensate: !!(punch && punch.floatCompensate),
+          floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
           earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
         });
         if (calc.presentMinutes > 0 || calc.otMinutes > 0 || calc.nightMinutes > 0) {
