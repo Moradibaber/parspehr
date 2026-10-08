@@ -4805,6 +4805,49 @@ async function handleAdminEmployeeExtra(request, who, env) {
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
+/** افزونه: نمای کلی فقط‌خواندنی (تعداد اولاد/کسر بیمه هر کارمند + وضعیت هشدارها). هیچ چیزی ذخیره نمی‌کند. */
+async function handleAdminFamilyOverview(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const obj = gd.obj || {};
+  ensureFamilySettings(obj);
+  const st = obj.settings || {};
+  const now = { y: Number(st.currentYear) || 1405, m: Number(st.currentMonth) || 1, d: Number(st.currentDay) || 1 };
+  const qty = {};
+  const alerts = {};
+  (obj.employees || []).forEach(function (emp) {
+    if (!emp || emp.code == null) return;
+    ensureEmpFamily(emp);
+    const members = emp.family.members || [];
+    var kids = 0, elig = 0;
+    members.forEach(function (m) {
+      if (m && String(m.relation || '') === 'فرزند') { kids++; if (m.eligibleChildAllowance === true) elig++; }
+    });
+    if (!kids) elig = Number(emp.childrenEligibleCount != null ? emp.childrenEligibleCount : emp.children) || 0;
+    var supp = 0;
+    if (emp.suppInsurance && Array.isArray(emp.suppInsurance.deducted)) supp = emp.suppInsurance.deducted.length;
+    else supp = Number(emp.suppInsuranceDeductCount) || 0;
+    qty[String(emp.code)] = { children: elig, supp: supp };
+    (emp.systemMessages || []).forEach(function (m) {
+      if (!m || m.type !== 'son_age' || m.resolvedAt) return;
+      var mem = null;
+      if (m.memberId) mem = members.find(function (x) { return x && x.id === m.memberId; }) || null;
+      if (!mem && m.childIndex != null) mem = members[m.childIndex] || null;
+      const age = mem ? calcAgeYM(mem.birthDate, now) : null;
+      alerts[String(emp.code) + '|' + m.id] = {
+        childName: mem ? String(mem.name || '') : String(m.childName || ''),
+        ageYears: age ? age.years : null,
+        eligible: !!(mem && mem.eligibleChildAllowance === true),
+        status: mem ? String(mem.status || '') : ''
+      };
+    });
+  });
+  return jsonResponse({ ok: true, year: now.y, month: now.m, alertAge: Number(st.sonAlertAge) || 18, qty: qty, alerts: alerts });
+}
+
 async function handleAdminSystemMessages(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -5992,6 +6035,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/import-punches') return handleAdminImportPunches(request, who, env);
   if (path === '/api/admin/employee-extra') return handleAdminEmployeeExtra(request, who, env);
   if (path === '/api/admin/system-messages') return handleAdminSystemMessages(request, who, env);
+  if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
     return new Response(PORTAL_ADMIN_JS, {
