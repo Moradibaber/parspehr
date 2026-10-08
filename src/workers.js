@@ -4297,7 +4297,8 @@ function refreshSonAgeMessages(obj, emp) {
   var alertAge = Number(obj.settings.sonAlertAge) || 18;
   var cy = Number((obj.settings || {}).currentYear) || 1405;
   var cm = Number((obj.settings || {}).currentMonth) || 1;
-  var now = { y: cy, m: cm, d: 1 };
+  var cd = Number((obj.settings || {}).currentDay) || 1;
+  var now = { y: cy, m: cm, d: cd };
   (emp.family.members || []).forEach(function (ch, idx) {
     if (!ch || String(ch.relation || '') !== 'فرزند') return;
     var gender = String(ch.gender || '').trim();
@@ -4305,6 +4306,13 @@ function refreshSonAgeMessages(obj, emp) {
     if (!isBoy) return;
     var age = calcAgeYM(ch.birthDate, now);
     if (!age || age.years < alertAge) return;
+    // سالروز تولد: ماه (و ترجیحاً روز) تولد با ماه جاری یکی باشد
+    var bp = parseImportDateToJalali(ch.birthDate) || parseJalaliYMD(String(ch.birthDate || '').replace(/-/g, '/'));
+    if (bp) {
+      if (Number(bp.m) !== cm) return; // فقط در ماه تولد پیام سالانه
+      // اگر روز جاری قبل از روز تولد است هنوز نساز (اختیاری)
+      if (cd < Number(bp.d) && age.years === alertAge) return;
+    }
     var msgKey = 'son_age_' + (ch.id || idx) + '_' + cy;
     var existing = (emp.systemMessages || []).find(function (m) { return m && m.key === msgKey; });
     if (existing) {
@@ -4312,13 +4320,98 @@ function refreshSonAgeMessages(obj, emp) {
       if (!existing.resolvedAt) return;
     }
     emp.systemMessages.push({
-      id: 'msg_' + Date.now() + '_' + idx, key: msgKey, type: 'son_age', childIndex: idx, memberId: ch.id || null,
+      id: 'msg_' + Date.now() + '_' + idx,
+      key: msgKey,
+      type: 'son_age',
+      childIndex: idx,
+      memberId: ch.id || null,
       childName: ch.name || ('فرزند ' + (idx + 1)),
-      text: 'فرزند پسر «' + (ch.name || (idx + 1)) + '» به سن ' + age.years + ' سال رسیده (آستانه ' + alertAge + '). وضعیت را مشخص کنید.',
-      createdAt: new Date().toISOString(), year: cy, resolvedAt: null, resolution: null, resolvedYear: null
+      text: 'سالروز: فرزند پسر «' + (ch.name || (idx + 1)) + '» به سن ' + age.years + ' سالگی رسید (آستانه ' + alertAge + '). اگر همچنان مشمول حق اولاد است علت را بنویسید؛ وگرنه از حق اولاد خارج شود.',
+      createdAt: new Date().toISOString(),
+      year: cy,
+      resolvedAt: null,
+      resolution: null,
+      resolvedYear: null,
+      keepEligible: null,
+      eligibleReason: null
     });
   });
 }
+
+/** همگام‌سازی آیتم کسر بیمه تکمیلی روی کارت کارمند */
+function syncSuppInsuranceEmpItem(obj, emp) {
+  ensureEmpFamily(emp);
+  ensureFamilySettings(obj);
+  var count = 0;
+  if (emp.suppInsurance && Array.isArray(emp.suppInsurance.deducted)) count = emp.suppInsurance.deducted.length;
+  else count = Number(emp.suppInsuranceDeductCount) || 0;
+  emp.suppInsuranceDeduct = count > 0;
+  emp.suppInsuranceDeductCount = count;
+  if (emp.suppInsurance) emp.suppInsurance.deductCount = count;
+
+  var unit = Number((obj.settings || {}).suppInsurancePerPerson) || 0;
+  var itemName = 'کسر بیمه تکمیلی';
+  if (!Array.isArray(emp.customItems)) emp.customItems = [];
+  var idx = -1;
+  emp.customItems.forEach(function (ci, i) {
+    if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''))) idx = i;
+  });
+  if (count > 0) {
+    var rec = {
+      name: itemName,
+      amount: unit,
+      isDeduction: true,
+      entryType: 'quantity',
+      enabled: true,
+      active: true,
+      value: true,
+      flag: 'بلی',
+      qtyDefault: count,
+      note: 'خودکار از اعضای خانواده — ' + count + ' نفر'
+    };
+    if (idx >= 0) {
+      emp.customItems[idx] = Object.assign({}, emp.customItems[idx], rec);
+    } else {
+      emp.customItems.push(rec);
+    }
+    // در ماه جاری qty را هم ست کن اگر monthlyData هست
+    var cy = Number((obj.settings || {}).currentYear) || 0;
+    var cm = Number((obj.settings || {}).currentMonth) || 0;
+    if (cy && cm && obj.monthlyData) {
+      var key = cy + '-' + cm;
+      if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
+      if (!obj.monthlyData[key][String(emp.code)]) obj.monthlyData[key][String(emp.code)] = {};
+      var row = obj.monthlyData[key][String(emp.code)];
+      if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+      row.qty[itemName] = count;
+    }
+  } else if (idx >= 0) {
+    emp.customItems[idx].enabled = false;
+    emp.customItems[idx].flag = 'خیر';
+    emp.customItems[idx].qtyDefault = 0;
+  }
+}
+
+function storeEmpPhoto(obj, empCode, dataUrl) {
+  if (!obj.employeePhotos || typeof obj.employeePhotos !== 'object') obj.employeePhotos = {};
+  var code = String(empCode);
+  if (dataUrl == null || dataUrl === '') {
+    delete obj.employeePhotos[code];
+    return null;
+  }
+  if (typeof dataUrl === 'string' && dataUrl.length < 250000 && /^data:image\//.test(dataUrl)) {
+    obj.employeePhotos[code] = dataUrl;
+    return dataUrl;
+  }
+  return null;
+}
+function getEmpPhoto(obj, emp) {
+  if (!emp) return null;
+  var code = String(emp.code);
+  if (obj.employeePhotos && obj.employeePhotos[code]) return obj.employeePhotos[code];
+  return emp.photo || null;
+}
+
 async function handleAdminEmployeeExtra(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -4344,7 +4437,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenCount: Number(emp.children) || 0,
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
-      photo: emp.photo || null, suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
+      photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
     });
@@ -4393,6 +4486,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
           };
         });
         syncChildrenCountsFromMembers(emp);
+        syncSuppInsuranceEmpItem(gd.obj, emp);
       } else if (Array.isArray(body.family.children)) {
         // سازگاری قدیمی
         emp.family.children = body.family.children.slice(0, 20).map(function (ch) {
@@ -4406,8 +4500,13 @@ async function handleAdminEmployeeExtra(request, who, env) {
     }
     if (body.photo !== undefined) {
       const ph = body.photo;
-      if (ph == null || ph === '') emp.photo = null;
-      else if (typeof ph === 'string' && ph.length < 250000 && /^data:image\//.test(ph)) emp.photo = ph;
+      if (ph == null || ph === '') {
+        emp.photo = null;
+        storeEmpPhoto(gd.obj, empCode, null);
+      } else {
+        const saved = storeEmpPhoto(gd.obj, empCode, ph);
+        if (saved) emp.photo = saved;
+      }
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
@@ -4415,19 +4514,29 @@ async function handleAdminEmployeeExtra(request, who, env) {
       emp.suppInsurance.deductCount = emp.suppInsurance.deducted.length;
       emp.suppInsuranceDeductCount = emp.suppInsurance.deductCount;
       emp.suppInsuranceDeduct = emp.suppInsurance.deductCount > 0;
+      syncSuppInsuranceEmpItem(gd.obj, emp);
     }
     if (body.resolveMessage && body.resolveMessage.id) {
       const msg = (emp.systemMessages || []).find(function (m) { return m && m.id === body.resolveMessage.id; });
       if (msg) {
         msg.resolvedAt = new Date().toISOString();
-        msg.resolution = String(body.resolveMessage.resolution || '').trim().slice(0, 40);
+        msg.resolution = String(body.resolveMessage.resolution || '').trim().slice(0, 80);
         msg.resolvedYear = Number((gd.obj.settings || {}).currentYear) || 1405;
+        msg.keepEligible = body.resolveMessage.keepEligible === true || body.resolveMessage.keepEligible === 'true';
+        msg.eligibleReason = String(body.resolveMessage.eligibleReason || '').trim().slice(0, 200);
         if (msg.type === 'son_age') {
-          if (msg.memberId) {
-            var mm = (emp.family.members || []).find(function (x) { return x && x.id === msg.memberId; });
-            if (mm) mm.status = msg.resolution;
-          } else if (msg.childIndex != null && emp.family.members[msg.childIndex]) {
-            emp.family.members[msg.childIndex].status = msg.resolution;
+          var mm = null;
+          if (msg.memberId) mm = (emp.family.members || []).find(function (x) { return x && x.id === msg.memberId; });
+          else if (msg.childIndex != null) mm = emp.family.members[msg.childIndex];
+          if (mm) {
+            mm.status = msg.resolution;
+            if (msg.keepEligible) {
+              mm.eligibleChildAllowance = true;
+              mm.eligibleReason = msg.eligibleReason || msg.resolution;
+            } else {
+              mm.eligibleChildAllowance = false;
+              mm.eligibleReason = '';
+            }
           }
           syncChildrenCountsFromMembers(emp);
         }
@@ -5784,7 +5893,7 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
     const name = String(a.name).trim();
     let amt = Number(a.amount) || 0;
     // common adjustments
-    if (a.id === 'child' || name.indexOf('اولاد') >= 0) { var _ec = Number(emp.childrenEligibleCount); if (!( _ec >= 0) || (emp.family && emp.family.members)) { _ec = 0; (emp.family && emp.family.members || []).forEach(function(m){ if (m && m.relation==='فرزند' && m.eligibleChildAllowance) _ec++; }); if (!_ec && emp.childrenEligibleCount != null) _ec = Number(emp.childrenEligibleCount)||0; if (!_ec) _ec = Number(emp.children)||0; } amt = amt * _ec; }
+    if (a.id === 'child' || name.indexOf('اولاد') >= 0) { var _ec = 0; (emp.family && emp.family.members || []).forEach(function(m){ if (m && m.relation==='فرزند' && m.eligibleChildAllowance) _ec++; }); if (!_ec && emp.childrenEligibleCount != null) _ec = Number(emp.childrenEligibleCount)||0; amt = amt * _ec; }
     if (a.id === 'marital' || name.indexOf('تأهل') >= 0 || name.indexOf('تاهل') >= 0) {
       if (!(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
     }
