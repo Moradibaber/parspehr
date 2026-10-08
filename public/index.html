@@ -8792,6 +8792,11 @@ function sbMergeLocalSecrets(remote, local) {
 }
 
 /* ---- Fix: employee table column filters (these two functions were missing) ---- */
+/* سلول ستون اصلی شماره col؛ ستون تزریقی «حق اولاد» (data-psp-child-td) را نادیده می‌گیرد */
+function empCellAt(tr, col) {
+  var cells = Array.prototype.filter.call(tr.children, function(c) { return !c.hasAttribute('data-psp-child-td'); });
+  return cells[col];
+}
 function rebuildEmpFilterOptions() {
   var body = document.getElementById('empTableBody');
   if (!body) return;
@@ -8802,7 +8807,7 @@ function rebuildEmpFilterOptions() {
     var first = sel.options[0] ? sel.options[0].cloneNode(true) : null;
     var seen = {};
     rows.forEach(function(tr) {
-      var td = tr.children[col];
+      var td = empCellAt(tr, col);
       if (!td) return;
       var t = (td.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) seen[t] = true;
@@ -8830,7 +8835,7 @@ function filterEmployeesTable() {
   });
   body.querySelectorAll('tr').forEach(function(tr) {
     var show = filters.every(function(f) {
-      var td = tr.children[f.col];
+      var td = empCellAt(tr, f.col);
       var t = td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '';
       return t === f.val;
     });
