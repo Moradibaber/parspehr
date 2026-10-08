@@ -382,8 +382,86 @@ async function readEmpSession(request, env) {
   }
 }
 
-// ---------- Payroll calculation (unchanged) ----------
-async function handlePayroll(request, user) {
+
+/** قبل از محاسبه: family/suppInsurance/مبلغ واحد را از ذخیره سرور روی payload کلاینت بنشان */
+async function enrichCalcDataFromStore(env, data) {
+  try {
+    const cfg = storeConfig(env);
+    if (!cfg || !data) return data;
+    const gd = await storeGetData(cfg);
+    if (gd.fail || !gd.obj) return data;
+    const byCode = {};
+    (gd.obj.employees || []).forEach(function (e) {
+      if (e && e.code != null) byCode[String(e.code)] = e;
+    });
+    (data.employees || []).forEach(function (e) {
+      if (!e || e.code == null) return;
+      const s = byCode[String(e.code)];
+      if (!s) return;
+      if (s.family) e.family = s.family;
+      if (s.suppInsurance) e.suppInsurance = s.suppInsurance;
+      if (s.childrenEligibleCount != null) e.childrenEligibleCount = s.childrenEligibleCount;
+      if (s.children != null && (e.children == null || e.children === '')) e.children = s.children;
+      if (s.suppInsuranceDeductCount != null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
+      if (s.suppInsuranceDeduct != null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
+      // آیتم کسر بیمه تکمیلی
+      if (Array.isArray(s.customItems) && s.customItems.length) {
+        if (!Array.isArray(e.customItems)) e.customItems = e.customItems || [];
+        var hasSupp = (e.customItems || []).some(function (ci) { return ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')); });
+        if (!hasSupp) {
+          s.customItems.forEach(function (ci) {
+            if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''))) e.customItems.push(JSON.parse(JSON.stringify(ci)));
+          });
+        } else {
+          // مبلغ/تعداد را از سرور به‌روز کن
+          e.customItems.forEach(function (ci) {
+            if (!ci || !/بیمه\s*تکمیلی/.test(String(ci.name || ''))) return;
+            var src = s.customItems.find(function (x) { return x && /بیمه\s*تکمیلی/.test(String(x.name || '')); });
+            if (src) {
+              if (Number(src.amount) > 0) ci.amount = src.amount;
+              if (src.qtyDefault != null) ci.qtyDefault = src.qtyDefault;
+              ci.isDeduction = true;
+              ci.entryType = 'quantity';
+              ci.enabled = src.enabled !== false;
+            }
+          });
+        }
+      }
+    });
+    if (gd.obj.settings) {
+      if (!data.settings || typeof data.settings !== 'object') data.settings = {};
+      var sk = ['suppInsurancePerPerson', 'supplementaryInsurancePerPerson', 'suppInsPerPerson', 'suppInsuranceAmount', 'bimeTakmiliPerPerson'];
+      sk.forEach(function (k) {
+        if (Number(gd.obj.settings[k]) > 0) data.settings[k] = gd.obj.settings[k];
+      });
+    }
+    // qty ماه جاری
+    if (gd.obj.monthlyData && data.monthlyData) {
+      Object.keys(gd.obj.monthlyData).forEach(function (mk) {
+        if (!data.monthlyData[mk]) data.monthlyData[mk] = gd.obj.monthlyData[mk];
+        else {
+          Object.keys(gd.obj.monthlyData[mk] || {}).forEach(function (ck) {
+            if (!data.monthlyData[mk][ck]) data.monthlyData[mk][ck] = gd.obj.monthlyData[mk][ck];
+            else if (gd.obj.monthlyData[mk][ck] && gd.obj.monthlyData[mk][ck].qty) {
+              if (!data.monthlyData[mk][ck].qty) data.monthlyData[mk][ck].qty = {};
+              Object.keys(gd.obj.monthlyData[mk][ck].qty).forEach(function (qn) {
+                if (data.monthlyData[mk][ck].qty[qn] == null || data.monthlyData[mk][ck].qty[qn] === '') {
+                  data.monthlyData[mk][ck].qty[qn] = gd.obj.monthlyData[mk][ck].qty[qn];
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+  } catch (eEn) {
+    console.log(JSON.stringify({ event: 'enrich_calc_error', message: String(eEn && eEn.message) }));
+  }
+  return data;
+}
+
+// ---------- Payroll calculation ----------
+async function handlePayroll(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
   const body = r.body;
@@ -395,7 +473,7 @@ async function handlePayroll(request, user) {
       !isPlainObject(body.monthlyData) || !isPlainObject(body.payrolls)) {
     return jsonResponse({ ok: false, error: 'bad_request' }, 400);
   }
-  const data = {
+  let data = {
     settings: body.settings,
     allowances: body.allowances,
     employees: body.employees,
@@ -404,6 +482,7 @@ async function handlePayroll(request, user) {
     loanDeductedMonths: isPlainObject(body.loanDeductedMonths) ? body.loanDeductedMonths : {},
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
+  data = await enrichCalcDataFromStore(env, data);
   let out;
   try {
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -415,12 +494,12 @@ async function handlePayroll(request, user) {
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
-async function handleCalc(request, user) {
+async function handleCalc(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
   const body = r.body;
   const op = body.op;
-  const data = {
+  let data = {
     settings: objOf(body.settings),
     allowances: arrOf(body.allowances),
     employees: arrOf(body.employees),
@@ -433,6 +512,7 @@ async function handleCalc(request, user) {
   if (data.employees.length > MAX_ITEMS || data.allowances.length > MAX_ITEMS) {
     return jsonResponse({ ok: false, error: 'too_many_items' }, 413);
   }
+  data = await enrichCalcDataFromStore(env, data);
   const bad = function () { return jsonResponse({ ok: false, error: 'bad_request' }, 400); };
   let result;
   try {
@@ -4461,6 +4541,27 @@ function syncSuppInsuranceEmpItem(obj, emp) {
     emp.suppInsuranceItem = { name: itemName, amount: unit, qty: 0, enabled: false };
   }
 }
+
+function syncFamilyQtyToMonthly(obj, emp) {
+  var cy = Number((obj.settings || {}).currentYear) || 0;
+  var cm = Number((obj.settings || {}).currentMonth) || 0;
+  if (!cy || !cm || !obj.monthlyData) return;
+  var key = cy + '-' + cm;
+  if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
+  if (!obj.monthlyData[key][String(emp.code)]) obj.monthlyData[key][String(emp.code)] = {};
+  var row = obj.monthlyData[key][String(emp.code)];
+  if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+  var elig = Number(emp.childrenEligibleCount) || 0;
+  row.qty['تعداد اولاد'] = elig;
+  row.qty['اولاد'] = elig;
+  row.qty['حق اولاد'] = elig;
+  var supp = 0;
+  if (emp.suppInsurance && Array.isArray(emp.suppInsurance.deducted)) supp = emp.suppInsurance.deducted.length;
+  else supp = Number(emp.suppInsuranceDeductCount) || 0;
+  row.qty['کسر بیمه تکمیلی'] = supp;
+  row.qty['تعداد کسر بیمه تکمیلی'] = supp;
+  row.qty['بیمه تکمیلی'] = supp;
+}
 function resyncAllSuppInsuranceItems(obj) {
   (obj.employees || []).forEach(function (emp) {
     if (!emp) return;
@@ -4689,6 +4790,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
     }
     refreshSonAgeMessages(gd.obj, emp);
     snapshotEmpExtra(gd.obj, emp);
+    try { syncFamilyQtyToMonthly(gd.obj, emp); } catch (eQ) {}
     const put = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
@@ -5855,8 +5957,8 @@ async function route(request, env, users, found) {
 
   if (path === '/api/whoami') return handleWhoami(request, who, adminConfigured, env);
   if (path.indexOf('/api/state/') === 0) return handleState(request, who, env, path);
-  if (path === '/api/payroll') return handlePayroll(request, user);
-  if (path === '/api/calc') return handleCalc(request, user);
+  if (path === '/api/payroll') return handlePayroll(request, user, env);
+  if (path === '/api/calc') return handleCalc(request, user, env);
   if (path === '/api/admin/contracts') return handleAdminContracts(request, who, env);
   if (path === '/api/admin/accounting-export') return handleAdminAccountingExport(request, who, env);
   if (path === '/api/admin/payroll-contract-check') return handleAdminPayrollContractCheck(request, who, env);
