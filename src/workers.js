@@ -2518,6 +2518,7 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
   const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
   const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
   let mins = 0;
+  const iv = [];
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
     if (x.mode !== 'hourly') return;
@@ -2528,8 +2529,17 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
     const a = timeToMinutes(x.fromTime);
     const b = timeToMinutes(x.toTime);
     if (a == null || b == null || b <= a) return;
-    mins += (b - a);
+    iv.push([a, b]);
   });
+  // اجتماع بازه‌ها: مرخصی/مأموریت ساعتی تکراری یا هم‌پوشان فقط یک‌بار شمرده شود
+  iv.sort(function (p, q) { return p[0] - q[0]; });
+  let curA = null, curB = null;
+  iv.forEach(function (p) {
+    if (curA == null) { curA = p[0]; curB = p[1]; return; }
+    if (p[0] <= curB) { if (p[1] > curB) curB = p[1]; return; }
+    mins += (curB - curA); curA = p[0]; curB = p[1];
+  });
+  if (curA != null) mins += (curB - curA);
   return mins;
 }
 
