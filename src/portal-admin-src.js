@@ -3231,7 +3231,7 @@ export default [
   "    var isEmp = table.id === 'empTable';",
   "    if (!document.getElementById('pspChildStyle3')) {",
   "      var stl = document.createElement('style'); stl.id = 'pspChildStyle3';",
-  "      stl.textContent = '[data-psp-child-td] input{color:#000!important;} table [data-psp-child-td]:not([data-psp-plain]),table [data-psp-child-td]:not([data-psp-plain]) input{background:#fff!important;background-color:#fff!important;} [data-psp-plain] input{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;width:100%!important;min-width:0!important;height:auto!important;padding:0!important;margin:0!important;text-align:inherit!important;font:inherit!important;font-weight:inherit!important;pointer-events:none;}';",
+  "      stl.textContent = '[data-psp-child-td] input{color:#000!important;} table [data-psp-child-td]:not([data-psp-plain]),table [data-psp-child-td]:not([data-psp-plain]) input{background:#fff!important;background-color:#fff!important;} [data-psp-plain]{width:1%!important;white-space:nowrap!important;} [data-psp-plain] input{border:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;width:3em!important;min-width:0!important;max-width:100%!important;height:auto!important;padding:0!important;margin:0!important;text-align:inherit!important;font:inherit!important;font-weight:inherit!important;pointer-events:none;}';",
   "      document.head.appendChild(stl);",
   "    }",
   "    /* تب کارمند: وسط جدول (بعد از «محل کار»)؛ ورود داده: بعد از «روز کارکرد» */",
