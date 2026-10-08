@@ -1419,7 +1419,9 @@ function ensureEmpLeaveYears(emp, obj) {
       settledMode: null
     };
   }
-  // اطمینان از سال جاری — مانده = تحقق ماهانه (شامل ماه جاری) − مصرف
+  // اطمینان از سال جاری
+  // - استخدام قبل از امسال: سقف کامل سالانه برای درخواست در طول سال (مانده = سقف − مصرف)
+  // - استخدام امسال: تناسب از تاریخ استخدام (computeAccruedLeaveDaysW)
   const row = emp.leaveYears[String(cy)];
   row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
   const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
@@ -1433,7 +1435,9 @@ function ensureEmpLeaveYears(emp, obj) {
       const d = Number(a.delta) || 0;
       if (d > 0) adjPos += d;
     });
-    const baseForRemain = accrued;
+    const hireP = parseJalaliYMD(emp.hireDate);
+    // اگر از سال‌های قبل استخدام شده → تا سقف سالانه در طول سال قابل استفاده است
+    const baseForRemain = (hireP && hireP.y < cy) ? Number(row.entitled) : accrued;
     row.remaining = Math.round((baseForRemain - Number(row.used || 0) + adjPos) * 100) / 100;
   }
   // فیلد سازگاری: فقط مانده سال جاری (نه تجمیع سال‌های قبل)
@@ -2661,49 +2665,36 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
   if (!emp) return;
   ensureEmpLeaveYears(emp, obj);
   const cy = Number((obj.settings || {}).currentYear) || 1405;
+  // reset used for all unsettled years then re-apply from approved leave requests
   Object.keys(emp.leaveYears || {}).forEach(function (yk) {
     const row = emp.leaveYears[yk];
     if (!row || row.settled) return;
-    let usedReq = 0;
+    // keep entitled; recompute used from requests in that year
+    let used = 0;
     (obj.attendanceRequests || []).forEach(function (req) {
       if (String(req.empCode) !== String(empCode)) return;
-      if (req.status !== 'approved' && req.status !== 'approved_l1') return;
+      if (req.status !== 'approved') return;
       if (!req.deductFromEntitlement) return;
       if (req.kind !== 'leave') return;
       const detail = req.leaveDeductDetail;
       if (Array.isArray(detail) && detail.length) {
         detail.forEach(function (d) {
-          if (String(d.year) === String(yk)) usedReq += Number(d.days) || 0;
+          if (String(d.year) === String(yk)) used += Number(d.days) || 0;
         });
       } else {
         const p = parseJalaliYMD(req.startDate);
         const y = p ? p.y : cy;
-        if (String(y) === String(yk)) usedReq += countLeaveDays(req, obj, emp.contractType);
+        if (String(y) === String(yk)) used += countLeaveDays(req, obj);
       }
     });
-    let usedMd = 0;
-    const yNum = Number(yk);
-    if (obj.monthlyData && yNum) {
-      for (let m = 1; m <= 12; m++) {
-        const key = yNum + '-' + m;
-        const rec = obj.monthlyData[key] && obj.monthlyData[key][String(empCode)];
-        if (rec) usedMd += Number(rec.leaveDays) || 0;
-      }
-    }
-    let usedAdj = 0;
+    // adjustments negative contribute to used
     (emp.leaveAdjustments || []).forEach(function (a) {
       if (String(a.year) !== String(yk)) return;
-      if (Number(a.delta) < 0) usedAdj += Math.abs(Number(a.delta));
+      if (Number(a.delta) < 0) used += Math.abs(Number(a.delta));
     });
-    row.used = Math.round((Math.max(usedReq, usedMd) + usedAdj) * 100) / 100;
-    let baseRem;
-    if (Number(yk) === cy) {
-      const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
-      row.accrued = accrued;
-      baseRem = Math.round((accrued - row.used) * 100) / 100;
-    } else {
-      baseRem = Math.round((Number(row.entitled || 0) - row.used) * 100) / 100;
-    }
+    row.used = Math.round(used * 100) / 100;
+    const baseRem = Math.round((Number(row.entitled) - row.used) * 100) / 100;
+    // apply positive adjustments to remaining
     let adjPos = 0;
     (emp.leaveAdjustments || []).forEach(function (a) {
       if (String(a.year) !== String(yk)) return;
@@ -2711,9 +2702,8 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
     });
     row.remaining = Math.round((baseRem + adjPos) * 100) / 100;
   });
-  emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
+  emp.leaveBalance = sumUnsettledLeaveRemaining(emp);
   emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
-  emp.leaveBalanceYear = cy;
 }
 
 function leaveAvailabilityForEmp(obj, emp, daysNeeded) {
@@ -3572,49 +3562,6 @@ async function handleAdminBulkHourlyCover(request, who, env) {
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
-
-async function handleAdminDataEntryColWidths(request, who, env) {
-  if (who.role !== 'admin' && who.role !== 'operator') {
-    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
-  }
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  if (request.method === 'GET') {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    const widths = (gd.obj && gd.obj.settings && gd.obj.settings.dataEntryColWidths) || {};
-    return jsonResponse({ ok: true, widths: (widths && typeof widths === 'object') ? widths : {} });
-  }
-  if (who.role !== 'admin') {
-    return jsonResponse({ ok: false, error: 'forbidden', message: 'فقط ادمین می‌تواند عرض ستون‌ها را ذخیره کند.' }, 403);
-  }
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const incoming = r.body && r.body.widths;
-  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'widths نامعتبر' }, 400);
-  }
-  const clean = {};
-  Object.keys(incoming).forEach(function (k) {
-    const key = String(k || '').trim().slice(0, 120);
-    const val = String(incoming[k] || '').trim().slice(0, 20);
-    if (key && /^\d+(\.\d+)?px$/.test(val)) clean[key] = val;
-  });
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    if (!gd.obj.settings) gd.obj.settings = {};
-    const prev = (gd.obj.settings.dataEntryColWidths && typeof gd.obj.settings.dataEntryColWidths === 'object')
-      ? gd.obj.settings.dataEntryColWidths : {};
-    gd.obj.settings.dataEntryColWidths = Object.assign({}, prev, clean);
-    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) continue;
-    return jsonResponse({ ok: true, widths: gd.obj.settings.dataEntryColWidths });
-  }
-  return jsonResponse({ ok: false, error: 'conflict' }, 409);
-}
-
 async function handleAdminShortfallSettings(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -4133,6 +4080,189 @@ async function handleAdminTimesheet(request, who, env) {
 }
 
 /** ذخیره ورود/خروج روزانه یک کارمند (یک روز یا چند روز ماه) */
+
+/** تبدیل میلادی → شمسی (برای فایل‌های تردد با تاریخ 2026-02-01 و مشابه) */
+function gregorianToJalali(gy, gm, gd) {
+  gy = Number(gy); gm = Number(gm); gd = Number(gd);
+  if (!gy || !gm || !gd) return null;
+  var g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  var gy2 = (gm > 2) ? (gy + 1) : gy;
+  var days = 355666 + (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) + gd + g_d_m[gm - 1];
+  var jy = -1595 + (33 * Math.floor(days / 12053));
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  var jm, jd;
+  if (days < 186) {
+    jm = 1 + Math.floor(days / 31);
+    jd = 1 + (days % 31);
+  } else {
+    jm = 7 + Math.floor((days - 186) / 30);
+    jd = 1 + ((days - 186) % 30);
+  }
+  return { y: jy, m: jm, d: jd };
+}
+
+function normalizePunchTime(t) {
+  t = String(t || '').trim();
+  if (!t) return '';
+  // 07:43:00 → 07:43  |  7:43 → 07:43
+  var m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (m) {
+    var h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    var mi = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+    return (h < 10 ? '0' : '') + h + ':' + (mi < 10 ? '0' : '') + mi;
+  }
+  // 0743
+  m = t.match(/^(\d{3,4})$/);
+  if (m) {
+    var s = m[1];
+    if (s.length === 3) s = '0' + s;
+    return s.slice(0, 2) + ':' + s.slice(2, 4);
+  }
+  return '';
+}
+
+function parseImportDateToJalali(raw) {
+  raw = String(raw || '').trim();
+  if (!raw) return null;
+  // شمسی: 1405/02/01 یا 1405-02-01
+  var m = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) {
+    var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (y >= 1300 && y <= 1600) return { y: y, m: mo, d: d };
+    // میلادی کامل
+    if (y >= 1900 && y <= 2100) return gregorianToJalali(y, mo, d);
+  }
+  // 2026-02-01T...
+  m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return gregorianToJalali(Number(m[1]), Number(m[2]), Number(m[3]));
+  return null;
+}
+
+/**
+ * ایمپورت گروهی تردد از فایل کارکرد
+ * body: { rows: [{ code, date, inTime?, outTime? }], mode?: 'merge'|'replace' }
+ * mode=merge: جفت‌های جدید به جفت‌های موجود اضافه می‌شود
+ * mode=replace: همان روز از نو نوشته می‌شود
+ */
+async function handleAdminImportPunches(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const rows = Array.isArray(r.body.rows) ? r.body.rows : [];
+  const mode = String(r.body.mode || 'merge') === 'replace' ? 'replace' : 'merge';
+  if (!rows.length) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'هیچ ردیفی ارسال نشده است.' }, 400);
+  }
+  if (rows.length > 20000) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'حداکثر ۲۰۰۰۰ ردیف در هر بار.' }, 400);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  // گروه‌بندی: code|yyyy-mm-dd → [{in,out}, ...]
+  const groups = {};
+  let skipped = 0;
+  rows.forEach(function (row) {
+    if (!row) { skipped++; return; }
+    const code = String(row.code || '').trim();
+    if (!code) { skipped++; return; }
+    const jp = parseImportDateToJalali(row.date);
+    if (!jp) { skipped++; return; }
+    const inT = normalizePunchTime(row.inTime || row.in || '');
+    const outT = normalizePunchTime(row.outTime || row.out || '');
+    if (!inT && !outT) { skipped++; return; }
+    const dk = jp.y + '-' + String(jp.m).padStart(2, '0') + '-' + String(jp.d).padStart(2, '0');
+    const key = code + '|' + dk;
+    if (!groups[key]) groups[key] = { code: code, dk: dk, pairs: [] };
+    groups[key].pairs.push({ in: inT, out: outT });
+  });
+
+  const keys = Object.keys(groups);
+  if (!keys.length) {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'هیچ ردیف معتبری (کد+تاریخ+ساعت) یافت نشد.', skipped: skipped }, 400);
+  }
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
+
+    let savedDays = 0;
+    let savedPairs = 0;
+    const unknownCodes = {};
+    const empCodes = {};
+    (gd.obj.employees || []).forEach(function (e) {
+      if (e && e.code != null) empCodes[String(e.code).trim()] = true;
+    });
+
+    keys.forEach(function (k) {
+      const g = groups[k];
+      const code = g.code;
+      if (!empCodes[code]) unknownCodes[code] = true;
+      if (!gd.obj.dailyAttendance[code]) gd.obj.dailyAttendance[code] = {};
+      const store = gd.obj.dailyAttendance[code];
+      const prev = store[g.dk] || {};
+      let pairs = [];
+      if (mode === 'merge') {
+        // جفت‌های قبلی
+        for (let i = 1; i <= 4; i++) {
+          const inn = String(prev['in' + i] || '').trim();
+          const out = String(prev['out' + i] || '').trim();
+          if (inn || out) pairs.push({ in: inn, out: out });
+        }
+      }
+      g.pairs.forEach(function (p) {
+        // جلوگیری از تکرار دقیق
+        const exists = pairs.some(function (x) { return x.in === p.in && x.out === p.out; });
+        if (!exists) pairs.push(p);
+      });
+      // حداکثر ۴ جفت
+      pairs = pairs.slice(0, 4);
+      const rec = {
+        in1: '', out1: '', in2: '', out2: '', in3: '', out3: '', in4: '', out4: '',
+        note: cleanTimesheetNote(prev.note || '')
+      };
+      pairs.forEach(function (p, idx) {
+        const n = idx + 1;
+        rec['in' + n] = p.in || '';
+        rec['out' + n] = p.out || '';
+      });
+      rec.importedAt = new Date().toISOString();
+      rec.importedBy = who.name || who.role || 'admin';
+      if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.in3 && !rec.out3 && !rec.in4 && !rec.out4) {
+        delete store[g.dk];
+      } else {
+        store[g.dk] = rec;
+        savedDays++;
+        savedPairs += pairs.length;
+      }
+    });
+
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({
+      ok: true,
+      savedDays: savedDays,
+      savedPairs: savedPairs,
+      skipped: skipped,
+      unknownCodes: Object.keys(unknownCodes).slice(0, 50),
+      mode: mode,
+      message: savedDays + ' روز برای ' + keys.length + ' گروه (کد+تاریخ) ذخیره شد.'
+    });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 async function handleAdminSaveTimesheetDays(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -4495,63 +4625,6 @@ async function handleEmpAttendanceTypes(request, env) {
   return jsonResponse({ ok: true, types: visible, grants: grants });
 }
 
-
-
-/** دفتر مرخصی سالانه — بازسازی used از درخواست‌ها و ورود داده */
-async function handleAdminLeaveYears(request, who, env) {
-  if (who.role !== 'admin' && who.role !== 'operator') {
-    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
-  }
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const empCode = String((r.body && r.body.empCode) || '').trim();
-  if (!empCode) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند لازم است.' }, 400);
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === empCode; });
-    if (!emp) return jsonResponse({ ok: false, error: 'not_found', message: 'کارمند یافت نشد.' }, 404);
-    rebuildEmpLeaveUsedFromRequests(gd.obj, empCode);
-    ensureEmpLeaveYears(emp, gd.obj);
-    const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
-    const annual = getAnnualLeaveDaysForEmp(gd.obj, emp);
-    const accrued = computeAccruedLeaveDaysW(gd.obj, emp, cy);
-    const years = listLeaveYearsSorted(emp).map(function (r) {
-      const y = Number(r.year);
-      return {
-        year: y,
-        entitled: y === cy ? annual : (Number(r.entitled) || annual),
-        accrued: y === cy ? accrued : (Number(r.accrued) || Number(r.entitled) || 0),
-        used: Number(r.used) || 0,
-        remaining: r.settled ? 0 : (Number(r.remaining) || 0),
-        settled: !!r.settled,
-        settledAt: r.settledAt || null,
-        settledMode: r.settledMode || null
-      };
-    });
-    emp.leaveBalance = Number((emp.leaveYears[String(cy)] || {}).remaining) || 0;
-    emp.leaveUsedYear = Number((emp.leaveYears[String(cy)] || {}).used) || 0;
-    emp.leaveBalanceYear = cy;
-    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) continue;
-    return jsonResponse({
-      ok: true,
-      empCode: empCode,
-      fullName: emp.fullName || '',
-      year: cy,
-      annualDays: annual,
-      accruedCurrent: accrued,
-      leaveBalance: emp.leaveBalance,
-      leaveUsedYear: emp.leaveUsedYear,
-      years: years,
-      adjustments: (emp.leaveAdjustments || []).slice(0, 50)
-    });
-  }
-  return jsonResponse({ ok: false, error: 'conflict' }, 409);
-}
 
 /** تعدیل مانده مرخصی توسط ادمین: علامت + (بستانکار/پیش‌خور مجاز) یا − (بدهکار) */
 async function handleAdminLeaveAdjust(request, who, env) {
@@ -5341,8 +5414,8 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
   if (path === '/api/admin/bulk-hourly-cover') return handleAdminBulkHourlyCover(request, who, env);
-  if (path === '/api/admin/data-entry-col-widths') return handleAdminDataEntryColWidths(request, who, env);
   if (path === '/api/admin/shortfall-settings') return handleAdminShortfallSettings(request, who, env);
+  if (path === '/api/admin/import-punches') return handleAdminImportPunches(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
     return new Response(PORTAL_ADMIN_JS, {
@@ -5359,7 +5432,6 @@ async function route(request, env, users, found) {
     return handleAdminSaveAttendanceTypes(request, who, env);
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
-  if (path === '/api/admin/leave-years') return handleAdminLeaveYears(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
@@ -5977,9 +6049,9 @@ async function handleEmpBalances(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(sess.code); });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  rebuildEmpLeaveUsedFromRequests(gd.obj, String(emp.code));
   ensureEmpLeaveYears(emp, gd.obj);
   const pol = getLeavePolicy(gd.obj);
+  // همیشه از سیاست فعلی (نه مقدار قدیمی leaveYears.entitled)
   let annualForEmp = getAnnualLeaveDaysForEmp(gd.obj, emp);
   const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
   // فقط سال جاری در پرتال
