@@ -187,7 +187,23 @@ export function makeEngine(data) {
     return data.settings.insuranceCeilings;
   }
 
-  function getInsuranceCeilingRow(monthDays) {
+  function getSuppInsurancePerPerson() {
+    const v = Number((data.settings || {}).suppInsurancePerPerson);
+    return (v > 0) ? Math.round(v) : 0;
+  }
+
+  function getEmpSuppInsuranceCount(emp) {
+    if (!emp) return 0;
+    if (emp.suppInsurance && emp.suppInsurance.deductCount != null && emp.suppInsurance.deductCount !== '') {
+      return Math.max(0, Number(emp.suppInsurance.deductCount) || 0);
+    }
+    if (Array.isArray(emp.suppInsurance && emp.suppInsurance.deducted)) {
+      return emp.suppInsurance.deducted.length;
+    }
+    return Math.max(0, Number(emp.suppInsuranceDeductCount) || 0);
+  }
+
+    function getInsuranceCeilingRow(monthDays) {
     const map = ensureInsuranceCeilings();
     const md = Number(monthDays) || 30;
     if (map[md]) return map[md];
@@ -715,7 +731,6 @@ export function makeEngine(data) {
         const amt = Number(ci.amount) || 0;
         // فرمول اختیاری روی آیتم (مثلاً: basicSalary*0.1 یا workDays*50000)
         if (ci.formula && String(ci.formula).trim()) {
-          const _totsF = (typeof getDecreeEmpTotals === 'function') ? getDecreeEmpTotals(emp.code) : { decreeSum: 0, eidSum: 0 };
           const fVal = evalSimpleFormula(ci.formula, {
             basicSalary: Number(emp.basicSalary) || 0,
             workDays: workDays,
@@ -731,11 +746,7 @@ export function makeEngine(data) {
             dailyRate: Number(emp.dailyRate) || 0,
             hourlyRate: Number(emp.hourlyRate) || 0,
             functionalDays: functionalDays,
-            seniorityBase: Number(emp.seniorityBase) || 0,
-            decree: Number(_totsF.decreeSum) || 0,
-            decreeSum: Number(_totsF.decreeSum) || 0,
-            eidSubject: Number(_totsF.eidSum) || 0,
-            eidSum: Number(_totsF.eidSum) || 0
+            seniorityBase: Number(emp.seniorityBase) || 0
           });
           if (fVal != null) {
             val = Math.round(Math.abs(fVal));
@@ -755,14 +766,24 @@ export function makeEngine(data) {
           }
         }
         if (ci.entryType === 'quantity') {
-          const qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
-          qtyUsed = qty;
-          if (qty > 0) {
-            val = Math.round(qty * amt);
-          } else if ((asDeduction || asArrears) && amt > 0) {
-            // کسر/کسورات/معوقه: اگر تعداد وارد نشده، خود مبلغ آیتم ملاک است
-            val = Math.round(amt);
-            qtyUsed = null;
+          let qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
+          // بیمه تکمیلی: تعداد از کارت کارمند؛ مبلغ واحد از تنظیمات مالیات سالانه
+          const isSuppIns = /بیمه\s*تکمیلی/.test(String(ci.name || ''));
+          if (isSuppIns) {
+            const unit = getSuppInsurancePerPerson() || amt;
+            if (!(qty > 0)) qty = getEmpSuppInsuranceCount(emp);
+            amt = unit;
+            qtyUsed = qty;
+            if (qty > 0 && unit > 0) val = Math.round(qty * unit);
+          } else {
+            qtyUsed = qty;
+            if (qty > 0) {
+              val = Math.round(qty * amt);
+            } else if ((asDeduction || asArrears) && amt > 0) {
+              // کسر/کسورات/معوقه: اگر تعداد وارد نشده، خود مبلغ آیتم ملاک است
+              val = Math.round(amt);
+              qtyUsed = null;
+            }
           }
         } else if (ci.entryType === 'qty_flat') {
           // تعداد خالص: مبلغ × (تعداد مؤثر ÷ کارکرد خالص)
