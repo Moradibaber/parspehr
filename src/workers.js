@@ -1929,7 +1929,6 @@ function computeDayTimesheet(cal, punches, opts) {
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
   const floatM = sched.floatMinutes;
-  // تیک جبران: از شیفت قرارداد یا opts یا فلگ روی خود تردد
   const compensate = !!sched.floatCompensate || !!opts.floatCompensate || !!(opts.punch && opts.punch.floatCompensate);
   const official = officialWorkMinutes(sched);
 
@@ -2070,12 +2069,9 @@ function computeDayTimesheet(cal, punches, opts) {
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
-  // ── مبنای واحد کارکرد/کسری ──
-  // حضور داخل پنجره موظفی [start,end] + اعتبار جبران (compensated)
-  // * بدون تیک جبران و خارج شناوری: compensated=0 → کسری = شکاف صبح + شکاف عصر
-  // * با تیک جبران (یا داخل شناوری): ماندن بعد از end تا سقف تأخیر صبح، به کارکرد اضافه می‌شود
-  // مثال با جبران: ۰۷:۱۰–۱۶:۰۰ → پنجره ۴۹۵د + جبران ۲۵د = ۵۲۰؛ OT=۵؛ کسری=۰
-  // مثال بدون جبران خارج شناوری: ۰۷:۱۰–۱۶:۰۰ → پنجره ۴۹۵؛ OT=۳۰؛ کسری=۳۰
+  // حضور داخل پنجره موظفی + اعتبار جبران (compensated)
+  // با تیک جبران: ماندن بعد از end تأخیر صبح را می‌پوشاند → کسری صفر اگر جمع >= موظفی
+  // بدون تیک و خارج شناوری: فقط حضور در پنجره؛ شکاف صبح و عصر هر دو کسری
   let presenceInWindow = 0;
   if (start != null && end != null && completePairs.length) {
     completePairs.forEach(function (p) {
@@ -2104,7 +2100,6 @@ function computeDayTimesheet(cal, punches, opts) {
   }
   const beyondFloat = hasComplete && firstIn != null && start != null &&
     (firstIn - start) > (floatM || 0) && !compensate;
-  // اعتبار جبران فقط در روز عادی (نه تعطیل/مرخصی تمام‌روز)
   const creditComp = (!isHoliday && !condFull && !opts.unpaidLeave && !opts.fullDayLeaveOrMission)
     ? Math.max(0, compensated || 0) : 0;
   let presentForShort = presenceInWindow + creditComp;
@@ -2190,7 +2185,6 @@ function computeDayTimesheet(cal, punches, opts) {
     stayed = Math.max(0, stayed - (compensated || 0));
     const nightInAfter = nightMinutesInPair(end, lastOut);
     ot = Math.max(0, stayed - nightInAfter);
-    // تضمین: در روز عادی کارکرد = حضور در پنجره + جبران
     workPresent = presentForShort;
   } else if (hasComplete && !isHoliday && !condFull && !condHalf) {
     workPresent = presentForShort;
@@ -3477,12 +3471,12 @@ function findOfficialAbsenceGaps(cal, punches) {
 /**
  * اعمال جبران شناوری روی شکاف صبح: ماندن بعد از end، از ابتدای شکاف صبح کم می‌کند
  */
-function applyFloatToMorningGaps(gaps, cal, punches) {
+function applyFloatToMorningGaps(gaps, cal, punches, forceCompOpt) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const floatM = Number(sched.floatMinutes) || 0;
-  const forceComp = !!sched.floatCompensate;
+  const forceComp = forceCompOpt != null ? !!forceCompOpt : !!sched.floatCompensate;
   if (start == null || end == null || !gaps || !gaps.length) return { gaps: gaps || [], compensated: 0 };
 
   let lastOut = null, firstIn = null;
@@ -3562,7 +3556,8 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
 
   // شکاف واقعی + جبران شناوری (ماندن بعد از پایان روی صبح)
   let gaps = findOfficialAbsenceGaps(cal, punches || {});
-  const applied = applyFloatToMorningGaps(gaps, cal, punches || {});
+  const schedSug = normalizeWorkSchedule(cal);
+  const applied = applyFloatToMorningGaps(gaps, cal, punches || {}, !!schedSug.floatCompensate);
   gaps = applied.gaps;
 
   // بودجه: اگر maxCoverMinutes داده شده از آن استفاده؛ وگرنه همه شکاف‌های باقی‌مانده
