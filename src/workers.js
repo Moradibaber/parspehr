@@ -4277,10 +4277,11 @@ function syncChildrenCountsFromMembers(emp) {
     if (!m) return;
     if (String(m.relation || '') === 'فرزند') {
       total++;
-      if (m.eligibleChildAllowance) eligible++;
+      if (m.eligibleChildAllowance === true) eligible++;
     }
   });
-  emp.children = total;
+  // تعداد اولاد روی کارت = فقط مشمولان حق اولاد (برای نمایش؛ محاسبه هم از لیست اعضا است)
+  emp.children = eligible;
   emp.childrenEligibleCount = eligible;
   // آینه قدیمی children برای سازگاری
   emp.family.children = (emp.family.members || []).filter(function (m) { return m && m.relation === 'فرزند'; }).map(function (m) {
@@ -4339,6 +4340,24 @@ function refreshSonAgeMessages(obj, emp) {
 }
 
 /** همگام‌سازی آیتم کسر بیمه تکمیلی روی کارت کارمند */
+function resolveSuppUnitAmount(obj) {
+  var s = obj.settings || {};
+  var keys = ['suppInsurancePerPerson', 'supplementaryInsurancePerPerson', 'suppInsPerPerson', 'suppInsuranceAmount', 'bimeTakmiliPerPerson'];
+  for (var i = 0; i < keys.length; i++) {
+    var v = Number(s[keys[i]]);
+    if (v > 0) return Math.round(v);
+  }
+  var allows = obj.allowances || [];
+  for (var j = 0; j < allows.length; j++) {
+    var a = allows[j];
+    if (!a || !a.name) continue;
+    if (/بیمه\s*تکمیلی/.test(String(a.name))) {
+      var av = Number(a.amount) || 0;
+      if (av > 0) return Math.round(av);
+    }
+  }
+  return 0;
+}
 function syncSuppInsuranceEmpItem(obj, emp) {
   ensureEmpFamily(emp);
   ensureFamilySettings(obj);
@@ -4349,7 +4368,10 @@ function syncSuppInsuranceEmpItem(obj, emp) {
   emp.suppInsuranceDeductCount = count;
   if (emp.suppInsurance) emp.suppInsurance.deductCount = count;
 
-  var unit = Number((obj.settings || {}).suppInsurancePerPerson) || 0;
+  var unit = resolveSuppUnitAmount(obj);
+  // اگر مبلغ در تنظیمات بود، در settings.suppInsurancePerPerson هم بنویس تا موتور یک منبع داشته باشد
+  if (unit > 0) obj.settings.suppInsurancePerPerson = unit;
+
   var itemName = 'کسر بیمه تکمیلی';
   if (!Array.isArray(emp.customItems)) emp.customItems = [];
   var idx = -1;
@@ -4359,7 +4381,7 @@ function syncSuppInsuranceEmpItem(obj, emp) {
   if (count > 0) {
     var rec = {
       name: itemName,
-      amount: unit,
+      amount: unit > 0 ? unit : (idx >= 0 ? (Number(emp.customItems[idx].amount) || 0) : 0),
       isDeduction: true,
       entryType: 'quantity',
       enabled: true,
@@ -4367,14 +4389,16 @@ function syncSuppInsuranceEmpItem(obj, emp) {
       value: true,
       flag: 'بلی',
       qtyDefault: count,
-      note: 'خودکار از اعضای خانواده — ' + count + ' نفر'
+      duration: 'always',
+      note: 'خودکار از اعضای خانواده — ' + count + ' نفر × ' + (unit || 0)
     };
     if (idx >= 0) {
       emp.customItems[idx] = Object.assign({}, emp.customItems[idx], rec);
     } else {
       emp.customItems.push(rec);
     }
-    // در ماه جاری qty را هم ست کن اگر monthlyData هست
+    // فیلدهای کمکی که بعضی UIها می‌خوانند
+    emp.suppInsuranceItem = { name: itemName, amount: rec.amount, qty: count, enabled: true };
     var cy = Number((obj.settings || {}).currentYear) || 0;
     var cm = Number((obj.settings || {}).currentMonth) || 0;
     if (cy && cm && obj.monthlyData) {
@@ -4389,8 +4413,20 @@ function syncSuppInsuranceEmpItem(obj, emp) {
     emp.customItems[idx].enabled = false;
     emp.customItems[idx].flag = 'خیر';
     emp.customItems[idx].qtyDefault = 0;
+    emp.customItems[idx].amount = unit || emp.customItems[idx].amount || 0;
+    emp.suppInsuranceItem = { name: itemName, amount: unit, qty: 0, enabled: false };
   }
 }
+function resyncAllSuppInsuranceItems(obj) {
+  (obj.employees || []).forEach(function (emp) {
+    if (!emp) return;
+    ensureEmpFamily(emp);
+    if ((emp.suppInsurance && emp.suppInsurance.deducted && emp.suppInsurance.deducted.length) || emp.suppInsuranceDeduct) {
+      syncSuppInsuranceEmpItem(obj, emp);
+    }
+  });
+}
+
 
 function storeEmpPhoto(obj, empCode, dataUrl) {
   if (!obj.employeePhotos || typeof obj.employeePhotos !== 'object') obj.employeePhotos = {};
@@ -4460,6 +4496,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       const putS = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
       if (putS.fail) return storeFailResponse(putS.fail);
       if (putS.conflict) continue;
+      resyncAllSuppInsuranceItems(gd.obj);
       return jsonResponse({ ok: true, message: 'تنظیمات ذخیره شد', settings: { sonAlertAge: gd.obj.settings.sonAlertAge, childStatusOptions: gd.obj.settings.childStatusOptions, suppInsurancePerPerson: gd.obj.settings.suppInsurancePerPerson } });
     }
     if (!empCode) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند لازم است.' }, 400);
@@ -5893,7 +5930,7 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
     const name = String(a.name).trim();
     let amt = Number(a.amount) || 0;
     // common adjustments
-    if (a.id === 'child' || name.indexOf('اولاد') >= 0) { var _ec = 0; (emp.family && emp.family.members || []).forEach(function(m){ if (m && m.relation==='فرزند' && m.eligibleChildAllowance) _ec++; }); if (!_ec && emp.childrenEligibleCount != null) _ec = Number(emp.childrenEligibleCount)||0; amt = amt * _ec; }
+    if (a.id === 'child' || name.indexOf('اولاد') >= 0) { var _ec = 0; (emp.family && emp.family.members || []).forEach(function(m){ if (m && m.relation==='فرزند' && m.eligibleChildAllowance === true) _ec++; }); amt = amt * _ec; }
     if (a.id === 'marital' || name.indexOf('تأهل') >= 0 || name.indexOf('تاهل') >= 0) {
       if (!(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
     }
