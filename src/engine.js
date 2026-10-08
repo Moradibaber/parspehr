@@ -209,33 +209,47 @@ export function makeEngine(data) {
   function getEligibleChildrenCount(emp) {
     if (!emp) return 0;
     var n = 0;
-    // منبع اصلی: لیست اعضای خانواده — فقط نسبت فرزند + تیک مشمول حق اولاد
-    var members = (emp.family && Array.isArray(emp.family.members)) ? emp.family.members : null;
-    if (members) {
-      members.forEach(function (m) {
+    function isElig(v) { return v === true || v === 1 || v === '1' || v === 'true' || v === 'بله'; }
+    // منبع اصلی: لیست اعضای خانواده
+    if (emp.family && Array.isArray(emp.family.members)) {
+      emp.family.members.forEach(function (m) {
         if (!m) return;
         var rel = String(m.relation || '');
-        if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance === true) n++;
+        if ((rel === 'فرزند' || rel === 'child') && isElig(m.eligibleChildAllowance)) n++;
       });
-      return n; // حتی اگر صفر — فیلد تعداد اولاد تب کارمند نادیده گرفته می‌شود
-    }
-    var ch = (emp.family && emp.family.children) || [];
-    if (ch.length) {
-      ch.forEach(function (c) { if (c && c.eligibleChildAllowance === true) n++; });
       return n;
     }
-    // بدون لیست خانواده: صفر (دیگر از emp.children استفاده نمی‌شود)
+    if (emp.family && Array.isArray(emp.family.children) && emp.family.children.length) {
+      emp.family.children.forEach(function (c) { if (c && isElig(c.eligibleChildAllowance)) n++; });
+      return n;
+    }
+    // اگر لیست خانواده روی payload کلاینت نبود، از شمارنده همگام‌شده سرور
+    if (emp.childrenEligibleCount != null && emp.childrenEligibleCount !== '') {
+      return Math.max(0, Number(emp.childrenEligibleCount) || 0);
+    }
     return 0;
   }
   function getEmpSuppInsuranceCount(emp) {
     if (!emp) return 0;
+    if (emp.suppInsurance && Array.isArray(emp.suppInsurance.deducted) && emp.suppInsurance.deducted.length) {
+      return emp.suppInsurance.deducted.length;
+    }
     if (emp.suppInsurance && emp.suppInsurance.deductCount != null && emp.suppInsurance.deductCount !== '') {
       return Math.max(0, Number(emp.suppInsurance.deductCount) || 0);
     }
-    if (Array.isArray(emp.suppInsurance && emp.suppInsurance.deducted)) {
-      return emp.suppInsurance.deducted.length;
+    if (emp.suppInsuranceDeductCount != null && emp.suppInsuranceDeductCount !== '') {
+      return Math.max(0, Number(emp.suppInsuranceDeductCount) || 0);
     }
-    return Math.max(0, Number(emp.suppInsuranceDeductCount) || 0);
+    // از customItem تعداد
+    var items = emp.customItems || emp.customs || [];
+    for (var i = 0; i < items.length; i++) {
+      var ci = items[i];
+      if (!ci || !/بیمه\s*تکمیلی/.test(String(ci.name || ''))) continue;
+      if (ci.enabled === false) continue;
+      var q = Number(ci.qtyDefault != null ? ci.qtyDefault : ci.qty);
+      if (q > 0) return q;
+    }
+    return 0;
   }
 
     function getInsuranceCeilingRow(monthDays) {
@@ -858,19 +872,30 @@ export function makeEngine(data) {
         }
       });
   
-      // کسر بیمه تکمیلی از اعضای خانواده (حتی اگر آیتم سفارشی روی کارت نباشد)
+      // کسر بیمه تکمیلی از اعضای خانواده
       (function () {
-        var has = itemDetails.some(function (it) { return it && /بیمه\s*تکمیلی/.test(String(it.name || '')); });
-        if (has) return;
         var cnt = getEmpSuppInsuranceCount(emp);
         var unit = getSuppInsurancePerPerson();
-        if (!(cnt > 0)) return;
         if (!(unit > 0)) {
-          // اگر مبلغ واحد صفر است ولی روی customItem مبلغ هست
           (emp.customItems || []).forEach(function (ci) {
             if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')) && Number(ci.amount) > 0) unit = Number(ci.amount);
           });
         }
+        // حذف ردیف‌های صفر/ناقص قبلی بیمه تکمیلی
+        for (var ii = itemDetails.length - 1; ii >= 0; ii--) {
+          var it = itemDetails[ii];
+          if (it && /بیمه\s*تکمیلی/.test(String(it.name || ''))) {
+            if (it.isDeduction && Number(it.amount) > 0 && !(cnt > 0 && unit > 0)) {
+              // نگه دار اگر مبلغ معتبر دارد و شمارنده نداریم
+            } else if (!(Number(it.amount) > 0) || (cnt > 0 && unit > 0)) {
+              if (it.isDeduction) totalDeductions -= Number(it.amount) || 0;
+              else totalAllow -= Number(it.amount) || 0;
+              itemDetails.splice(ii, 1);
+            }
+          }
+        }
+        var still = itemDetails.some(function (it) { return it && /بیمه\s*تکمیلی/.test(String(it.name || '')) && Number(it.amount) > 0; });
+        if (still) return;
         if (cnt > 0 && unit > 0) {
           var val = Math.round(cnt * unit);
           totalDeductions += val;
