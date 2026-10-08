@@ -4081,7 +4081,7 @@ async function handleAdminTimesheet(request, who, env) {
 
 /** ذخیره ورود/خروج روزانه یک کارمند (یک روز یا چند روز ماه) */
 
-/** تبدیل میلادی → شمسی (برای فایل‌های تردد با تاریخ 2026-02-01 و مشابه) */
+/** تبدیل میلادی → شمسی */
 function gregorianToJalali(gy, gm, gd) {
   gy = Number(gy); gm = Number(gm); gd = Number(gd);
   if (!gy || !gm || !gd) return null;
@@ -4110,14 +4110,12 @@ function gregorianToJalali(gy, gm, gd) {
 function normalizePunchTime(t) {
   t = String(t || '').trim();
   if (!t) return '';
-  // 07:43:00 → 07:43  |  7:43 → 07:43
   var m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
   if (m) {
     var h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
     var mi = Math.min(59, Math.max(0, parseInt(m[2], 10)));
     return (h < 10 ? '0' : '') + h + ':' + (mi < 10 ? '0' : '') + mi;
   }
-  // 0743
   m = t.match(/^(\d{3,4})$/);
   if (m) {
     var s = m[1];
@@ -4130,26 +4128,15 @@ function normalizePunchTime(t) {
 function parseImportDateToJalali(raw) {
   raw = String(raw || '').trim();
   if (!raw) return null;
-  // شمسی: 1405/02/01 یا 1405-02-01
-  var m = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  var m = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   if (m) {
     var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
     if (y >= 1300 && y <= 1600) return { y: y, m: mo, d: d };
-    // میلادی کامل
     if (y >= 1900 && y <= 2100) return gregorianToJalali(y, mo, d);
   }
-  // 2026-02-01T...
-  m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return gregorianToJalali(Number(m[1]), Number(m[2]), Number(m[3]));
   return null;
 }
 
-/**
- * ایمپورت گروهی تردد از فایل کارکرد
- * body: { rows: [{ code, date, inTime?, outTime? }], mode?: 'merge'|'replace' }
- * mode=merge: جفت‌های جدید به جفت‌های موجود اضافه می‌شود
- * mode=replace: همان روز از نو نوشته می‌شود
- */
 async function handleAdminImportPunches(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -4167,7 +4154,6 @@ async function handleAdminImportPunches(request, who, env) {
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
 
-  // گروه‌بندی: code|yyyy-mm-dd → [{in,out}, ...]
   const groups = {};
   let skipped = 0;
   rows.forEach(function (row) {
@@ -4213,7 +4199,6 @@ async function handleAdminImportPunches(request, who, env) {
       const prev = store[g.dk] || {};
       let pairs = [];
       if (mode === 'merge') {
-        // جفت‌های قبلی
         for (let i = 1; i <= 4; i++) {
           const inn = String(prev['in' + i] || '').trim();
           const out = String(prev['out' + i] || '').trim();
@@ -4221,15 +4206,13 @@ async function handleAdminImportPunches(request, who, env) {
         }
       }
       g.pairs.forEach(function (p) {
-        // جلوگیری از تکرار دقیق
         const exists = pairs.some(function (x) { return x.in === p.in && x.out === p.out; });
         if (!exists) pairs.push(p);
       });
-      // حداکثر ۴ جفت
       pairs = pairs.slice(0, 4);
       const rec = {
         in1: '', out1: '', in2: '', out2: '', in3: '', out3: '', in4: '', out4: '',
-        note: cleanTimesheetNote(prev.note || '')
+        note: (typeof cleanTimesheetNote === 'function') ? cleanTimesheetNote(prev.note || '') : (prev.note || '')
       };
       pairs.forEach(function (p, idx) {
         const n = idx + 1;
@@ -4257,7 +4240,7 @@ async function handleAdminImportPunches(request, who, env) {
       skipped: skipped,
       unknownCodes: Object.keys(unknownCodes).slice(0, 50),
       mode: mode,
-      message: savedDays + ' روز برای ' + keys.length + ' گروه (کد+تاریخ) ذخیره شد.'
+      message: savedDays + ' روز ذخیره شد (' + savedPairs + ' جفت ورود/خروج).'
     });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
