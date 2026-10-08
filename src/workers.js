@@ -4218,6 +4218,49 @@ function ensureFamilySettings(obj) {
 }
 function ensureEmpFamily(emp) {
   if (!emp.family || typeof emp.family !== 'object') emp.family = {};
+  if (!Array.isArray(emp.family.members)) emp.family.members = [];
+  // مهاجرت از مدل قدیمی
+  if (!emp.family.members.length) {
+    if (Array.isArray(emp.family.children)) {
+      emp.family.children.forEach(function (ch, i) {
+        if (!ch) return;
+        emp.family.members.push({
+          id: 'ch_' + i + '_' + Date.now(),
+          relation: 'فرزند',
+          name: ch.name || '',
+          gender: ch.gender || '',
+          birthDate: ch.birthDate || '',
+          nationalId: ch.nationalId || '',
+          idNumber: ch.idNumber || '',
+          birthPlace: ch.birthPlace || '',
+          issuePlace: ch.issuePlace || '',
+          status: ch.status || '',
+          eligibleChildAllowance: ch.eligibleChildAllowance !== false
+        });
+      });
+    }
+    function pushOne(rel, obj, prefix) {
+      if (!obj || typeof obj !== 'object') return;
+      var nm = obj.name || obj.fullName || '';
+      if (!nm && !obj.nationalId && !obj.birthDate) return;
+      emp.family.members.push({
+        id: prefix + '_' + Date.now(),
+        relation: rel,
+        name: nm,
+        gender: obj.gender || '',
+        birthDate: obj.birthDate || '',
+        nationalId: obj.nationalId || '',
+        idNumber: obj.idNumber || '',
+        birthPlace: obj.birthPlace || '',
+        issuePlace: obj.issuePlace || '',
+        status: '',
+        eligibleChildAllowance: false
+      });
+    }
+    pushOne('همسر', emp.family.spouse, 'sp');
+    pushOne('پدر', emp.family.father, 'fa');
+    pushOne('مادر', emp.family.mother, 'mo');
+  }
   if (!Array.isArray(emp.family.children)) emp.family.children = [];
   if (!emp.family.spouse || typeof emp.family.spouse !== 'object') emp.family.spouse = {};
   if (!emp.family.father || typeof emp.family.father !== 'object') emp.family.father = {};
@@ -4227,6 +4270,27 @@ function ensureEmpFamily(emp) {
   if (!Array.isArray(emp.suppInsurance.deducted)) emp.suppInsurance.deducted = [];
   if (!Array.isArray(emp.systemMessages)) emp.systemMessages = [];
 }
+function syncChildrenCountsFromMembers(emp) {
+  ensureEmpFamily(emp);
+  var total = 0, eligible = 0;
+  (emp.family.members || []).forEach(function (m) {
+    if (!m) return;
+    if (String(m.relation || '') === 'فرزند') {
+      total++;
+      if (m.eligibleChildAllowance) eligible++;
+    }
+  });
+  emp.children = total;
+  emp.childrenEligibleCount = eligible;
+  // آینه قدیمی children برای سازگاری
+  emp.family.children = (emp.family.members || []).filter(function (m) { return m && m.relation === 'فرزند'; }).map(function (m) {
+    return {
+      name: m.name, gender: m.gender, birthDate: m.birthDate, nationalId: m.nationalId,
+      idNumber: m.idNumber, birthPlace: m.birthPlace, issuePlace: m.issuePlace,
+      status: m.status, eligibleChildAllowance: !!m.eligibleChildAllowance
+    };
+  });
+}
 function refreshSonAgeMessages(obj, emp) {
   ensureFamilySettings(obj);
   ensureEmpFamily(emp);
@@ -4234,21 +4298,21 @@ function refreshSonAgeMessages(obj, emp) {
   var cy = Number((obj.settings || {}).currentYear) || 1405;
   var cm = Number((obj.settings || {}).currentMonth) || 1;
   var now = { y: cy, m: cm, d: 1 };
-  (emp.family.children || []).forEach(function (ch, idx) {
-    if (!ch) return;
+  (emp.family.members || []).forEach(function (ch, idx) {
+    if (!ch || String(ch.relation || '') !== 'فرزند') return;
     var gender = String(ch.gender || '').trim();
     var isBoy = gender === 'پسر' || gender === 'مرد' || gender === 'male' || gender === 'M';
     if (!isBoy) return;
     var age = calcAgeYM(ch.birthDate, now);
     if (!age || age.years < alertAge) return;
-    var msgKey = 'son_age_' + idx + '_' + cy;
+    var msgKey = 'son_age_' + (ch.id || idx) + '_' + cy;
     var existing = (emp.systemMessages || []).find(function (m) { return m && m.key === msgKey; });
     if (existing) {
       if (existing.resolvedYear === cy) return;
       if (!existing.resolvedAt) return;
     }
     emp.systemMessages.push({
-      id: 'msg_' + Date.now() + '_' + idx, key: msgKey, type: 'son_age', childIndex: idx,
+      id: 'msg_' + Date.now() + '_' + idx, key: msgKey, type: 'son_age', childIndex: idx, memberId: ch.id || null,
       childName: ch.name || ('فرزند ' + (idx + 1)),
       text: 'فرزند پسر «' + (ch.name || (idx + 1)) + '» به سن ' + age.years + ' سال رسیده (آستانه ' + alertAge + '). وضعیت را مشخص کنید.',
       createdAt: new Date().toISOString(), year: cy, resolvedAt: null, resolution: null, resolvedYear: null
@@ -4271,12 +4335,15 @@ async function handleAdminEmployeeExtra(request, who, env) {
     const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
     const cm = Number((gd.obj.settings || {}).currentMonth) || 1;
     const now = { y: cy, m: cm, d: 1 };
-    const children = (emp.family.children || []).map(function (ch, idx) {
-      const age = calcAgeYM(ch && ch.birthDate, now);
-      return Object.assign({}, ch, { ageText: age ? age.text : '', ageYears: age ? age.years : null, ageMonths: age ? age.months : null, _idx: idx });
+    const members = (emp.family.members || []).map(function (m, idx) {
+      const age = calcAgeYM(m && m.birthDate, now);
+      return Object.assign({}, m, { ageText: age ? age.text : '', ageYears: age ? age.years : null, ageMonths: age ? age.months : null, _idx: idx });
     });
-    return jsonResponse({ ok: true, empCode: empCode, fullName: emp.fullName || '', childrenCount: Number(emp.children) || children.length || 0,
-      family: { children: children, spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
+    syncChildrenCountsFromMembers(emp);
+    return jsonResponse({ ok: true, empCode: empCode, fullName: emp.fullName || '',
+      childrenCount: Number(emp.children) || 0,
+      childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
+      family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
       photo: emp.photo || null, suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
@@ -4307,15 +4374,35 @@ async function handleAdminEmployeeExtra(request, who, env) {
     if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
     ensureEmpFamily(emp);
     if (body.family) {
-      if (Array.isArray(body.family.children)) {
-        emp.family.children = body.family.children.slice(0, 20).map(function (ch) {
-          return { name: String((ch && ch.name) || '').trim().slice(0, 80), gender: String((ch && ch.gender) || '').trim().slice(0, 20), birthDate: String((ch && ch.birthDate) || '').trim().slice(0, 20), nationalId: String((ch && ch.nationalId) || '').trim().slice(0, 20), idNumber: String((ch && ch.idNumber) || '').trim().slice(0, 20), status: String((ch && ch.status) || '').trim().slice(0, 40), eligibleChildAllowance: !!(ch && ch.eligibleChildAllowance) };
+      if (Array.isArray(body.family.members)) {
+        emp.family.members = body.family.members.slice(0, 40).map(function (m, i) {
+          var rel = String((m && m.relation) || '').trim().slice(0, 30);
+          var isChild = rel === 'فرزند';
+          return {
+            id: String((m && m.id) || ('m_' + Date.now() + '_' + i)).slice(0, 40),
+            relation: rel,
+            name: String((m && m.name) || '').trim().slice(0, 80),
+            gender: String((m && m.gender) || '').trim().slice(0, 20),
+            birthDate: String((m && m.birthDate) || '').trim().slice(0, 20),
+            nationalId: String((m && m.nationalId) || '').trim().slice(0, 20),
+            idNumber: String((m && m.idNumber) || '').trim().slice(0, 20),
+            birthPlace: String((m && m.birthPlace) || '').trim().slice(0, 60),
+            issuePlace: String((m && m.issuePlace) || '').trim().slice(0, 60),
+            status: String((m && m.status) || '').trim().slice(0, 40),
+            eligibleChildAllowance: isChild ? !!(m && m.eligibleChildAllowance) : false
+          };
         });
-        emp.children = emp.family.children.length;
+        syncChildrenCountsFromMembers(emp);
+      } else if (Array.isArray(body.family.children)) {
+        // سازگاری قدیمی
+        emp.family.children = body.family.children.slice(0, 20).map(function (ch) {
+          return { name: String((ch && ch.name) || '').trim().slice(0, 80), gender: String((ch && ch.gender) || '').trim().slice(0, 20), birthDate: String((ch && ch.birthDate) || '').trim().slice(0, 20), nationalId: String((ch && ch.nationalId) || '').trim().slice(0, 20), idNumber: String((ch && ch.idNumber) || '').trim().slice(0, 20), birthPlace: String((ch && ch.birthPlace) || '').trim().slice(0, 60), issuePlace: String((ch && ch.issuePlace) || '').trim().slice(0, 60), status: String((ch && ch.status) || '').trim().slice(0, 40), eligibleChildAllowance: !!(ch && ch.eligibleChildAllowance) };
+        });
+        emp.family.members = emp.family.children.map(function (ch, i) {
+          return Object.assign({ id: 'ch_' + i, relation: 'فرزند' }, ch);
+        });
+        syncChildrenCountsFromMembers(emp);
       }
-      if (body.family.spouse && typeof body.family.spouse === 'object') emp.family.spouse = { name: String(body.family.spouse.name || '').trim().slice(0, 80), gender: String(body.family.spouse.gender || '').trim().slice(0, 20), birthDate: String(body.family.spouse.birthDate || '').trim().slice(0, 20), nationalId: String(body.family.spouse.nationalId || '').trim().slice(0, 20), idNumber: String(body.family.spouse.idNumber || '').trim().slice(0, 20) };
-      if (body.family.father && typeof body.family.father === 'object') emp.family.father = { fullName: String(body.family.father.fullName || '').trim().slice(0, 80), nationalId: String(body.family.father.nationalId || '').trim().slice(0, 20), idNumber: String(body.family.father.idNumber || '').trim().slice(0, 20), birthDate: String(body.family.father.birthDate || '').trim().slice(0, 20) };
-      if (body.family.mother && typeof body.family.mother === 'object') emp.family.mother = { fullName: String(body.family.mother.fullName || '').trim().slice(0, 80), nationalId: String(body.family.mother.nationalId || '').trim().slice(0, 20), idNumber: String(body.family.mother.idNumber || '').trim().slice(0, 20), birthDate: String(body.family.mother.birthDate || '').trim().slice(0, 20) };
     }
     if (body.photo !== undefined) {
       const ph = body.photo;
@@ -4335,14 +4422,22 @@ async function handleAdminEmployeeExtra(request, who, env) {
         msg.resolvedAt = new Date().toISOString();
         msg.resolution = String(body.resolveMessage.resolution || '').trim().slice(0, 40);
         msg.resolvedYear = Number((gd.obj.settings || {}).currentYear) || 1405;
-        if (msg.type === 'son_age' && msg.childIndex != null && emp.family.children[msg.childIndex]) emp.family.children[msg.childIndex].status = msg.resolution;
+        if (msg.type === 'son_age') {
+          if (msg.memberId) {
+            var mm = (emp.family.members || []).find(function (x) { return x && x.id === msg.memberId; });
+            if (mm) mm.status = msg.resolution;
+          } else if (msg.childIndex != null && emp.family.members[msg.childIndex]) {
+            emp.family.members[msg.childIndex].status = msg.resolution;
+          }
+          syncChildrenCountsFromMembers(emp);
+        }
       }
     }
     refreshSonAgeMessages(gd.obj, emp);
     const put = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
-    return jsonResponse({ ok: true, message: 'ذخیره شد', childrenCount: Number(emp.children) || 0, deductCount: (emp.suppInsurance && emp.suppInsurance.deductCount) || 0, openMessages: (emp.systemMessages || []).filter(function (m) { return m && !m.resolvedAt; }).length });
+    return jsonResponse({ ok: true, message: 'ذخیره شد', childrenCount: Number(emp.children) || 0, childrenEligibleCount: Number(emp.childrenEligibleCount) || 0, deductCount: (emp.suppInsurance && emp.suppInsurance.deductCount) || 0, openMessages: (emp.systemMessages || []).filter(function (m) { return m && !m.resolvedAt; }).length });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -5689,7 +5784,7 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
     const name = String(a.name).trim();
     let amt = Number(a.amount) || 0;
     // common adjustments
-    if (a.id === 'child' || name.indexOf('اولاد') >= 0) amt = amt * (Number(emp.children) || 0);
+    if (a.id === 'child' || name.indexOf('اولاد') >= 0) { var _ec = Number(emp.childrenEligibleCount); if (!( _ec >= 0) || (emp.family && emp.family.members)) { _ec = 0; (emp.family && emp.family.members || []).forEach(function(m){ if (m && m.relation==='فرزند' && m.eligibleChildAllowance) _ec++; }); if (!_ec && emp.childrenEligibleCount != null) _ec = Number(emp.childrenEligibleCount)||0; if (!_ec) _ec = Number(emp.children)||0; } amt = amt * _ec; }
     if (a.id === 'marital' || name.indexOf('تأهل') >= 0 || name.indexOf('تاهل') >= 0) {
       if (!(emp.marital === 'married' || emp.marital === 'provider')) amt = 0;
     }
