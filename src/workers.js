@@ -249,6 +249,14 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
     }
   } catch (e) { /* non-fatal */ }
 
+  // سبک‌سازی قبل از ذخیره: عکس تکراری داخل extras و روی emp اگر در employeePhotos هست
+  try {
+    if (obj.employeeExtras && typeof obj.employeeExtras === 'object') {
+      Object.keys(obj.employeeExtras).forEach(function (k) {
+        if (obj.employeeExtras[k] && obj.employeeExtras[k].photo) delete obj.employeeExtras[k].photo;
+      });
+    }
+  } catch (eStrip) {}
   const text = JSON.stringify(obj);
   if (text.length > MAX_DOC_BYTES) return { fail: { reason: 'too_large', status: 413 } };
   if (baseVersion === 0) {
@@ -492,16 +500,21 @@ async function handleState(request, who, env, path) {
       if (!r.ok) return storeFailResponse(await storeFail(r));
       const text = (await r.text()).trim();
       if (text.charAt(0) !== '{') return jsonResponse({ ok: false, error: 'store_error' }, 502);
-      // برای سند data: خانواده/عکس را از employeeExtras روی employees برگردان
+      // برای سند data: خانواده را از employeeExtras ادغام کن — data باید STRING بماند (کلاینت JSON.parse می‌کند)
       if (rest === 'data') {
         try {
           const row = JSON.parse(text);
           if (row && row.data) {
             let parsed = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
             if (parsed && typeof parsed === 'object') {
-              mergeAllEmployeeExtras(parsed);
-              row.data = parsed;
-              return jsonResponse(Object.assign({ ok: true }, row));
+              try { mergeAllEmployeeExtras(parsed); } catch (eM) {}
+              // حتماً دوباره رشته شود تا همگام‌سازی کلاینت نشکند
+              row.data = JSON.stringify(parsed);
+              const out = JSON.stringify(Object.assign({ ok: true }, row));
+              return new Response(out, {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+              });
             }
           }
         } catch (eGet) { /* fallback raw */ }
@@ -4469,7 +4482,7 @@ function snapshotEmpExtra(obj, emp) {
   if (!obj || !emp || emp.code == null) return;
   ensureEmployeeExtras(obj);
   var code = String(emp.code);
-  var photo = (obj.employeePhotos && obj.employeePhotos[code]) || emp.photo || null;
+  // عکس فقط در employeePhotos — داخل extras نگذار (حجم همگام‌سازی)
   obj.employeeExtras[code] = {
     family: emp.family || { members: [] },
     suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
@@ -4478,7 +4491,7 @@ function snapshotEmpExtra(obj, emp) {
     children: Number(emp.children) || 0,
     suppInsuranceDeduct: !!emp.suppInsuranceDeduct,
     suppInsuranceDeductCount: Number(emp.suppInsuranceDeductCount) || 0,
-    photo: photo,
+    hasPhoto: !!(obj.employeePhotos && obj.employeePhotos[code]) || !!emp.photo,
     updatedAt: new Date().toISOString()
   };
   // customItems مربوط به بیمه تکمیلی را هم نگه دار
@@ -4509,8 +4522,11 @@ function applyEmpExtra(obj, emp) {
       ex.suppCustomItems.forEach(function (ci) { emp.customItems.push(ci); });
     }
   }
-  var ph = (obj.employeePhotos && obj.employeePhotos[code]) || (ex && ex.photo) || emp.photo || null;
+  var ph = (obj.employeePhotos && obj.employeePhotos[code]) || (ex && ex.photo) || null;
   if (ph) emp.photo = ph;
+  else if (ex && !ex.hasPhoto && emp.photo && String(emp.photo).length > 5000) {
+    // عکس یتیم/حجیم بدون ثبت در employeePhotos — برای سبک شدن نگه ندار
+  }
 }
 function mergeAllEmployeeExtras(obj) {
   if (!obj || !Array.isArray(obj.employees)) return;
