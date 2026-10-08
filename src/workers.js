@@ -4081,7 +4081,6 @@ async function handleAdminTimesheet(request, who, env) {
 
 /** ذخیره ورود/خروج روزانه یک کارمند (یک روز یا چند روز ماه) */
 
-/** تبدیل میلادی → شمسی */
 function gregorianToJalali(gy, gm, gd) {
   gy = Number(gy); gm = Number(gm); gd = Number(gd);
   if (!gy || !gm || !gd) return null;
@@ -4092,39 +4091,12 @@ function gregorianToJalali(gy, gm, gd) {
   days %= 12053;
   jy += 4 * Math.floor(days / 1461);
   days %= 1461;
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
+  if (days > 365) { jy += Math.floor((days - 1) / 365); days = (days - 1) % 365; }
   var jm, jd;
-  if (days < 186) {
-    jm = 1 + Math.floor(days / 31);
-    jd = 1 + (days % 31);
-  } else {
-    jm = 7 + Math.floor((days - 186) / 30);
-    jd = 1 + ((days - 186) % 30);
-  }
+  if (days < 186) { jm = 1 + Math.floor(days / 31); jd = 1 + (days % 31); }
+  else { jm = 7 + Math.floor((days - 186) / 30); jd = 1 + ((days - 186) % 30); }
   return { y: jy, m: jm, d: jd };
 }
-
-function normalizePunchTime(t) {
-  t = String(t || '').trim();
-  if (!t) return '';
-  var m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (m) {
-    var h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
-    var mi = Math.min(59, Math.max(0, parseInt(m[2], 10)));
-    return (h < 10 ? '0' : '') + h + ':' + (mi < 10 ? '0' : '') + mi;
-  }
-  m = t.match(/^(\d{3,4})$/);
-  if (m) {
-    var s = m[1];
-    if (s.length === 3) s = '0' + s;
-    return s.slice(0, 2) + ':' + s.slice(2, 4);
-  }
-  return '';
-}
-
 function parseImportDateToJalali(raw) {
   raw = String(raw || '').trim();
   if (!raw) return null;
@@ -4137,113 +4109,306 @@ function parseImportDateToJalali(raw) {
   return null;
 }
 
-async function handleAdminImportPunches(request, who, env) {
+
+/** سن به سال و ماه از تاریخ شمسی یا میلادی */
+function calcAgeYM(birthRaw, nowDate) {
+  const p = parseImportDateToJalali ? parseImportDateToJalali(birthRaw) : null;
+  // fallback: parseJalaliYMD for jalali only
+  let by, bm, bd;
+  if (p) { by = p.y; bm = p.m; bd = p.d; }
+  else {
+    const j = parseJalaliYMD(String(birthRaw || '').replace(/-/g, '/'));
+    if (!j) return null;
+    by = j.y; bm = j.m; bd = j.d;
+  }
+  const cy = Number((nowDate && nowDate.y) || 1405);
+  const cm = Number((nowDate && nowDate.m) || 1);
+  const cd = Number((nowDate && nowDate.d) || 1);
+  let years = cy - by;
+  let months = cm - bm;
+  if (cd < bd) months -= 1;
+  if (months < 0) { years -= 1; months += 12; }
+  if (years < 0) return { years: 0, months: 0, text: '0 سال' };
+  return { years: years, months: Math.max(0, months), text: years + ' سال و ' + Math.max(0, months) + ' ماه' };
+}
+
+function ensureFamilySettings(obj) {
+  if (!obj.settings) obj.settings = {};
+  if (obj.settings.sonAlertAge == null || obj.settings.sonAlertAge === '') obj.settings.sonAlertAge = 18;
+  if (!Array.isArray(obj.settings.childStatusOptions) || !obj.settings.childStatusOptions.length) {
+    obj.settings.childStatusOptions = ['دانشجو', 'معلول', 'فرجه تا خدمت سربازی'];
+  }
+  if (obj.settings.suppInsurancePerPerson == null) obj.settings.suppInsurancePerPerson = 0;
+}
+
+function ensureEmpFamily(emp) {
+  if (!emp.family || typeof emp.family !== 'object') emp.family = {};
+  if (!Array.isArray(emp.family.children)) emp.family.children = [];
+  if (!emp.family.spouse || typeof emp.family.spouse !== 'object') emp.family.spouse = {};
+  if (!emp.family.father || typeof emp.family.father !== 'object') emp.family.father = {};
+  if (!emp.family.mother || typeof emp.family.mother !== 'object') emp.family.mother = {};
+  if (!emp.suppInsurance || typeof emp.suppInsurance !== 'object') {
+    emp.suppInsurance = { covered: [], deducted: [], deductCount: 0 };
+  }
+  if (!Array.isArray(emp.suppInsurance.covered)) emp.suppInsurance.covered = [];
+  if (!Array.isArray(emp.suppInsurance.deducted)) emp.suppInsurance.deducted = [];
+  if (!Array.isArray(emp.systemMessages)) emp.systemMessages = [];
+}
+
+function refreshSonAgeMessages(obj, emp) {
+  ensureFamilySettings(obj);
+  ensureEmpFamily(emp);
+  const alertAge = Number(obj.settings.sonAlertAge) || 18;
+  const cy = Number((obj.settings || {}).currentYear) || 1405;
+  const cm = Number((obj.settings || {}).currentMonth) || 1;
+  const now = { y: cy, m: cm, d: 1 };
+  const children = emp.family.children || [];
+  children.forEach(function (ch, idx) {
+    if (!ch) return;
+    const gender = String(ch.gender || '').trim();
+    const isBoy = gender === 'پسر' || gender === 'مرد' || gender === 'male' || gender === 'M';
+    if (!isBoy) return;
+    const age = calcAgeYM(ch.birthDate, now);
+    if (!age || age.years < alertAge) return;
+    // پیام تکراری در همان سال نباشد اگر resolve شده با انتخاب وضعیت
+    const msgKey = 'son_age_' + idx + '_' + cy;
+    const existing = (emp.systemMessages || []).find(function (m) {
+      return m && m.key === msgKey;
+    });
+    if (existing) {
+      // اگر resolve شده تا سال بعد تکرار نکن
+      if (existing.resolvedAt && existing.resolvedYear === cy) return;
+      if (!existing.resolvedAt) return; // هنوز باز است
+    }
+    if (existing && existing.resolvedYear === cy) return;
+    emp.systemMessages.push({
+      id: 'msg_' + Date.now() + '_' + idx,
+      key: msgKey,
+      type: 'son_age',
+      childIndex: idx,
+      childName: ch.name || ('فرزند ' + (idx + 1)),
+      text: 'فرزند پسر «' + (ch.name || (idx + 1)) + '» به سن ' + age.years + ' سال رسیده است (آستانه: ' + alertAge + '). وضعیت را مشخص کنید.',
+      createdAt: new Date().toISOString(),
+      year: cy,
+      resolvedAt: null,
+      resolution: null,
+      resolvedYear: null
+    });
+  });
+}
+
+async function handleAdminEmployeeExtra(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
-  }
-  const r = await readBody(request);
-  if (r.error) return r.error;
-  const rows = Array.isArray(r.body.rows) ? r.body.rows : [];
-  const mode = String(r.body.mode || 'merge') === 'replace' ? 'replace' : 'merge';
-  if (!rows.length) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'هیچ ردیفی ارسال نشده است.' }, 400);
-  }
-  if (rows.length > 20000) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'حداکثر ۲۰۰۰۰ ردیف در هر بار.' }, 400);
   }
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
 
-  const groups = {};
-  let skipped = 0;
-  rows.forEach(function (row) {
-    if (!row) { skipped++; return; }
-    const code = String(row.code || '').trim();
-    if (!code) { skipped++; return; }
-    const jp = parseImportDateToJalali(row.date);
-    if (!jp) { skipped++; return; }
-    const inT = normalizePunchTime(row.inTime || row.in || '');
-    const outT = normalizePunchTime(row.outTime || row.out || '');
-    if (!inT && !outT) { skipped++; return; }
-    const dk = jp.y + '-' + String(jp.m).padStart(2, '0') + '-' + String(jp.d).padStart(2, '0');
-    const key = code + '|' + dk;
-    if (!groups[key]) groups[key] = { code: code, dk: dk, pairs: [] };
-    groups[key].pairs.push({ in: inT, out: outT });
-  });
-
-  const keys = Object.keys(groups);
-  if (!keys.length) {
-    return jsonResponse({ ok: false, error: 'bad_request', message: 'هیچ ردیف معتبری (کد+تاریخ+ساعت) یافت نشد.', skipped: skipped }, 400);
+  if (request.method === 'GET') {
+    const url = new URL(request.url);
+    const empCode = String(url.searchParams.get('empCode') || '').trim();
+    if (!empCode) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === empCode; });
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    ensureFamilySettings(gd.obj);
+    ensureEmpFamily(emp);
+    refreshSonAgeMessages(gd.obj, emp);
+    // ages
+    const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
+    const cm = Number((gd.obj.settings || {}).currentMonth) || 1;
+    const now = { y: cy, m: cm, d: 1 };
+    const children = (emp.family.children || []).map(function (ch, idx) {
+      const age = calcAgeYM(ch && ch.birthDate, now);
+      return Object.assign({}, ch, { ageText: age ? age.text : '', ageYears: age ? age.years : null, ageMonths: age ? age.months : null, _idx: idx });
+    });
+    return jsonResponse({
+      ok: true,
+      empCode: empCode,
+      fullName: emp.fullName || '',
+      childrenCount: Number(emp.children) || children.length || 0,
+      family: {
+        children: children,
+        spouse: emp.family.spouse || {},
+        father: emp.family.father || {},
+        mother: emp.family.mother || {}
+      },
+      photo: emp.photo || null,
+      suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
+      systemMessages: emp.systemMessages || [],
+      settings: {
+        sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18,
+        childStatusOptions: gd.obj.settings.childStatusOptions || [],
+        suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0
+      }
+    });
   }
+
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const empCode = String(body.empCode || '').trim();
+  const settingsOnly = !!(body.settings && who.role === 'admin' && !body.family && !body.suppInsurance && !body.resolveMessage && body.photo === undefined);
 
   for (let attempt = 0; attempt < 4; attempt++) {
     const gd = await storeGetData(cfg);
     if (gd.fail) return storeFailResponse(gd.fail);
-    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
-    if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
+    ensureFamilySettings(gd.obj);
+    // settings update (admin only)
+    if (body.settings && who.role === 'admin') {
+      if (body.settings.sonAlertAge != null) gd.obj.settings.sonAlertAge = Math.max(1, Math.min(30, Number(body.settings.sonAlertAge) || 18));
+      if (Array.isArray(body.settings.childStatusOptions)) {
+        gd.obj.settings.childStatusOptions = body.settings.childStatusOptions.map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 30);
+      }
+      if (body.settings.suppInsurancePerPerson != null) {
+        gd.obj.settings.suppInsurancePerPerson = Math.max(0, Math.round(Number(body.settings.suppInsurancePerPerson) || 0));
+      }
+    }
+    if (settingsOnly) {
+      const putS = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
+      if (putS.fail) return storeFailResponse(putS.fail);
+      if (putS.conflict) continue;
+      return jsonResponse({ ok: true, message: 'تنظیمات ذخیره شد', settings: {
+        sonAlertAge: gd.obj.settings.sonAlertAge,
+        childStatusOptions: gd.obj.settings.childStatusOptions,
+        suppInsurancePerPerson: gd.obj.settings.suppInsurancePerPerson
+      }});
+    }
+    if (!empCode) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند لازم است.' }, 400);
+    const emp = ((gd.obj.employees) || []).find(function (e) { return String(e.code) === empCode; });
+    if (!emp) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    ensureEmpFamily(emp);
 
-    let savedDays = 0;
-    let savedPairs = 0;
-    const unknownCodes = {};
-    const empCodes = {};
-    (gd.obj.employees || []).forEach(function (e) {
-      if (e && e.code != null) empCodes[String(e.code).trim()] = true;
-    });
+    if (body.family) {
+      if (Array.isArray(body.family.children)) {
+        emp.family.children = body.family.children.slice(0, 20).map(function (ch) {
+          return {
+            name: String((ch && ch.name) || '').trim().slice(0, 80),
+            gender: String((ch && ch.gender) || '').trim().slice(0, 20),
+            birthDate: String((ch && ch.birthDate) || '').trim().slice(0, 20),
+            nationalId: String((ch && ch.nationalId) || '').trim().slice(0, 20),
+            idNumber: String((ch && ch.idNumber) || '').trim().slice(0, 20),
+            status: String((ch && ch.status) || '').trim().slice(0, 40),
+            eligibleChildAllowance: !!(ch && ch.eligibleChildAllowance)
+          };
+        });
+        // sync children count on emp
+        emp.children = emp.family.children.length;
+      }
+      if (body.family.spouse && typeof body.family.spouse === 'object') {
+        emp.family.spouse = {
+          name: String(body.family.spouse.name || '').trim().slice(0, 80),
+          gender: String(body.family.spouse.gender || '').trim().slice(0, 20),
+          birthDate: String(body.family.spouse.birthDate || '').trim().slice(0, 20),
+          nationalId: String(body.family.spouse.nationalId || '').trim().slice(0, 20),
+          idNumber: String(body.family.spouse.idNumber || '').trim().slice(0, 20)
+        };
+      }
+      if (body.family.father && typeof body.family.father === 'object') {
+        emp.family.father = {
+          fullName: String(body.family.father.fullName || '').trim().slice(0, 80),
+          nationalId: String(body.family.father.nationalId || '').trim().slice(0, 20),
+          idNumber: String(body.family.father.idNumber || '').trim().slice(0, 20),
+          birthDate: String(body.family.father.birthDate || '').trim().slice(0, 20)
+        };
+      }
+      if (body.family.mother && typeof body.family.mother === 'object') {
+        emp.family.mother = {
+          fullName: String(body.family.mother.fullName || '').trim().slice(0, 80),
+          nationalId: String(body.family.mother.nationalId || '').trim().slice(0, 20),
+          idNumber: String(body.family.mother.idNumber || '').trim().slice(0, 20),
+          birthDate: String(body.family.mother.birthDate || '').trim().slice(0, 20)
+        };
+      }
+    }
 
-    keys.forEach(function (k) {
-      const g = groups[k];
-      const code = g.code;
-      if (!empCodes[code]) unknownCodes[code] = true;
-      if (!gd.obj.dailyAttendance[code]) gd.obj.dailyAttendance[code] = {};
-      const store = gd.obj.dailyAttendance[code];
-      const prev = store[g.dk] || {};
-      let pairs = [];
-      if (mode === 'merge') {
-        for (let i = 1; i <= 4; i++) {
-          const inn = String(prev['in' + i] || '').trim();
-          const out = String(prev['out' + i] || '').trim();
-          if (inn || out) pairs.push({ in: inn, out: out });
+    if (body.photo !== undefined) {
+      // base64 data URL, max ~200KB string
+      const ph = body.photo;
+      if (ph == null || ph === '') emp.photo = null;
+      else if (typeof ph === 'string' && ph.length < 250000 && /^data:image\//.test(ph)) emp.photo = ph;
+    }
+
+    if (body.suppInsurance && typeof body.suppInsurance === 'object') {
+      emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
+      emp.suppInsurance.deducted = Array.isArray(body.suppInsurance.deducted) ? body.suppInsurance.deducted.map(String).slice(0, 30) : [];
+      emp.suppInsurance.deductCount = emp.suppInsurance.deducted.length;
+      emp.suppInsuranceDeductCount = emp.suppInsurance.deductCount;
+      // flag for monthly edit
+      emp.suppInsuranceDeduct = emp.suppInsurance.deductCount > 0;
+    }
+
+    // resolve message
+    if (body.resolveMessage && body.resolveMessage.id) {
+      const msg = (emp.systemMessages || []).find(function (m) { return m && m.id === body.resolveMessage.id; });
+      if (msg) {
+        msg.resolvedAt = new Date().toISOString();
+        msg.resolution = String(body.resolveMessage.resolution || '').trim().slice(0, 40);
+        msg.resolvedYear = Number((gd.obj.settings || {}).currentYear) || 1405;
+        // apply status to child
+        if (msg.type === 'son_age' && msg.childIndex != null && emp.family.children[msg.childIndex]) {
+          emp.family.children[msg.childIndex].status = msg.resolution;
         }
       }
-      g.pairs.forEach(function (p) {
-        const exists = pairs.some(function (x) { return x.in === p.in && x.out === p.out; });
-        if (!exists) pairs.push(p);
-      });
-      pairs = pairs.slice(0, 4);
-      const rec = {
-        in1: '', out1: '', in2: '', out2: '', in3: '', out3: '', in4: '', out4: '',
-        note: (typeof cleanTimesheetNote === 'function') ? cleanTimesheetNote(prev.note || '') : (prev.note || '')
-      };
-      pairs.forEach(function (p, idx) {
-        const n = idx + 1;
-        rec['in' + n] = p.in || '';
-        rec['out' + n] = p.out || '';
-      });
-      rec.importedAt = new Date().toISOString();
-      rec.importedBy = who.name || who.role || 'admin';
-      if (!rec.in1 && !rec.out1 && !rec.in2 && !rec.out2 && !rec.in3 && !rec.out3 && !rec.in4 && !rec.out4) {
-        delete store[g.dk];
-      } else {
-        store[g.dk] = rec;
-        savedDays++;
-        savedPairs += pairs.length;
-      }
-    });
+    }
+
+    refreshSonAgeMessages(gd.obj, emp);
 
     const put = await storePutData(cfg, gd.version, gd.obj, who.name || 'admin');
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     return jsonResponse({
       ok: true,
-      savedDays: savedDays,
-      savedPairs: savedPairs,
-      skipped: skipped,
-      unknownCodes: Object.keys(unknownCodes).slice(0, 50),
-      mode: mode,
-      message: savedDays + ' روز ذخیره شد (' + savedPairs + ' جفت ورود/خروج).'
+      message: 'ذخیره شد',
+      childrenCount: Number(emp.children) || 0,
+      deductCount: (emp.suppInsurance && emp.suppInsurance.deductCount) || 0,
+      openMessages: (emp.systemMessages || []).filter(function (m) { return m && !m.resolvedAt; }).length
     });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleAdminSystemMessages(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  ensureFamilySettings(gd.obj);
+  const all = [];
+  (gd.obj.employees || []).forEach(function (emp) {
+    ensureEmpFamily(emp);
+    refreshSonAgeMessages(gd.obj, emp);
+    (emp.systemMessages || []).forEach(function (m) {
+      if (!m) return;
+      all.push({
+        empCode: emp.code,
+        fullName: emp.fullName || '',
+        id: m.id,
+        type: m.type,
+        text: m.text,
+        createdAt: m.createdAt,
+        resolvedAt: m.resolvedAt,
+        resolution: m.resolution,
+        year: m.year
+      });
+    });
+  });
+  // open first
+  all.sort(function (a, b) {
+    if (!!a.resolvedAt !== !!b.resolvedAt) return a.resolvedAt ? 1 : -1;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+  return jsonResponse({
+    ok: true,
+    messages: all.slice(0, 200),
+    childStatusOptions: gd.obj.settings.childStatusOptions || [],
+    sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18,
+    suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0
+  });
 }
 
 async function handleAdminSaveTimesheetDays(request, who, env) {
@@ -5398,7 +5563,8 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/timesheet') return handleAdminTimesheet(request, who, env);
   if (path === '/api/admin/bulk-hourly-cover') return handleAdminBulkHourlyCover(request, who, env);
   if (path === '/api/admin/shortfall-settings') return handleAdminShortfallSettings(request, who, env);
-  if (path === '/api/admin/import-punches') return handleAdminImportPunches(request, who, env);
+  if (path === '/api/admin/employee-extra') return handleAdminEmployeeExtra(request, who, env);
+  if (path === '/api/admin/system-messages') return handleAdminSystemMessages(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
     return new Response(PORTAL_ADMIN_JS, {
