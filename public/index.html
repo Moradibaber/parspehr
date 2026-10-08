@@ -8797,19 +8797,27 @@ function empCellAt(tr, col) {
   var cells = Array.prototype.filter.call(tr.children, function(c) { return !c.hasAttribute('data-psp-child-td'); });
   return cells[col];
 }
+/* متن سلول برای فیلتر؛ col می‌تواند 'child' (ستون حق اولاد) باشد */
+function empCellText(tr, col) {
+  if (col === 'child') {
+    var cd = tr.querySelector('[data-psp-child-td]');
+    var inp = cd && cd.querySelector('input');
+    return inp ? String(inp.value || '').trim() : (cd ? (cd.textContent || '').trim() : '');
+  }
+  var td = empCellAt(tr, Number(col));
+  return td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '';
+}
 function rebuildEmpFilterOptions() {
   var body = document.getElementById('empTableBody');
   if (!body) return;
   var rows = Array.prototype.slice.call(body.querySelectorAll('tr'));
   document.querySelectorAll('#empFilterRow select.emp-filter').forEach(function(sel) {
-    var col = Number(sel.getAttribute('data-col'));
+    var col = sel.getAttribute('data-col');
     var prev = sel.value;
     var first = sel.options[0] ? sel.options[0].cloneNode(true) : null;
     var seen = {};
     rows.forEach(function(tr) {
-      var td = empCellAt(tr, col);
-      if (!td) return;
-      var t = (td.textContent || '').replace(/\s+/g, ' ').trim();
+      var t = empCellText(tr, col);
       if (t) seen[t] = true;
     });
     var vals = Object.keys(seen).sort(function(a, b) {
@@ -8831,13 +8839,11 @@ function filterEmployeesTable() {
   if (!body) return;
   var filters = [];
   document.querySelectorAll('#empFilterRow select.emp-filter').forEach(function(sel) {
-    if (sel.value) filters.push({ col: Number(sel.getAttribute('data-col')), val: sel.value });
+    if (sel.value) filters.push({ col: sel.getAttribute('data-col'), val: sel.value });
   });
   body.querySelectorAll('tr').forEach(function(tr) {
     var show = filters.every(function(f) {
-      var td = empCellAt(tr, f.col);
-      var t = td ? (td.textContent || '').replace(/\s+/g, ' ').trim() : '';
-      return t === f.val;
+      return empCellText(tr, f.col) === f.val;
     });
     tr.style.display = show ? '' : 'none';
   });
