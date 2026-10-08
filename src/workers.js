@@ -2006,20 +2006,34 @@ function computeDayTimesheet(cal, punches, opts) {
     earlyLeave = Math.max(0, end - lastOut);
   }
 
-  // جبران فقط وقتی: (تأخیر ≤ شناوری) یا تیک floatCompensate
-  // بدون تیک و تأخیر > شناوری: هیچ جبرانی نیست؛ ماندن بعد از end = OT
-  const stayedPast0 = (hasComplete && lastOut != null && end != null) ? Math.max(0, lastOut - end) : 0;
-  const canCompensate = delay > 0 && ((withinFloat && delay <= (floatM || 0)) || !!compensate);
-  if (hasComplete && canCompensate && lastOut != null && end != null) {
-    var maxComp = delay;
-    if (!compensate) maxComp = Math.min(delay, floatM || 0); // فقط سقف شناوری
-    compensated = Math.min(maxComp, stayedPast0);
+  // جبران: فقط داخل شناوری (خودکار) یا با تیک floatCompensate
+  const canCompensate = withinFloat || !!compensate;
+  if (hasComplete && canCompensate && delay > 0 && lastOut != null && end != null) {
+    const stayedPast = Math.max(0, lastOut - end);
+    // حداکثر جبران = min(تأخیر، ماندن بعد از پایان، و اگر فقط شناوری باشد سقف float)
+    let maxComp = delay;
+    if (withinFloat && !compensate) {
+      maxComp = Math.min(delay, floatM || 0);
+    }
+    compensated = Math.min(maxComp, stayedPast);
     delay = Math.max(0, delay - compensated);
-    ot = Math.max(0, stayedPast0 - compensated);
-    earlyLeave = (lastOut < end) ? (end - lastOut) : 0;
+    // اضافه‌کار = ماندن بعد از end فراتر از جبران
+    ot = Math.max(0, stayedPast - compensated);
+    // تعجیل فقط اگر زودتر از end رفته (و جبران صبح از end جداست)
+    if (lastOut < end) {
+      earlyLeave = end - lastOut;
+    } else {
+      earlyLeave = 0;
+    }
   } else if (hasComplete && lastOut != null && end != null) {
-    if (lastOut > end) { ot = stayedPast0; earlyLeave = 0; }
-    else { earlyLeave = end - lastOut; ot = 0; }
+    // بدون حق جبران: ماندن بعد از end = OT؛ تأخیر کامل می‌ماند
+    if (lastOut > end) {
+      ot = lastOut - end;
+      earlyLeave = 0;
+    } else {
+      earlyLeave = end - lastOut;
+      ot = 0;
+    }
   }
   // تردد ناقص بدون جفت کامل: کارکرد صفر — delay/early جداگانه معنا ندارد
 
@@ -2055,8 +2069,9 @@ function computeDayTimesheet(cal, punches, opts) {
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
 
-  // همیشه: کارکرد مبنا = حضور داخل [start,end] + جبران معتبر (نه کل wall-clock)
-  // بدون تیک + تأخیر > شناوری: compensated=0 → فقط پنجره؛ کسری = شکاف صبح + عصر
+  // همیشه کارکرد مبنا = حضور داخل پنجره موظفی [start,end] (+ جبران معتبر)
+  // بدون تیک و تأخیر > شناوری: جبران صفر → کار = فقط پنجره؛ کسری = صبح+عصر
+  // مثال ۰۷:۳۰–۱۵:۰۰: پنجره ۴۵۰ → کار ۰۷:۳۰، کسری ۰۱:۱۵ (نه ۰۸:۴۵)
   let presenceInWindow = 0;
   if (start != null && end != null && completePairs.length) {
     completePairs.forEach(function (p) {
@@ -2083,6 +2098,7 @@ function computeDayTimesheet(cal, punches, opts) {
   } else {
     presenceInWindow = present;
   }
+  // جبران فقط اگر واقعاً محاسبه شده (داخل شناوری یا تیک)
   var creditComp = 0;
   if (!isHoliday && !condFull && !opts.unpaidLeave && !opts.fullDayLeaveOrMission) {
     creditComp = Math.max(0, compensated || 0);
@@ -2239,16 +2255,17 @@ function computeDayTimesheet(cal, punches, opts) {
     shortfall = Math.max(0, officialHalf - workPresent - covered);
   } else if (opts.unpaidLeave) {
     shortfall = official;
-  } else if (opts.fullDayLeaveOrMission) {
+  } else if (opts.fullDayLeaveOrMission && !hasComplete) {
     shortfall = 0;
   } else {
     shortfall = Math.max(0, official - presentForShort - covered);
   }
 
-  // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
+  // کارکرد نمایشی: حضور در پنجره + پوشش ساعتی (تا سقف موظفی)
+  // مرخصی تمام‌روز فقط وقتی واقعاً daily است و تردد کامل ندارد
   let displayWorkMin = workPresent + (isHoliday ? 0 : covered);
   if (!isHoliday && !opts.unpaidLeave) {
-    if (opts.fullDayLeaveOrMission) displayWorkMin = official;
+    if (opts.fullDayLeaveOrMission && !hasComplete) displayWorkMin = official;
     else displayWorkMin = Math.min(official, displayWorkMin);
   }
   // فرمت ساعت: دقیقه → «ساعت:دقیقه» مثلاً 8:45
@@ -2544,9 +2561,11 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
     const sk = String(x.startDate || '').replace(/-/g, '/');
     const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
     if (k !== dateDash && sk !== dateFa) return;
-    const a = timeToMinutes(x.fromTime);
-    const b = timeToMinutes(x.toTime);
-    if (a == null || b == null || b <= a) return;
+    var a = timeToMinutes(x.fromTime);
+    var b = timeToMinutes(x.toTime);
+    if (a == null || b == null) return;
+    if (b < a) { var _t = a; a = b; b = _t; } // زمان‌های جابه‌جا را اصلاح کن
+    if (b <= a) return;
     iv.push([a, b]);
   });
   // اجتماع بازه‌ها: مرخصی/مأموریت ساعتی تکراری یا هم‌پوشان فقط یک‌بار شمرده شود
@@ -2574,9 +2593,11 @@ function hourlyCoverIntervalsOnDay(obj, code, year, month, day) {
     const sk = String(x.startDate || '').replace(/-/g, '/');
     const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
     if (k !== dateDash && sk !== dateFa) return;
-    const a = timeToMinutes(x.fromTime);
-    const b = timeToMinutes(x.toTime);
-    if (a == null || b == null || b <= a) return;
+    var a = timeToMinutes(x.fromTime);
+    var b = timeToMinutes(x.toTime);
+    if (a == null || b == null) return;
+    if (b < a) { var _t = a; a = b; b = _t; } // زمان‌های جابه‌جا را اصلاح کن
+    if (b <= a) return;
     iv.push([a, b]);
   });
   return iv;
@@ -3188,9 +3209,9 @@ async function handleEmpTimesheet(request, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
       if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-      if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
+      if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_fb=timeToMinutes(x.toTime); var tr; if(_fa!=null&&_fb!=null&&_fb<_fa){tr=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {tr=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.leaveConflict = true; }
       if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-      if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
+      if (x.kind === 'mission' && x.mode === 'hourly') { var _ma=timeToMinutes(x.fromTime),_mb=timeToMinutes(x.toTime); var trm; if(_ma!=null&&_mb!=null&&_mb<_ma){trm=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {trm=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, cell)) cell.missionConflict = true; }
       
         if (!x.bulkCover) {
           var bits = [];
@@ -4141,9 +4162,9 @@ async function handleAdminTimesheet(request, who, env) {
         // ساعتی: فقط بازه
         const shortLabel = label.replace(/\s*ساعتی\s*/g,'').trim() || label;
         if (x.kind === 'leave' && x.mode === 'daily') { cell.leaveDaily = (cell.leaveDaily ? cell.leaveDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.leaveConflict = true; }
-        if (x.kind === 'leave' && x.mode === 'hourly') { var tr = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
+        if (x.kind === 'leave' && x.mode === 'hourly') { var _fa=timeToMinutes(x.fromTime),_fb=timeToMinutes(x.toTime); var tr; if(_fa!=null&&_fb!=null&&_fb<_fa){tr=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {tr=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (tr) cell.leaveHourly = (cell.leaveHourly ? cell.leaveHourly + '؛ ' : '') + tr; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.leaveConflict = true; }
         if (x.kind === 'mission' && x.mode === 'daily') { cell.missionDaily = (cell.missionDaily ? cell.missionDaily + '؛ ' : '') + shortLabel; if (cell.in1||cell.out1||cell.in2||cell.out2||cell.in3||cell.out3||cell.in4||cell.out4) cell.missionConflict = true; }
-        if (x.kind === 'mission' && x.mode === 'hourly') { var trm = [x.fromTime, x.toTime].filter(Boolean).join('-'); if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
+        if (x.kind === 'mission' && x.mode === 'hourly') { var _ma=timeToMinutes(x.fromTime),_mb=timeToMinutes(x.toTime); var trm; if(_ma!=null&&_mb!=null&&_mb<_ma){trm=[x.toTime,x.fromTime].filter(Boolean).join('-');} else {trm=[x.fromTime,x.toTime].filter(Boolean).join('-');} if (trm) cell.missionHourly = (cell.missionHourly ? cell.missionHourly + '؛ ' : '') + trm; if (hourlyOverlapsPresence(x.fromTime, x.toTime, { in1: cell.in1, out1: cell.out1, in2: cell.in2, out2: cell.out2 })) cell.missionConflict = true; }
         
         if (!x.bulkCover) {
           var bits = [];
