@@ -191,6 +191,26 @@ export function makeEngine(data) {
     const v = Number((data.settings || {}).suppInsurancePerPerson);
     return (v > 0) ? Math.round(v) : 0;
   }
+  function getEligibleChildrenCount(emp) {
+    if (!emp) return 0;
+    if (emp.childrenEligibleCount != null && emp.childrenEligibleCount !== '') {
+      return Math.max(0, Number(emp.childrenEligibleCount) || 0);
+    }
+    // از لیست اعضای خانواده
+    var n = 0;
+    var members = (emp.family && emp.family.members) || [];
+    members.forEach(function (m) {
+      if (!m) return;
+      var rel = String(m.relation || '');
+      if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance) n++;
+    });
+    if (n > 0) return n;
+    // سازگاری با مدل قدیمی children
+    var ch = (emp.family && emp.family.children) || [];
+    ch.forEach(function (c) { if (c && c.eligibleChildAllowance !== false) n++; });
+    if (n > 0) return n;
+    return Math.max(0, Number(emp.children) || 0);
+  }
   function getEmpSuppInsuranceCount(emp) {
     if (!emp) return 0;
     if (emp.suppInsurance && emp.suppInsurance.deductCount != null && emp.suppInsurance.deductCount !== '') {
@@ -578,7 +598,7 @@ export function makeEngine(data) {
         }
         let housingM = monthlyAllow('housing', 'مسکن');
         let foodM = monthlyAllow('food', 'خواربار');
-        let childM = monthlyAllow('child', 'اولاد') * (Number(emp.children) || 0);
+        let childM = monthlyAllow('child', 'اولاد') * getEligibleChildrenCount(emp);
         let maritalM = (emp.marital === 'married' || emp.marital === 'provider') ? monthlyAllow('marital', 'تأهل') : 0;
         let seniorityM = 0;
         if (yearsOfService(emp.hireDate, year, month) >= 1) {
@@ -708,7 +728,7 @@ export function makeEngine(data) {
           return;
         }
         // حق تأهل، حق مسکن، بن خواربار، حق اولاد و سایر مزایای ثابت: مبلغ کامل بدون تناسب
-        if (a.id === 'child') raw = (emp.children||0) * raw;
+        if (a.id === 'child') raw = getEligibleChildrenCount(emp) * raw;
         if (a.id === 'marital') raw = (emp.marital === 'married' || emp.marital === 'provider') ? raw : 0;
         const val = Math.round(raw);
         if (val === 0) return;
@@ -741,7 +761,7 @@ export function makeEngine(data) {
             nightHours: Number(d.nightHours) || 0,
             shiftDays: Number(d.shiftDays) || 0,
             amount: amt,
-            children: Number(emp.children) || 0,
+            children: getEligibleChildrenCount(emp),
             dailyRate: Number(emp.dailyRate) || 0,
             hourlyRate: Number(emp.hourlyRate) || 0,
             functionalDays: functionalDays,
@@ -1121,7 +1141,7 @@ export function makeEngine(data) {
         if (isDeductionOrArrearsItem({ name: n })) return;
         let amt = Number(a.amount) || 0;
         if (a.id === 'child' || n.indexOf('اولاد') >= 0) {
-          amt = (Number(emp.children) || 0) * (Number(a.amount) || 0);
+          amt = getEligibleChildrenCount(emp) * (Number(a.amount) || 0);
         }
         if (a.id === 'marital' || n.indexOf('تأهل') >= 0 || n.indexOf('تاهل') >= 0) {
           amt = (emp.marital === 'married' || emp.marital === 'provider') ? (Number(a.amount) || 0) : 0;
