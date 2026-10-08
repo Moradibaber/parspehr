@@ -4427,31 +4427,38 @@ function refreshSonAgeMessages(obj, emp) {
   (emp.family.members || []).forEach(function (ch, idx) {
     if (!ch || String(ch.relation || '') !== 'فرزند') return;
     var gender = String(ch.gender || '').trim();
-    var isBoy = gender === 'پسر' || gender === 'مرد' || gender === 'male' || gender === 'M';
+    var isBoy = gender === 'پسر' || gender === 'مرد' || gender === 'male' || gender === 'M' || gender === 'پسر ';
     if (!isBoy) return;
     var age = calcAgeYM(ch.birthDate, now);
     if (!age || age.years < alertAge) return;
-    // سالروز تولد: ماه (و ترجیحاً روز) تولد با ماه جاری یکی باشد
     var bp = parseImportDateToJalali(ch.birthDate) || parseJalaliYMD(String(ch.birthDate || '').replace(/-/g, '/'));
-    if (bp) {
-      if (Number(bp.m) !== cm) return; // فقط در ماه تولد پیام سالانه
-      // اگر روز جاری قبل از روز تولد است هنوز نساز (اختیاری)
-      if (cd < Number(bp.d) && age.years === alertAge) return;
+    // پیام سالانه: در ماه تولد، یا اگر سن >= آستانه و هنوز امسال پیام/حل نشده
+    var inBirthMonth = bp ? (Number(bp.m) === cm) : true;
+    if (!inBirthMonth) {
+      // خارج از ماه تولد فقط اگر قبلاً هرگز برای این سن پیام نداده
+      var anyPrev = (emp.systemMessages || []).some(function (m) {
+        return m && m.type === 'son_age' && (m.memberId === ch.id || m.childName === ch.name);
+      });
+      if (anyPrev) return;
+    } else if (bp && cd < Number(bp.d) && age.years === alertAge) {
+      // هنوز به روز تولد نرسیده در سال آستانه
+      return;
     }
     var msgKey = 'son_age_' + (ch.id || idx) + '_' + cy;
     var existing = (emp.systemMessages || []).find(function (m) { return m && m.key === msgKey; });
     if (existing) {
-      if (existing.resolvedYear === cy) return;
-      if (!existing.resolvedAt) return;
+      if (existing.resolvedYear === cy || existing.resolvedAt) return;
+      return; // باز است — دوباره نساز
     }
+    if (!Array.isArray(emp.systemMessages)) emp.systemMessages = [];
     emp.systemMessages.push({
-      id: 'msg_' + Date.now() + '_' + idx,
+      id: 'msg_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 1000),
       key: msgKey,
       type: 'son_age',
       childIndex: idx,
       memberId: ch.id || null,
       childName: ch.name || ('فرزند ' + (idx + 1)),
-      text: 'سالروز: فرزند پسر «' + (ch.name || (idx + 1)) + '» به سن ' + age.years + ' سالگی رسید (آستانه ' + alertAge + '). اگر همچنان مشمول حق اولاد است علت را بنویسید؛ وگرنه از حق اولاد خارج شود.',
+      text: 'فرزند پسر «' + (ch.name || (idx + 1)) + '» ' + age.years + ' ساله شد (آستانه ' + alertAge + '، ماه جاری ' + cm + '). اگر همچنان مشمول حق اولاد است علت را بنویسید؛ وگرنه از حق اولاد خارج شود.',
       createdAt: new Date().toISOString(),
       year: cy,
       resolvedAt: null,
@@ -4806,13 +4813,23 @@ async function handleAdminSystemMessages(request, who, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   ensureFamilySettings(gd.obj);
   const all = [];
+  var changed = false;
   (gd.obj.employees || []).forEach(function (emp) {
-    ensureEmpFamily(emp); refreshSonAgeMessages(gd.obj, emp);
+    ensureEmpFamily(emp);
+    var before = (emp.systemMessages || []).length;
+    refreshSonAgeMessages(gd.obj, emp);
+    if ((emp.systemMessages || []).length !== before) {
+      changed = true;
+      snapshotEmpExtra(gd.obj, emp);
+    }
     (emp.systemMessages || []).forEach(function (m) {
       if (!m) return;
-      all.push({ empCode: emp.code, fullName: emp.fullName || '', id: m.id, type: m.type, text: m.text, createdAt: m.createdAt, resolvedAt: m.resolvedAt, resolution: m.resolution, year: m.year });
+      all.push({ empCode: emp.code, fullName: emp.fullName || '', id: m.id, type: m.type, text: m.text, createdAt: m.createdAt, resolvedAt: m.resolvedAt, resolution: m.resolution, eligibleReason: m.eligibleReason, year: m.year });
     });
   });
+  if (changed) {
+    try { await storePutData(cfg, gd.version, gd.obj, who.name || 'admin'); } catch (eSave) {}
+  }
   all.sort(function (a, b) {
     if (!!a.resolvedAt !== !!b.resolvedAt) return a.resolvedAt ? 1 : -1;
     return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
