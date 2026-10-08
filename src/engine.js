@@ -188,31 +188,43 @@ export function makeEngine(data) {
   }
 
   function getSuppInsurancePerPerson() {
-    const v = Number((data.settings || {}).suppInsurancePerPerson);
-    return (v > 0) ? Math.round(v) : 0;
+    const s = data.settings || {};
+    const keys = ['suppInsurancePerPerson', 'supplementaryInsurancePerPerson', 'suppInsPerPerson', 'suppInsuranceAmount', 'bimeTakmiliPerPerson'];
+    for (let i = 0; i < keys.length; i++) {
+      const v = Number(s[keys[i]]);
+      if (v > 0) return Math.round(v);
+    }
+    // از لیست مزایا/کسورات سراسری اگر آیتمی با این نام باشد
+    const allows = data.allowances || [];
+    for (let i = 0; i < allows.length; i++) {
+      const a = allows[i];
+      if (!a || !a.name) continue;
+      if (/بیمه\s*تکمیلی/.test(String(a.name)) && (a.isDeduction || /کسر/.test(String(a.name)))) {
+        const v = Number(a.amount) || 0;
+        if (v > 0) return Math.round(v);
+      }
+    }
+    return 0;
   }
   function getEligibleChildrenCount(emp) {
     if (!emp) return 0;
     var n = 0;
-    var members = (emp.family && emp.family.members) || [];
-    if (members.length) {
+    // منبع اصلی: لیست اعضای خانواده — فقط نسبت فرزند + تیک مشمول حق اولاد
+    var members = (emp.family && Array.isArray(emp.family.members)) ? emp.family.members : null;
+    if (members) {
       members.forEach(function (m) {
         if (!m) return;
         var rel = String(m.relation || '');
-        if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance) n++;
+        if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance === true) n++;
       });
-      return n;
+      return n; // حتی اگر صفر — فیلد تعداد اولاد تب کارمند نادیده گرفته می‌شود
     }
-    // سازگاری: آرایه قدیمی children (نه فیلد تعداد تب کارمند)
     var ch = (emp.family && emp.family.children) || [];
     if (ch.length) {
-      ch.forEach(function (c) { if (c && c.eligibleChildAllowance) n++; });
+      ch.forEach(function (c) { if (c && c.eligibleChildAllowance === true) n++; });
       return n;
     }
-    if (emp.childrenEligibleCount != null && emp.childrenEligibleCount !== '') {
-      return Math.max(0, Number(emp.childrenEligibleCount) || 0);
-    }
-    // عمداً emp.children (تب کارمند) استفاده نمی‌شود
+    // بدون لیست خانواده: صفر (دیگر از emp.children استفاده نمی‌شود)
     return 0;
   }
   function getEmpSuppInsuranceCount(emp) {
@@ -732,7 +744,7 @@ export function makeEngine(data) {
           return;
         }
         // حق تأهل، حق مسکن، بن خواربار، حق اولاد و سایر مزایای ثابت: مبلغ کامل بدون تناسب
-        if (a.id === 'child') raw = getEligibleChildrenCount(emp) * raw;
+        if (a.id === 'child' || (a.name && String(a.name).indexOf('اولاد') >= 0)) raw = getEligibleChildrenCount(emp) * (Number(a.amount) || 0);
         if (a.id === 'marital') raw = (emp.marital === 'married' || emp.marital === 'provider') ? raw : 0;
         const val = Math.round(raw);
         if (val === 0) return;
@@ -792,7 +804,8 @@ export function makeEngine(data) {
           let qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
           const isSuppIns = /بیمه\s*تکمیلی/.test(String(ci.name || ''));
           if (isSuppIns) {
-            const unit = getSuppInsurancePerPerson() || amt;
+            let unit = getSuppInsurancePerPerson() || amt;
+            if (!(unit > 0) && amt > 0) unit = amt;
             if (!(qty > 0)) qty = getEmpSuppInsuranceCount(emp);
             qtyUsed = qty;
             if (qty > 0 && unit > 0) {
@@ -845,6 +858,26 @@ export function makeEngine(data) {
         }
       });
   
+      // کسر بیمه تکمیلی از اعضای خانواده (حتی اگر آیتم سفارشی روی کارت نباشد)
+      (function () {
+        var has = itemDetails.some(function (it) { return it && /بیمه\s*تکمیلی/.test(String(it.name || '')); });
+        if (has) return;
+        var cnt = getEmpSuppInsuranceCount(emp);
+        var unit = getSuppInsurancePerPerson();
+        if (!(cnt > 0)) return;
+        if (!(unit > 0)) {
+          // اگر مبلغ واحد صفر است ولی روی customItem مبلغ هست
+          (emp.customItems || []).forEach(function (ci) {
+            if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')) && Number(ci.amount) > 0) unit = Number(ci.amount);
+          });
+        }
+        if (cnt > 0 && unit > 0) {
+          var val = Math.round(cnt * unit);
+          totalDeductions += val;
+          itemDetails.push({ name: 'کسر بیمه تکمیلی', amount: val, isDeduction: true, qty: cnt });
+        }
+      })();
+
       if (shiftAmount > 0) {
         const shiftLabels = { me: 'نوبت‌کاری صبح و عصر', mn: 'نوبت‌کاری صبح/عصر و شب', all: 'نوبت‌کاری سه‌نوبته' };
         itemDetails.push({ name: shiftLabels[st] || 'نوبت‌کاری', amount: shiftAmount });
