@@ -193,23 +193,27 @@ export function makeEngine(data) {
   }
   function getEligibleChildrenCount(emp) {
     if (!emp) return 0;
+    var n = 0;
+    var members = (emp.family && emp.family.members) || [];
+    if (members.length) {
+      members.forEach(function (m) {
+        if (!m) return;
+        var rel = String(m.relation || '');
+        if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance) n++;
+      });
+      return n;
+    }
+    // سازگاری: آرایه قدیمی children (نه فیلد تعداد تب کارمند)
+    var ch = (emp.family && emp.family.children) || [];
+    if (ch.length) {
+      ch.forEach(function (c) { if (c && c.eligibleChildAllowance) n++; });
+      return n;
+    }
     if (emp.childrenEligibleCount != null && emp.childrenEligibleCount !== '') {
       return Math.max(0, Number(emp.childrenEligibleCount) || 0);
     }
-    // از لیست اعضای خانواده
-    var n = 0;
-    var members = (emp.family && emp.family.members) || [];
-    members.forEach(function (m) {
-      if (!m) return;
-      var rel = String(m.relation || '');
-      if ((rel === 'فرزند' || rel === 'child') && m.eligibleChildAllowance) n++;
-    });
-    if (n > 0) return n;
-    // سازگاری با مدل قدیمی children
-    var ch = (emp.family && emp.family.children) || [];
-    ch.forEach(function (c) { if (c && c.eligibleChildAllowance !== false) n++; });
-    if (n > 0) return n;
-    return Math.max(0, Number(emp.children) || 0);
+    // عمداً emp.children (تب کارمند) استفاده نمی‌شود
+    return 0;
   }
   function getEmpSuppInsuranceCount(emp) {
     if (!emp) return 0;
