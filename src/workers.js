@@ -5377,25 +5377,16 @@ async function handleAdminLeavePolicy(request, who, env) {
     const cts = [];
     const cals = (gd.obj.settings && gd.obj.settings.contractCalendars) || {};
     const ids = Object.keys(cals);
-    if (ids.length) {
-      ids.forEach(function (id) {
-        const c = cals[id] || {};
-        cts.push({
-          id: id,
-          name: c.name || id,
-          days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
-        });
+    const baseIds = ids.length ? ids : ['normal', 'daily', 'hourly'];
+    const labels = { normal: 'عادی', daily: 'روزمزد', hourly: 'ساعتی' };
+    baseIds.forEach(function (id) {
+      const c = cals[id] || {};
+      cts.push({
+        id: id,
+        name: c.name || labels[id] || id,
+        days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
       });
-    } else {
-      const labels = { normal: 'عادی', daily: 'روزمزد', hourly: 'ساعتی' };
-      ['normal', 'daily', 'hourly'].forEach(function (id) {
-        cts.push({
-          id: id,
-          name: labels[id] || id,
-          days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
-        });
-      });
-    }
+    });
     const groups = [];
     Object.keys(pol.byGroup || {}).forEach(function (g) {
       groups.push({ name: g, days: Number(pol.byGroup[g]) || 0 });
@@ -5423,7 +5414,7 @@ async function handleAdminLeavePolicy(request, who, env) {
     };
     const put = await storePutData(cfg, gd.version, gd.obj, 'leave-policy:' + ((who && who.name) || 'admin'));
     if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره — دوباره تلاش کنید' }, 409);
+    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل — دوباره ذخیره کنید' }, 409);
     return jsonResponse({ ok: true, policy: getLeavePolicy(gd.obj) });
   }
 
@@ -5431,10 +5422,7 @@ async function handleAdminLeavePolicy(request, who, env) {
     let n = 0;
     (gd.obj.employees || []).forEach(function (emp) {
       if (!emp || emp.status === 'inactive') return;
-      try {
-        ensureEmpLeaveYears(emp, gd.obj);
-        n++;
-      } catch (e) {}
+      try { ensureEmpLeaveYears(emp, gd.obj); n++; } catch (e) {}
     });
     const put = await storePutData(cfg, gd.version, gd.obj, 'leave-recalc:' + ((who && who.name) || 'admin'));
     if (put.fail) return storeFailResponse(put.fail);
