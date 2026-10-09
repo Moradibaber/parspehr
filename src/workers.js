@@ -5363,6 +5363,120 @@ async function handleEmpAttendanceTypes(request, env) {
 
 
 /** تعدیل مانده مرخصی توسط ادمین: علامت + (بستانکار/پیش‌خور مجاز) یا − (بدهکار) */
+
+async function handleAdminLeavePolicy(request, who, env) {
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'no_store' }, 500);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 400);
+  if (!gd.obj.settings) gd.obj.settings = {};
+
+  if (request.method === 'GET') {
+    const pol = getLeavePolicy(gd.obj);
+    const cts = [];
+    const cals = (gd.obj.settings && gd.obj.settings.contractCalendars) || {};
+    const ids = Object.keys(cals);
+    if (ids.length) {
+      ids.forEach(function (id) {
+        const c = cals[id] || {};
+        cts.push({
+          id: id,
+          name: c.name || id,
+          days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
+        });
+      });
+    } else {
+      const labels = { normal: 'عادی', daily: 'روزمزد', hourly: 'ساعتی' };
+      ['normal', 'daily', 'hourly'].forEach(function (id) {
+        cts.push({
+          id: id,
+          name: labels[id] || id,
+          days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
+        });
+      });
+    }
+    const groups = [];
+    Object.keys(pol.byGroup || {}).forEach(function (g) {
+      groups.push({ name: g, days: Number(pol.byGroup[g]) || 0 });
+    });
+    return jsonResponse({ ok: true, policy: pol, contractTypes: cts, groups: groups });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const rb = await readBody(request);
+  if (rb.error) return rb.error;
+  const body = rb.body || {};
+  const action = String(body.action || 'save');
+
+  if (action === 'save') {
+    const prev = getLeavePolicy(gd.obj);
+    const annual = body.annualDays != null ? Number(body.annualDays) : prev.annualDays;
+    const carry = body.carryMax != null ? Number(body.carryMax) : prev.carryMax;
+    const byCt = (body.byContractType && typeof body.byContractType === 'object') ? body.byContractType : (prev.byContractType || {});
+    const byGrp = (body.byGroup && typeof body.byGroup === 'object') ? body.byGroup : (prev.byGroup || {});
+    gd.obj.settings.leavePolicy = {
+      annualDays: (!isNaN(annual) && annual >= 0) ? annual : 26,
+      carryMax: (!isNaN(carry) && carry >= 0) ? carry : 9,
+      byContractType: byCt,
+      byGroup: byGrp
+    };
+    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-policy:' + ((who && who.name) || 'admin'));
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره — دوباره تلاش کنید' }, 409);
+    return jsonResponse({ ok: true, policy: getLeavePolicy(gd.obj) });
+  }
+
+  if (action === 'recalc') {
+    let n = 0;
+    (gd.obj.employees || []).forEach(function (emp) {
+      if (!emp || emp.status === 'inactive') return;
+      try {
+        ensureEmpLeaveYears(emp, gd.obj);
+        n++;
+      } catch (e) {}
+    });
+    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-recalc:' + ((who && who.name) || 'admin'));
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict' }, 409);
+    return jsonResponse({ ok: true, updated: n });
+  }
+
+  if (action === 'carry') {
+    const pol = getLeavePolicy(gd.obj);
+    const cy = Number(body.year) || Number((gd.obj.settings || {}).currentYear) || 1405;
+    const prevY = cy - 1;
+    let n = 0;
+    (gd.obj.employees || []).forEach(function (emp) {
+      if (!emp || emp.status === 'inactive') return;
+      if (!emp.leaveYears) emp.leaveYears = {};
+      const prev = emp.leaveYears[String(prevY)];
+      const cur = getLeaveYearRow(emp, cy);
+      let carryAmt = 0;
+      if (prev && !prev.settled) {
+        carryAmt = Math.max(0, Number(prev.remaining) || 0);
+        if (pol.carryMax >= 0) carryAmt = Math.min(carryAmt, pol.carryMax);
+        prev.settled = true;
+        prev.settledAt = new Date().toISOString();
+        prev.settledMode = 'carry';
+      }
+      try { ensureEmpLeaveYears(emp, gd.obj); } catch (e) {}
+      if (carryAmt > 0) {
+        cur.remaining = Math.round(((Number(cur.remaining) || 0) + carryAmt) * 100) / 100;
+        cur.carriedIn = Math.round(((Number(cur.carriedIn) || 0) + carryAmt) * 100) / 100;
+        emp.leaveBalance = cur.remaining;
+        n++;
+      }
+    });
+    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-carry:' + ((who && who.name) || 'admin'));
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict' }, 409);
+    return jsonResponse({ ok: true, updated: n, year: cy, fromYear: prevY, carryMax: pol.carryMax });
+  }
+
+  return jsonResponse({ ok: false, error: 'unknown_action' }, 400);
+}
+
 async function handleAdminLeaveAdjust(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -6172,6 +6286,7 @@ async function route(request, env, users, found) {
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
+  if (path === '/api/admin/leave-policy') return handleAdminLeavePolicy(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
   if (path === '/api/admin/contract-types') return handleAdminContractTypes(request, who, env);
@@ -6998,8 +7113,7 @@ export default {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          // کش کوتاه در مرورگر موبایل — باز شدن مجدد سریع‌تر؛ محتوا از API به‌روز می‌شود
-          'Cache-Control': 'private, max-age=120',
+          'Cache-Control': 'no-store',
           'X-Robots-Tag': 'noindex, nofollow'
         }
       });
@@ -7023,14 +7137,12 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0f766e">
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>پرتال کارکنان — پارسپهر</title>
 <style>
-  /* بدون فونت خارجی — روی اینترنت سیم‌کارت سریع‌تر لود می‌شود */
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Tahoma, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 10px; direction: rtl; font-size: 0.95rem; -webkit-text-size-adjust: 100%; }
+  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 10px; direction: rtl; font-size: 0.88rem; }
   .wrap { max-width: 1100px; margin: 0 auto; }
   .box table { font-size: 0.68rem !important; }
   .box table th, .box table td { padding: 2px 4px !important; white-space: nowrap; }
