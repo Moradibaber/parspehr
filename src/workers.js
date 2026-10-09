@@ -1706,13 +1706,9 @@ function ensureContractCalendars(obj) {
       if (!Array.isArray(cal.workWeekDays) || !cal.workWeekDays.length) {
         cal.workWeekDays = [6, 0, 1, 2, 3];
       }
-      // اگر سال جاری هیچ تعطیلی ندارد، فقط همان سال را با پیش‌فرض پر کن (سال‌های دیگر دست نخورند)
-      if (!Array.isArray(cal.holidaysByYear[String(cy)]) || cal.holidaysByYear[String(cy)].length === 0) {
-        if (cal._seededYears && cal._seededYears[String(cy)]) {
-          // قبلاً ادمین عمداً خالی کرده — دست نزن
-        } else {
-          cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
-        }
+      // فقط اگر کلید سال اصلاً وجود ندارد پیش‌فرض بگذار؛ آرایه خالی = ادمین عمداً پاک کرده
+      if (!Array.isArray(cal.holidaysByYear[String(cy)])) {
+        cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
       }
     }
   });
@@ -1758,19 +1754,24 @@ function getContractCalendar(obj, contractType) {
   const ct = String(contractType || 'normal').trim() || 'normal';
   const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
   const sched = normalizeWorkSchedule(cal);
+  // ساعتی: بازه کاری کل شبانه‌روز (حضور هر ساعتی معتبر است)
+  const hourlyAllDay = (ct === 'hourly');
   return {
-    workWeekDays: Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3],
+    _contractType: ct,
+    workWeekDays: hourlyAllDay
+      ? [0, 1, 2, 3, 4, 5, 6]
+      : (Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3]),
     countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
     holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {},
-    workStart: sched.workStart,
-    workEnd: sched.workEnd,
-    hasBreak: sched.hasBreak,
+    workStart: hourlyAllDay ? '00:00' : sched.workStart,
+    workEnd: hourlyAllDay ? '23:59' : sched.workEnd,
+    hasBreak: hourlyAllDay ? false : sched.hasBreak,
     breakStart: sched.breakStart,
     breakEnd: sched.breakEnd,
-    breakCountsAsWork: sched.breakCountsAsWork,
-    dayEnd: sched.dayEnd,
-    floatMinutes: sched.floatMinutes,
-    floatCompensate: sched.floatCompensate
+    breakCountsAsWork: hourlyAllDay ? false : sched.breakCountsAsWork,
+    dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
+    floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
+    floatCompensate: hourlyAllDay ? false : sched.floatCompensate
   };
 }
 
@@ -1872,11 +1873,10 @@ function holidayItemMatchesDay(item, y, m, d) {
 function getDayMeta(obj, y, m, d, contractType) {
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
-  const cal = getContractCalendar(obj, contractType);
-  const listA = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
-  const listB = (obj && obj.settings && obj.settings.holidaysByYear && (obj.settings.holidaysByYear[String(y)] || obj.settings.holidaysByYear[y])) || [];
-  // ادغام: اول قرارداد، بعد سراسری
-  const list = [].concat(listA || [], listB || []);
+  const ct = String(contractType || 'normal').trim() || 'normal';
+  const cal = getContractCalendar(obj, ct);
+  // فقط تعطیلات تقویم همان نوع قرارداد — نه تعطیلات سراسری مشترک
+  const list = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
   let meta = null;
   (list || []).forEach(function (item) {
     if (!holidayItemMatchesDay(item, y, m, d)) return;
@@ -1900,6 +1900,11 @@ function getDayMeta(obj, y, m, d, contractType) {
       };
     }
   });
+  // ساعتی: فقط تعطیلات ثبت‌شده در تقویم خودش — آخر هفته به‌عنوان تعطیل رنگ نمی‌شود
+  // (حضور در هر روز/ساعت ممکن است)
+  if (ct === 'hourly') {
+    return meta;
+  }
   const wd = jalaliWeekday(y, m, d);
   const isWeekend = (cal.workWeekDays || []).indexOf(wd) < 0;
   if (!meta && isWeekend) {
@@ -1924,13 +1929,14 @@ function formatHoursHMFromHours(hours) {
 function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
+  const isHourly = !!(opts.isHourly || opts.contractType === 'hourly' || (cal && cal._contractType === 'hourly'));
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
-  const floatM = sched.floatMinutes;
-  const compensate = !!sched.floatCompensate || !!opts.floatCompensate;
-  const official = officialWorkMinutes(sched);
+  const floatM = isHourly ? 0 : sched.floatMinutes;
+  const compensate = isHourly ? false : (!!sched.floatCompensate || !!opts.floatCompensate);
+  const official = isHourly ? 0 : officialWorkMinutes(sched);
 
   // نرمال‌سازی پانچ‌ها
   let pairs = [];
@@ -1959,8 +1965,8 @@ function computeDayTimesheet(cal, punches, opts) {
     present += Math.max(0, b - a);
   });
 
-  // کسر وقفه فقط اگر وقفه فعال و جزو کار نباشد
-  if (sched.hasBreak && !sched.breakCountsAsWork) {
+  // کسر وقفه فقط اگر وقفه فعال و جزو کار نباشد (برای ساعتی اعمال نمی‌شود)
+  if (!isHourly && sched.hasBreak && !sched.breakCountsAsWork) {
     const bs = timeToMinutes(sched.breakStart);
     const be = timeToMinutes(sched.breakEnd);
     if (bs != null && be != null && completePairs.length) {
@@ -1974,6 +1980,44 @@ function computeDayTimesheet(cal, punches, opts) {
       });
       if (covers) present = Math.max(0, present - br);
     }
+  }
+
+  // —— قرارداد ساعتی: فقط مجموع حضور جفت‌های کامل؛ بدون موظفی/غیبت/شناوری/اضافه‌کار/شب‌کاری ——
+  if (isHourly) {
+    function fmtHM_h(mins) { return formatHoursHM(mins); }
+    const hasCompleteH = completePairs.length > 0;
+    return {
+      officialMinutes: 0,
+      presentMinutes: Math.round(present),
+      delayMinutes: 0,
+      earlyLeaveMinutes: 0,
+      compensatedMinutes: 0,
+      otMinutes: 0,
+      shortfallMinutes: 0,
+      hourlyAbsenceMinutes: 0,
+      hourlyAbsenceHours: 0,
+      hourlyAbsenceHM: fmtHM_h(0),
+      workHoursHM: fmtHM_h(present),
+      floatMinutes: 0,
+      floatCompensate: false,
+      isHoliday: false,
+      hasCompletePair: hasCompleteH,
+      withinFloat: true,
+      incompletePunch: incompletePairs.length > 0,
+      firstIn: null,
+      lastOut: null,
+      requiredEnd: null,
+      workHours: Math.round((present / 60) * 100) / 100,
+      otHours: 0,
+      otHoursHM: fmtHM_h(0),
+      nightMinutes: 0,
+      nightHours: 0,
+      nightHoursHM: fmtHM_h(0),
+      earlyOtMinutes: 0,
+      earlyOtHours: 0,
+      earlyOtHoursHM: fmtHM_h(0),
+      isHourly: true
+    };
   }
 
   const firstIn = completePairs.length
@@ -3158,7 +3202,7 @@ async function handleEmpTimesheet(request, env) {
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { isHoliday: nonWork, isHourly: String(empCt) === \'hourly\', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
