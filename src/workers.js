@@ -1706,6 +1706,15 @@ function ensureContractCalendars(obj) {
       if (!Array.isArray(cal.workWeekDays) || !cal.workWeekDays.length) {
         cal.workWeekDays = [6, 0, 1, 2, 3];
       }
+      // ترمیم: مقادیر نوع «ساعتی» (۰۰:۰۰ تا ۲۳:۵۹، شناوری ۰، هر ۷ روز هفته) به‌اشتباه روی نوع دیگری ذخیره شده بود
+      if (t.id !== 'hourly'
+        && cal.workStart === '00:00' && cal.workEnd === '23:59'
+        && Number(cal.floatMinutes) === 0 && !cal.hasBreak
+        && cal.workWeekDays.length >= 7) {
+        const dws = defaultWorkSchedule();
+        cal.workWeekDays = [6, 0, 1, 2, 3];
+        Object.keys(dws).forEach(function (k) { cal[k] = dws[k]; });
+      }
       // فقط اگر کلید سال اصلاً وجود ندارد پیش‌فرض بگذار؛ آرایه خالی = ادمین عمداً پاک کرده
       if (!Array.isArray(cal.holidaysByYear[String(cy)])) {
         cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
@@ -5590,20 +5599,23 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       gd.obj.settings.contractCalendars[ct] = { workWeekDays: [6,0,1,2,3], countNonWorkDaysAsLeave: false, holidaysByYear: {} };
     }
     const cal = gd.obj.settings.contractCalendars[ct];
-    if (Array.isArray(r.body.workWeekDays)) {
-      cal.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
-    }
     if (r.body.countNonWorkDaysAsLeave != null) {
       cal.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
     }
-    const schedFields = ['workStart','workEnd','breakStart','breakEnd','dayEnd'];
-    schedFields.forEach(function (f) {
-      if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
-    });
-    if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
-    if (r.body.hasBreak != null) cal.hasBreak = !!r.body.hasBreak;
-    if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
-    if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
+    // نوع «ساعتی» همیشه کل شبانه‌روز/همه روزها محاسبه می‌شود؛ ساعت و روز کاری آن ذخیره نمی‌شود
+    if (ct !== 'hourly') {
+      if (Array.isArray(r.body.workWeekDays)) {
+        cal.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
+      }
+      const schedFields = ['workStart','workEnd','breakStart','breakEnd','dayEnd'];
+      schedFields.forEach(function (f) {
+        if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
+      });
+      if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
+      if (r.body.hasBreak != null) cal.hasBreak = !!r.body.hasBreak;
+      if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
+      if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
+    }
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
