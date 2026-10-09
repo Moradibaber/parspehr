@@ -3990,6 +3990,7 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
+      childrenEligibleCount: (emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)),
       workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); return Math.round(r) || 0; })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
@@ -5363,108 +5364,6 @@ async function handleEmpAttendanceTypes(request, env) {
 
 
 /** تعدیل مانده مرخصی توسط ادمین: علامت + (بستانکار/پیش‌خور مجاز) یا − (بدهکار) */
-
-async function handleAdminLeavePolicy(request, who, env) {
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'no_store' }, 500);
-  const gd = await storeGetData(cfg);
-  if (gd.fail) return storeFailResponse(gd.fail);
-  if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 400);
-  if (!gd.obj.settings) gd.obj.settings = {};
-
-  if (request.method === 'GET') {
-    const pol = getLeavePolicy(gd.obj);
-    const cts = [];
-    const cals = (gd.obj.settings && gd.obj.settings.contractCalendars) || {};
-    const ids = Object.keys(cals);
-    const baseIds = ids.length ? ids : ['normal', 'daily', 'hourly'];
-    const labels = { normal: 'عادی', daily: 'روزمزد', hourly: 'ساعتی' };
-    baseIds.forEach(function (id) {
-      const c = cals[id] || {};
-      cts.push({
-        id: id,
-        name: c.name || labels[id] || id,
-        days: pol.byContractType[id] != null ? Number(pol.byContractType[id]) : pol.annualDays
-      });
-    });
-    const groups = [];
-    Object.keys(pol.byGroup || {}).forEach(function (g) {
-      groups.push({ name: g, days: Number(pol.byGroup[g]) || 0 });
-    });
-    return jsonResponse({ ok: true, policy: pol, contractTypes: cts, groups: groups });
-  }
-
-  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
-  const rb = await readBody(request);
-  if (rb.error) return rb.error;
-  const body = rb.body || {};
-  const action = String(body.action || 'save');
-
-  if (action === 'save') {
-    const prev = getLeavePolicy(gd.obj);
-    const annual = body.annualDays != null ? Number(body.annualDays) : prev.annualDays;
-    const carry = body.carryMax != null ? Number(body.carryMax) : prev.carryMax;
-    const byCt = (body.byContractType && typeof body.byContractType === 'object') ? body.byContractType : (prev.byContractType || {});
-    const byGrp = (body.byGroup && typeof body.byGroup === 'object') ? body.byGroup : (prev.byGroup || {});
-    gd.obj.settings.leavePolicy = {
-      annualDays: (!isNaN(annual) && annual >= 0) ? annual : 26,
-      carryMax: (!isNaN(carry) && carry >= 0) ? carry : 9,
-      byContractType: byCt,
-      byGroup: byGrp
-    };
-    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-policy:' + ((who && who.name) || 'admin'));
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل — دوباره ذخیره کنید' }, 409);
-    return jsonResponse({ ok: true, policy: getLeavePolicy(gd.obj) });
-  }
-
-  if (action === 'recalc') {
-    let n = 0;
-    (gd.obj.employees || []).forEach(function (emp) {
-      if (!emp || emp.status === 'inactive') return;
-      try { ensureEmpLeaveYears(emp, gd.obj); n++; } catch (e) {}
-    });
-    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-recalc:' + ((who && who.name) || 'admin'));
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict' }, 409);
-    return jsonResponse({ ok: true, updated: n });
-  }
-
-  if (action === 'carry') {
-    const pol = getLeavePolicy(gd.obj);
-    const cy = Number(body.year) || Number((gd.obj.settings || {}).currentYear) || 1405;
-    const prevY = cy - 1;
-    let n = 0;
-    (gd.obj.employees || []).forEach(function (emp) {
-      if (!emp || emp.status === 'inactive') return;
-      if (!emp.leaveYears) emp.leaveYears = {};
-      const prev = emp.leaveYears[String(prevY)];
-      const cur = getLeaveYearRow(emp, cy);
-      let carryAmt = 0;
-      if (prev && !prev.settled) {
-        carryAmt = Math.max(0, Number(prev.remaining) || 0);
-        if (pol.carryMax >= 0) carryAmt = Math.min(carryAmt, pol.carryMax);
-        prev.settled = true;
-        prev.settledAt = new Date().toISOString();
-        prev.settledMode = 'carry';
-      }
-      try { ensureEmpLeaveYears(emp, gd.obj); } catch (e) {}
-      if (carryAmt > 0) {
-        cur.remaining = Math.round(((Number(cur.remaining) || 0) + carryAmt) * 100) / 100;
-        cur.carriedIn = Math.round(((Number(cur.carriedIn) || 0) + carryAmt) * 100) / 100;
-        emp.leaveBalance = cur.remaining;
-        n++;
-      }
-    });
-    const put = await storePutData(cfg, gd.version, gd.obj, 'leave-carry:' + ((who && who.name) || 'admin'));
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) return jsonResponse({ ok: false, error: 'conflict' }, 409);
-    return jsonResponse({ ok: true, updated: n, year: cy, fromYear: prevY, carryMax: pol.carryMax });
-  }
-
-  return jsonResponse({ ok: false, error: 'unknown_action' }, 400);
-}
-
 async function handleAdminLeaveAdjust(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -6274,7 +6173,6 @@ async function route(request, env, users, found) {
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
-  if (path === '/api/admin/leave-policy') return handleAdminLeavePolicy(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
   if (path === '/api/admin/contract-types') return handleAdminContractTypes(request, who, env);
