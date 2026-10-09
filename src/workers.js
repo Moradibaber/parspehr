@@ -3990,7 +3990,6 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
-      childrenEligibleCount: (emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)),
       workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); return Math.round(r) || 0; })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
@@ -6999,7 +6998,8 @@ export default {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store',
+          // کش کوتاه در مرورگر موبایل — باز شدن مجدد سریع‌تر؛ محتوا از API به‌روز می‌شود
+          'Cache-Control': 'private, max-age=120',
           'X-Robots-Tag': 'noindex, nofollow'
         }
       });
@@ -7023,12 +7023,14 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>پرتال کارکنان — پارسپهر</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+  /* بدون فونت خارجی — روی اینترنت سیم‌کارت سریع‌تر لود می‌شود */
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Vazirmatn', Tahoma, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 10px; direction: rtl; font-size: 0.88rem; }
+  body { font-family: Tahoma, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f0fdfa; color: #134e4a; min-height: 100vh; padding: 10px; direction: rtl; font-size: 0.95rem; -webkit-text-size-adjust: 100%; }
   .wrap { max-width: 1100px; margin: 0 auto; }
   .box table { font-size: 0.68rem !important; }
   .box table th, .box table td { padding: 2px 4px !important; white-space: nowrap; }
