@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v23" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v24" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -466,12 +466,19 @@ function listEmployeesMissingContract(obj) {
   const emps = (obj && obj.employees) || [];
   const contracts = (obj && obj.contracts) || [];
   const out = [];
+  function isApprovedContract(c) {
+    if (!c) return false;
+    const st = String(c.status || '').toLowerCase();
+    if (st === 'terminated' || st === 'expired' || st === 'revoked') return false;
+    // accepted: explicit adminApproved OR legacy status active/approved
+    if (c.adminApproved === true || c.adminApproved === 1 || c.adminApproved === 'true') return true;
+    if (st === 'active' || st === 'approved' || st === 'signed') return true;
+    return false;
+  }
   emps.forEach(function (e) {
     if (!e || e.status === 'inactive') return;
     const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
-    const ok = mine.some(function (c) {
-      return c.adminApproved && c.status !== 'terminated' && c.status !== 'expired';
-    });
+    const ok = mine.some(isApprovedContract);
     if (!ok) {
       out.push({
         code: e.code,
