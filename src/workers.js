@@ -6772,6 +6772,8 @@ async function handleAdminContracts(request, who, env) {
       codes.forEach(function (code) {
         const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(code); });
         if (!emp) { missing.push(code); return; }
+        var durM = body.durationMonths != null && body.durationMonths !== '' ? parseInt(body.durationMonths, 10) : null;
+        if (isNaN(durM)) durM = null;
         gd.obj.contracts.unshift({
           id: 'ctr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
           empCode: String(emp.code),
@@ -6779,6 +6781,7 @@ async function handleAdminContracts(request, who, env) {
           startDate: startDate,
           endDate: endDate,
           type: type,
+          durationMonths: durM,
           note: note,
           status: 'pending',
           adminApproved: false,
@@ -6788,6 +6791,8 @@ async function handleAdminContracts(request, who, env) {
           visibleToEmployee: visibleEmp,
           signedFileName: '',
           signedUploadedAt: '',
+          editLog: [],
+          edited: false,
           createdAt: new Date().toISOString(),
           createdBy: who.name
         });
@@ -6820,6 +6825,45 @@ async function handleAdminContracts(request, who, env) {
       ctr.showDurationToEmployee = !!body.showDurationToEmployee;
     } else if (action === 'set_visible') {
       ctr.visibleToEmployee = !!body.visibleToEmployee;
+    } else if (action === 'edit') {
+      const prevStart = ctr.startDate || '';
+      const prevEnd = ctr.endDate || '';
+      const prevType = ctr.type || '';
+      const prevDur = ctr.durationMonths != null ? ctr.durationMonths : '';
+      if (body.startDate != null) ctr.startDate = String(body.startDate || '').trim();
+      if (body.endDate != null) ctr.endDate = String(body.endDate || '').trim();
+      if (body.type != null) ctr.type = String(body.type || '').trim() || ctr.type;
+      if (body.note != null) ctr.note = String(body.note || '').trim();
+      if (body.durationMonths != null && body.durationMonths !== '') {
+        const dm = parseInt(body.durationMonths, 10);
+        ctr.durationMonths = isNaN(dm) ? null : dm;
+      }
+      if (body.showDurationToEmployee != null) ctr.showDurationToEmployee = !!body.showDurationToEmployee;
+      if (body.visibleToEmployee != null) ctr.visibleToEmployee = !!body.visibleToEmployee;
+      const parts = [];
+      if (prevStart !== (ctr.startDate || '') || prevEnd !== (ctr.endDate || '')) {
+        parts.push('قرارداد از تاریخ ' + (prevStart || '—') + ' تا ' + (prevEnd || '—') + ' به ' + (ctr.startDate || '—') + ' تا ' + (ctr.endDate || '—') + ' تغییر یافت');
+      }
+      if (prevType && prevType !== (ctr.type || '')) {
+        parts.push('نوع از ' + prevType + ' به ' + (ctr.type || '') + ' تغییر یافت');
+      }
+      if (String(prevDur) !== String(ctr.durationMonths != null ? ctr.durationMonths : '')) {
+        parts.push('مدت از ' + (prevDur !== '' ? prevDur + ' ماه' : '—') + ' به ' + (ctr.durationMonths != null ? ctr.durationMonths + ' ماه' : '—') + ' تغییر یافت');
+      }
+      const noteEdit = String(body.editNote || '').trim();
+      if (noteEdit) parts.push(noteEdit);
+      if (!parts.length) parts.push('ویرایش شد');
+      const entry = {
+        at: new Date().toISOString(),
+        by: who.name,
+        text: parts.join('؛ ')
+      };
+      if (!Array.isArray(ctr.editLog)) ctr.editLog = [];
+      ctr.editLog.unshift(entry);
+      if (ctr.editLog.length > 30) ctr.editLog.length = 30;
+      ctr.editedAt = entry.at;
+      ctr.editedBy = who.name;
+      ctr.edited = true;
     } else if (action === 'upload_signed') {
       const fileName = String(body.fileName || '').trim().slice(0, 200);
       const fileData = String(body.fileData || '');
