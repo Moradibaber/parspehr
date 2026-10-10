@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v38" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v40" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -804,7 +804,17 @@ async function handleEmpWhoami(request, env) {
   const now = Math.floor(Date.now() / 1000);
   const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
     ? empCookie(await makeEmpToken(env, sess.code, sess.fullName, now + SESSION_IDLE_SECONDS)) : null;
-  const body = { ok: true, code: sess.code, fullName: sess.fullName };
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (eUa) {}
+  const body = { ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess };
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -6741,6 +6751,17 @@ function defaultUserAccess() {
       mis: true,
       lv: true,
       note: true
+    },
+    navTabs: {
+      payslip: true,
+      request: true,
+      mine: true,
+      timesheet: true,
+      decree: true,
+      profile: true,
+      contracts: true,
+      balances: true,
+      password: true
     }
   };
 }
@@ -6750,11 +6771,15 @@ function normalizeUserAccess(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const pt = r.portalTabs && typeof r.portalTabs === 'object' ? r.portalTabs : {};
   const tc = r.timesheetCols && typeof r.timesheetCols === 'object' ? r.timesheetCols : {};
+  const nt = r.navTabs && typeof r.navTabs === 'object' ? r.navTabs : {};
   Object.keys(d.portalTabs).forEach(function (k) {
     if (pt[k] != null) d.portalTabs[k] = !!pt[k];
   });
   Object.keys(d.timesheetCols).forEach(function (k) {
     if (tc[k] != null) d.timesheetCols[k] = !!tc[k];
+  });
+  Object.keys(d.navTabs).forEach(function (k) {
+    if (nt[k] != null) d.navTabs[k] = !!nt[k];
   });
   return d;
 }
@@ -7805,6 +7830,27 @@ function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  window.__pspUserAccess = j.userAccess || null;
+  try {
+    var ua = j.userAccess || {};
+    var nt = ua.navTabs || {};
+    document.querySelectorAll('.tabs .tab[data-tab]').forEach(function(btn){
+      var k = btn.getAttribute('data-tab');
+      if (!k || k === 'approve') return; // approve stays role-based
+      var on = nt[k] == null ? true : !!nt[k];
+      btn.style.display = on ? '' : 'none';
+    });
+    // if active tab hidden, switch to first visible
+    var active = document.querySelector('.tabs .tab.active');
+    if (active && active.style.display === 'none') {
+      var first = document.querySelector('.tabs .tab[data-tab]:not([style*="display: none"])');
+      if (!first) {
+        var all = document.querySelectorAll('.tabs .tab[data-tab]');
+        for (var i=0;i<all.length;i++){ if (all[i].style.display !== 'none') { first=all[i]; break; } }
+      }
+      if (first) showTab(first.getAttribute('data-tab'));
+    }
+  } catch (eNav) {}
   loadRequests();
   loadAttTypes();
 }
@@ -7884,7 +7930,7 @@ async function loadTimesheet(){
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
 
-    var ua=j.userAccess||{}; var pt=ua.portalTabs||{}; var tc=ua.timesheetCols||{};
+    var ua=j.userAccess||window.__pspUserAccess||{}; var pt=ua.portalTabs||{}; var tc=ua.timesheetCols||{};
     function _showTab(k){ return pt[k]==null?true:!!pt[k]; }
     function _showCol(k){ return tc[k]==null?true:!!tc[k]; }
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
