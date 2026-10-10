@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v22" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v23" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6813,10 +6813,19 @@ async function handleAdminContracts(request, who, env) {
         if (!emp) { missing.push(code); return; }
         var durM = body.durationMonths != null && body.durationMonths !== '' ? parseInt(body.durationMonths, 10) : null;
         if (isNaN(durM)) durM = null;
+        var fn = emp.firstName || emp.name || '';
+        var ln = emp.lastName || emp.family || emp.familyName || '';
+        if (!fn && !ln && emp.fullName) {
+          var parts = String(emp.fullName).trim().split(/\s+/);
+          if (parts.length >= 2) { fn = parts[0]; ln = parts.slice(1).join(' '); }
+          else { fn = emp.fullName; }
+        }
         gd.obj.contracts.unshift({
           id: 'ctr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
           empCode: String(emp.code),
-          empName: emp.fullName || '',
+          empName: emp.fullName || ((fn + ' ' + ln).trim()),
+          empFirstName: fn,
+          empLastName: ln,
           startDate: startDate,
           endDate: endDate,
           type: type,
