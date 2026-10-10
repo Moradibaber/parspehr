@@ -461,6 +461,28 @@ async function enrichCalcDataFromStore(env, data) {
 }
 
 // ---------- Payroll calculation ----------
+
+function listEmployeesMissingContract(obj) {
+  const emps = (obj && obj.employees) || [];
+  const contracts = (obj && obj.contracts) || [];
+  const out = [];
+  emps.forEach(function (e) {
+    if (!e || e.status === 'inactive') return;
+    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
+    const ok = mine.some(function (c) {
+      return c.adminApproved && c.status !== 'terminated' && c.status !== 'expired';
+    });
+    if (!ok) {
+      out.push({
+        code: e.code,
+        fullName: e.fullName || '',
+        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
+      });
+    }
+  });
+  return out;
+}
+
 async function handlePayroll(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -483,6 +505,17 @@ async function handlePayroll(request, user, env) {
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
   data = await enrichCalcDataFromStore(env, data);
+  let contractWarnings = [];
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (!gd.fail && gd.obj) {
+        const full = Object.assign({}, gd.obj, { employees: data.employees });
+        contractWarnings = listEmployeesMissingContract(full);
+      }
+    }
+  } catch (eCw) {}
   let out;
   try {
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -490,7 +523,13 @@ async function handlePayroll(request, user, env) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
     return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
   }
-  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length }));
+  if (out && typeof out === 'object') {
+    out.contractWarnings = contractWarnings;
+    if (contractWarnings.length) {
+      out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
+    }
+  }
+  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length, contractWarnings: contractWarnings.length }));
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
@@ -6947,21 +6986,7 @@ async function handleAdminPayrollContractCheck(request, who, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const emps = (gd.obj && gd.obj.employees) || [];
-  const contracts = (gd.obj && gd.obj.contracts) || [];
-  const unapproved = [];
-  emps.forEach(function (e) {
-    if (e.status === 'inactive') return;
-    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
-    const ok = mine.some(function (c) { return c.adminApproved && c.status !== 'terminated'; });
-    if (!ok) {
-      unapproved.push({
-        code: e.code,
-        fullName: e.fullName || '',
-        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
-      });
-    }
-  });
+  const unapproved = listEmployeesMissingContract(gd.obj || {});
   return jsonResponse({ ok: true, unapproved: unapproved });
 }
 
