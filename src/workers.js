@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v32" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v35" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6401,6 +6401,10 @@ async function route(request, env, users, found) {
     if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
     return handleAdminSavePortalView(request, who, env);
   }
+  if (path === '/api/admin/user-access') {
+    if (request.method === 'GET') return handleAdminGetUserAccess(request, who, env);
+    return handleAdminSaveUserAccess(request, who, env);
+  }
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
@@ -6710,6 +6714,85 @@ async function handleEmpProfile(request, env) {
   }
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
   return jsonResponse({ ok: true, fields: fields });
+}
+
+
+function defaultUserAccess() {
+  return {
+    portalTabs: {
+      work: true,
+      leaveDaily: true,
+      leaveHourly: true,
+      missionDaily: true,
+      missionHourly: true,
+      ot: true,
+      night: true,
+      absenceHourly: true
+    },
+    timesheetCols: {
+      punch: true,
+      work: true,
+      ot: true,
+      night: true,
+      eot: true,
+      abs: true,
+      mis: true,
+      lv: true,
+      note: true
+    }
+  };
+}
+
+function normalizeUserAccess(raw) {
+  const d = defaultUserAccess();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const pt = r.portalTabs && typeof r.portalTabs === 'object' ? r.portalTabs : {};
+  const tc = r.timesheetCols && typeof r.timesheetCols === 'object' ? r.timesheetCols : {};
+  Object.keys(d.portalTabs).forEach(function (k) {
+    if (pt[k] != null) d.portalTabs[k] = !!pt[k];
+  });
+  Object.keys(d.timesheetCols).forEach(function (k) {
+    if (tc[k] != null) d.timesheetCols[k] = !!tc[k];
+  });
+  return d;
+}
+
+async function handleAdminGetUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) gd.obj = {};
+  if (!gd.obj.settings) gd.obj.settings = {};
+  const ua = normalizeUserAccess(gd.obj.settings.userAccess);
+  return jsonResponse({ ok: true, userAccess: ua });
+}
+
+async function handleAdminSaveUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) gd.obj = {};
+    if (!gd.obj.settings) gd.obj.settings = {};
+    gd.obj.settings.userAccess = normalizeUserAccess(r.body.userAccess || r.body);
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put && put.ok) {
+      return jsonResponse({ ok: true, userAccess: gd.obj.settings.userAccess });
+    }
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: false, error: (put && put.error) || 'save_failed' }, 500);
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
 async function handleAdminGetPortalView(request, who, env) {
