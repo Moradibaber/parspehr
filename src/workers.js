@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v43" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v44" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -7862,7 +7862,7 @@ function applyUserAccessUI(ua) {
   var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password'];
   keys.forEach(function(k) {
     var on = nt[k] == null ? true : !!nt[k];
-    if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}\n';
+    if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}';
     var btn = document.querySelector('.tab[data-tab="' + k + '"]');
     if (btn) {
       if (on) btn.style.removeProperty('display');
