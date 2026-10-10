@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v24" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v25" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1827,8 +1827,31 @@ function getContractCalendar(obj, contractType) {
     breakCountsAsWork: hourlyAllDay ? false : sched.breakCountsAsWork,
     dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
     floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
-    floatCompensate: hourlyAllDay ? false : sched.floatCompensate
+    floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
+    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {}
   };
+}
+
+/** برنامه موظفی یک روز خاص — در صورت نبود، برنامه پیش‌فرض نوع قرارداد */
+function getDayWorkSchedule(cal, y, m, d) {
+  const base = normalizeWorkSchedule(cal);
+  if (!cal || !cal.daySchedules) return base;
+  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const over = cal.daySchedules[keySlash] || cal.daySchedules[keyDash] || null;
+  if (!over || typeof over !== 'object') return base;
+  const out = Object.assign({}, base);
+  if (over.workStart) out.workStart = String(over.workStart).trim();
+  if (over.workEnd) out.workEnd = String(over.workEnd).trim();
+  if (over.dayEnd) out.dayEnd = String(over.dayEnd).trim();
+  if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = Math.max(0, Number(over.floatMinutes) || 0);
+  if (over.hasBreak != null) out.hasBreak = !!over.hasBreak;
+  if (over.breakStart) out.breakStart = String(over.breakStart).trim();
+  if (over.breakEnd) out.breakEnd = String(over.breakEnd).trim();
+  if (over.breakCountsAsWork != null) out.breakCountsAsWork = !!over.breakCountsAsWork;
+  out._fromDaySchedule = true;
+  out._dayKey = keySlash;
+  return out;
 }
 
 /** HH:MM یا HH:MM:SS → دقیقه از نیمه‌شب (۰..۱۴۳۹+) */
@@ -1986,7 +2009,18 @@ function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
   const isHourly = !!(opts.isHourly || opts.contractType === 'hourly' || (cal && cal._contractType === 'hourly'));
-  const sched = normalizeWorkSchedule(cal);
+  let sched;
+  if (opts.daySchedule && typeof opts.daySchedule === 'object') {
+    sched = Object.assign({}, normalizeWorkSchedule(cal), opts.daySchedule);
+  } else if (opts.year != null && opts.month != null && opts.day != null) {
+    sched = getDayWorkSchedule(cal, opts.year, opts.month, opts.day);
+  } else if (opts.dateKey) {
+    const pp = String(opts.dateKey).replace(/-/g, '/').split('/');
+    if (pp.length >= 3) sched = getDayWorkSchedule(cal, Number(pp[0]), Number(pp[1]), Number(pp[2]));
+    else sched = normalizeWorkSchedule(cal);
+  } else {
+    sched = normalizeWorkSchedule(cal);
+  }
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
@@ -3258,7 +3292,7 @@ async function handleEmpTimesheet(request, env) {
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { year: year, month: month, day: d, isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -3760,7 +3794,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           in2: punch.in2 || '', out2: punch.out2 || '',
           in3: punch.in3 || '', out3: punch.out3 || '',
           in4: punch.in4 || '', out4: punch.out4 || ''
-        }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
         // تیک «جبران تأخیر با ماندن در پایان»: روزهایی که دیر آمده و بعد از پایان مانده‌اند علامت می‌خورند
         // تا در تایم‌شیت هم همین جبران اعمال شود
         if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dk] && !dryRun) punchStore[dk].floatCompensate = true;
@@ -4171,7 +4205,7 @@ async function handleAdminTimesheet(request, who, env) {
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
+      }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -5197,6 +5231,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         const p = parseJalaliYMD(dk.replace(/-/g, '/'));
         const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
         const calc = computeDayTimesheet(cal, punch, {
+          year: (p && p.y) || year, month: (p && p.m) || month, day: (p && p.d) || d,
           isHoliday: nonWork,
           floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
           earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
@@ -5848,7 +5883,14 @@ async function handleAdminGetHolidays(request, who, env) {
   const ct = String(urlCt.searchParams.get('contractType') || 'normal').trim() || 'normal';
   const cal = getContractCalendar(gd.obj, ct);
   const by = cal.holidaysByYear || {};
-  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [] });
+  const allDs = cal.daySchedules || {};
+  const yearPrefix = String(year) + '/';
+  const yearPrefix2 = String(year) + '-';
+  const daySchedules = {};
+  Object.keys(allDs).forEach(function (k) {
+    if (k.indexOf(yearPrefix) === 0 || k.indexOf(yearPrefix2) === 0) daySchedules[k.replace(/-/g, '/')] = allDs[k];
+  });
+  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [], daySchedules: daySchedules, defaultSchedule: normalizeWorkSchedule(cal) });
 }
 
 async function handleAdminSaveHolidays(request, who, env) {
@@ -5896,6 +5938,30 @@ async function handleAdminSaveHolidays(request, who, env) {
     gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days.slice();
     if (!gd.obj.settings.contractCalendars[ct]._seededYears) gd.obj.settings.contractCalendars[ct]._seededYears = {};
     gd.obj.settings.contractCalendars[ct]._seededYears[String(year)] = true; // حتی اگر خالی — دیگر پیش‌فرض نریز
+    // برنامه موظفی روزانه (اولویت بر ساعت کلی نوع قرارداد)
+    if (r.body.daySchedules != null && typeof r.body.daySchedules === 'object') {
+      if (!gd.obj.settings.contractCalendars[ct].daySchedules) gd.obj.settings.contractCalendars[ct].daySchedules = {};
+      const ds = gd.obj.settings.contractCalendars[ct].daySchedules;
+      const yearPrefix = String(year) + '/';
+      // حذف برنامه‌های همان سال سپس نوشتن جدید
+      Object.keys(ds).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) === 0) delete ds[k];
+      });
+      Object.keys(r.body.daySchedules).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) !== 0) return;
+        const v = r.body.daySchedules[k];
+        if (!v || typeof v !== 'object') return;
+        if (!v.workStart && !v.workEnd) return;
+        ds[kk] = {
+          workStart: v.workStart ? String(v.workStart).trim() : '',
+          workEnd: v.workEnd ? String(v.workEnd).trim() : '',
+          dayEnd: v.dayEnd ? String(v.dayEnd).trim() : '',
+          floatMinutes: v.floatMinutes != null && v.floatMinutes !== '' ? Number(v.floatMinutes) : null
+        };
+      });
+    }
     if (ct === 'normal') {
       if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
       gd.obj.settings.holidaysByYear[String(year)] = days.slice();
