@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v40" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v41" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6813,11 +6813,9 @@ async function handleAdminSaveUserAccess(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     gd.obj.settings.userAccess = normalizeUserAccess(r.body.userAccess || r.body);
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
-    if (put && put.ok) {
-      return jsonResponse({ ok: true, userAccess: gd.obj.settings.userAccess });
-    }
+    if (put && put.fail) return storeFailResponse(put.fail);
     if (put && put.conflict) continue;
-    return jsonResponse({ ok: false, error: (put && put.error) || 'save_failed' }, 500);
+    return jsonResponse({ ok: true, userAccess: gd.obj.settings.userAccess });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
@@ -7838,7 +7836,7 @@ function showApp(j){
       var k = btn.getAttribute('data-tab');
       if (!k || k === 'approve') return; // approve stays role-based
       var on = nt[k] == null ? true : !!nt[k];
-      btn.style.display = on ? '' : 'none';
+      if (on) { btn.style.removeProperty('display'); } else { btn.style.setProperty('display', 'none', 'important'); }
     });
     // if active tab hidden, switch to first visible
     var active = document.querySelector('.tabs .tab.active');
