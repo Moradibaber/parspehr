@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v35" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261010v37" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -3392,10 +3392,12 @@ async function handleEmpTimesheet(request, env) {
     mdE._fromTimesheet = true;
     mdE._timesheetSyncedAt = new Date().toISOString();
   } catch (eMdE) { console.error('emp md sync', eMdE); }
+  const userAccess = normalizeUserAccess((gd.obj.settings || {}).userAccess);
   return jsonResponse({
     ok: true,
     code,
     fullName: emp ? emp.fullName : '',
+    userAccess: userAccess,
     year, month,
     workDays: workWithAtt,
     leaveDays: reLeaveDays,
@@ -7881,20 +7883,52 @@ async function loadTimesheet(){
     var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
-    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
+
+    var ua=j.userAccess||{}; var pt=ua.portalTabs||{}; var tc=ua.timesheetCols||{};
+    function _showTab(k){ return pt[k]==null?true:!!pt[k]; }
+    function _showCol(k){ return tc[k]==null?true:!!tc[k]; }
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+_hm(j.hourlyLeave)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+_hm(j.missionHours)+'</td><td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td><td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td><td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td></tr></table>';
+    html+='<table style="margin-top:8px"><tr>';
+    if(_showTab('work')) html+='<th>کارکرد</th>';
+    if(_showTab('leaveDaily')) html+='<th>مرخصی روزانه</th>';
+    if(_showTab('leaveHourly')) html+='<th>مرخصی ساعتی</th>';
+    if(_showTab('missionDaily')) html+='<th>مأموریت روزانه</th>';
+    if(_showTab('missionHourly')) html+='<th>مأموریت ساعتی</th>';
+    if(_showTab('ot')) html+='<th>اضافه‌کار</th>';
+    if(_showTab('night')) html+='<th>شب‌کاری</th>';
+    if(_showTab('absenceHourly')) html+='<th>غیبت ساعتی</th>';
+    html+='</tr><tr>';
+    if(_showTab('work')) html+='<td>'+(j.workDays!=null?j.workDays:0)+'</td>';
+    if(_showTab('leaveDaily')) html+='<td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td>';
+    if(_showTab('leaveHourly')) html+='<td>'+_hm(j.hourlyLeave)+'</td>';
+    if(_showTab('missionDaily')) html+='<td>'+(j.missionDays!=null?j.missionDays:0)+'</td>';
+    if(_showTab('missionHourly')) html+='<td>'+_hm(j.missionHours)+'</td>';
+    if(_showTab('ot')) html+='<td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td>';
+    if(_showTab('night')) html+='<td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td>';
+    if(_showTab('absenceHourly')) html+='<td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td>';
+    html+='</tr></table>';
     function _hm2(h){var m=Math.round((Number(h)||0)*60);if(m<=0)return '';var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> | اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> | غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b></p>';
+    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">';
+    if(_showTab('work')||_showCol('work')) html+='ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> ';
+    if(_showTab('ot')||_showCol('ot')) html+='| اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> ';
+    if(_showTab('night')||_showCol('night')) html+='| شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> ';
+    if(_showTab('absenceHourly')||_showCol('abs')) html+='| غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b>';
+    html+='</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
       var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
       var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
       html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
-      html+='<th style="'+thE+'width:58px">تاریخ</th>';
-      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
-      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه‌کار</th><th style="'+thE+'width:28px">شب‌کاری</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
-      html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
+      html+='<th style="'+thE+'width:40px">تاریخ</th>';
+      if(_showCol('punch')){ for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:22px" title="ورود'+hi+'">ورود'+hi+'</th><th style="'+thE+'width:22px" title="خروج'+hi+'">خروج'+hi+'</th>';} }
+      if(_showCol('work')) html+='<th style="'+thE+'width:28px">کارکرد</th>';
+      if(_showCol('ot')) html+='<th style="'+thE+'width:26px">اضافه‌کار</th>';
+      if(_showCol('night')) html+='<th style="'+thE+'width:26px">شب‌کاری</th>';
+      if(_showCol('eot')) html+='<th style="'+thE+'width:24px">اض.قبل</th>';
+      if(_showCol('abs')) html+='<th style="'+thE+'width:26px">غیبت‌س</th>';
+      if(_showCol('mis')) html+='<th style="'+thE+'width:70px">مأموریت</th>';
+      if(_showCol('lv')) html+='<th style="'+thE+'width:70px">مرخصی</th>';
+      if(_showCol('note')) html+='<th style="'+thE+'width:90px">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
@@ -7902,18 +7936,20 @@ async function loadTimesheet(){
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
         function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
-        for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
-        html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
-        html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:48px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td></tr>';
+        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.48rem">'+d.date+'</td>';
+        if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
+        if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
+        if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
+        if(_showCol('night')) html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
+        if(_showCol('eot')) html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
+        if(_showCol('abs')) html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
+        if(_showCol('mis')) html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('lv')) html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('note')) html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:90px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td>';
+        html+='</tr>';
       });
       html+='</tbody></table></div>';
+
     }
     document.getElementById('tsBox').innerHTML=html+'</div>';
   }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
