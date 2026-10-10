@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v41" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v43" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -822,6 +822,24 @@ async function handleEmpWhoami(request, env) {
     });
   }
   return jsonResponse(body);
+}
+
+
+async function handleEmpFeatures(request, env) {
+  // public to logged-in employees; returns feature flags for portal UI
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && !gd.fail && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (e) {}
+  return jsonResponse({ ok: true, userAccess: userAccess });
 }
 
 async function handleMyPayslip(request, env) {
@@ -6914,6 +6932,11 @@ async function handleAdminSavePortalView(request, who, env) {
     profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
     profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : []
   };
+  // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
+  if (body.userAccess && typeof body.userAccess === 'object') {
+    if (!obj.settings) obj.settings = {};
+    obj.settings.userAccess = normalizeUserAccess(body.userAccess);
+  }
   // persist
   const put = await storePutData(cfgStore, gd.version || 0, obj, who.name || 'admin');
   if (put && put.fail) return storeFailResponse(put.fail);
@@ -7341,6 +7364,7 @@ export default {
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
     if (url.pathname === '/api/emp/logout') return handleEmpLogout();
     if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
+    if (url.pathname === '/api/emp/features') return handleEmpFeatures(request, env);
     if (url.pathname === '/api/emp/payslip') return handleMyPayslip(request, env);
     if (url.pathname === '/api/emp/change-password') return handleEmpChangePassword(request, env);
     if (url.pathname === '/api/emp/request') return handleEmpCreateRequest(request, env);
@@ -7824,31 +7848,49 @@ async function doLogin(){
     if(j.mustChangePassword) setTimeout(function(){alert('رمز فعلی همان کد پرسنلی است. از بخش تغییر رمز عوض کنید.');},300);
   }catch(e){err.textContent='خطا در ارتباط با سرور.'}
 }
+function applyUserAccessUI(ua) {
+  window.__pspUserAccess = ua || window.__pspUserAccess || null;
+  ua = window.__pspUserAccess || {};
+  var nt = ua.navTabs || {};
+  var style = document.getElementById('pspUaStyle');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'pspUaStyle';
+    document.head.appendChild(style);
+  }
+  var css = '';
+  var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password'];
+  keys.forEach(function(k) {
+    var on = nt[k] == null ? true : !!nt[k];
+    if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}\n';
+    var btn = document.querySelector('.tab[data-tab="' + k + '"]');
+    if (btn) {
+      if (on) btn.style.removeProperty('display');
+      else btn.style.setProperty('display', 'none', 'important');
+    }
+  });
+  style.textContent = css;
+  var active = document.querySelector('.tabs .tab.active');
+  if (active && (active.style.display === 'none' || (nt[active.getAttribute('data-tab')] === false))) {
+    var all = document.querySelectorAll('.tabs .tab[data-tab]');
+    for (var i = 0; i < all.length; i++) {
+      var k2 = all[i].getAttribute('data-tab');
+      if (k2 === 'approve') continue;
+      var on2 = nt[k2] == null ? true : !!nt[k2];
+      if (on2) { showTab(k2); break; }
+    }
+  }
+}
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
-  window.__pspUserAccess = j.userAccess || null;
-  try {
-    var ua = j.userAccess || {};
-    var nt = ua.navTabs || {};
-    document.querySelectorAll('.tabs .tab[data-tab]').forEach(function(btn){
-      var k = btn.getAttribute('data-tab');
-      if (!k || k === 'approve') return; // approve stays role-based
-      var on = nt[k] == null ? true : !!nt[k];
-      if (on) { btn.style.removeProperty('display'); } else { btn.style.setProperty('display', 'none', 'important'); }
-    });
-    // if active tab hidden, switch to first visible
-    var active = document.querySelector('.tabs .tab.active');
-    if (active && active.style.display === 'none') {
-      var first = document.querySelector('.tabs .tab[data-tab]:not([style*="display: none"])');
-      if (!first) {
-        var all = document.querySelectorAll('.tabs .tab[data-tab]');
-        for (var i=0;i<all.length;i++){ if (all[i].style.display !== 'none') { first=all[i]; break; } }
-      }
-      if (first) showTab(first.getAttribute('data-tab'));
-    }
-  } catch (eNav) {}
+  if (j.userAccess) applyUserAccessUI(j.userAccess);
+  // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
+  fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(f){ if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); })
+    .catch(function(){});
   loadRequests();
   loadAttTypes();
 }
@@ -7923,7 +7965,15 @@ async function loadTimesheet(){
   var year=Number(document.getElementById('tsYear').value), month=Number(document.getElementById('tsMonth').value);
   try{
     var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
-    var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+        var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    if(!j.userAccess){
+      try{
+        var fr=await fetch('/api/emp/features?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+        var fj=await fr.json();
+        if(fj&&fj.ok&&fj.userAccess) j.userAccess=fj.userAccess;
+      }catch(eF){}
+    }
+    if(j.userAccess){ try{ applyUserAccessUI(j.userAccess); }catch(eA){} }
     var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
