@@ -1209,7 +1209,8 @@ async function handleEmpCreateRequest(request, env) {
       const g = gd.obj.attendanceGrants.find(function (x) {
         if (String(x.empCode) !== String(emp.code)) return false;
         if (String(x.typeId) !== String(typeId)) return false;
-        if (x.usedRequestId) return false;
+        if (x.revoked || x.revokedAt) return false;
+        if (x.usedRequestId || x.consumed) return false;
         const from = x.dateFrom || x.date || '';
         const to = x.dateTo || x.dateFrom || x.date || '';
         if (!from && !to) return true; // unrestricted dates
@@ -5377,7 +5378,7 @@ async function handleEmpAttendanceTypes(request, env) {
   if (!types.length) types = defaultAttendanceTypes();
   const allReqs = (gd.obj && gd.obj.attendanceRequests) || [];
   const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
-    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId;
+    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId && !g.revoked && !g.revokedAt;
   });
   const settings = (gd.obj && gd.obj.settings) || {};
   const cy = Number(settings.currentYear) || 1405;
@@ -5528,15 +5529,97 @@ async function handleAdminGrantAttendance(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  function grantStatus(g) {
+    if (!g) return 'unknown';
+    if (g.revoked || g.revokedAt) return 'revoked';
+    if (g.consumed || g.usedRequestId) return 'used';
+    // تاریخ پایان گذشته؟
+    try {
+      const to = g.dateTo || g.dateFrom || g.date || '';
+      if (to) {
+        const p = parseJalaliYMD(to);
+        const cy = Number(((arguments[0] && arguments[0].settings) || {}).currentYear);
+        // فقط با مقایسه رشته yyyy-mm-dd
+        const key = dateKey(to);
+        const today = (function () {
+          // از تنظیمات سیستم اگر موجود
+          return null;
+        })();
+        // بدون تقویم میلادی دقیق: فقط اگر dateTo با start درخواست بعدتر باشد در درخواست چک می‌شود
+      }
+    } catch (e0) {}
+    return 'open';
+  }
+
+  // GET: فهرست همه مجوزها
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const list = ((gd.obj && gd.obj.attendanceGrants) || []).map(function (g) {
+      const st = (g.revoked || g.revokedAt) ? 'revoked' : ((g.consumed || g.usedRequestId) ? 'used' : 'open');
+      return {
+        id: g.id,
+        empCode: g.empCode,
+        empName: g.empName || '',
+        typeId: g.typeId,
+        typeName: g.typeName || '',
+        dateFrom: g.dateFrom || g.date || '',
+        dateTo: g.dateTo || g.dateFrom || g.date || '',
+        grantedBy: g.grantedBy || '',
+        grantedAt: g.grantedAt || '',
+        usedRequestId: g.usedRequestId || null,
+        consumed: !!g.consumed,
+        revoked: !!(g.revoked || g.revokedAt),
+        revokedAt: g.revokedAt || null,
+        revokedBy: g.revokedBy || null,
+        status: st
+      };
+    });
+    return jsonResponse({ ok: true, grants: list });
+  }
+
   const r = await readBody(request);
   if (r.error) return r.error;
+  const action = String(r.body.action || 'create').trim();
+
+  // لغو زودهنگام / حذف
+  if (action === 'revoke' || action === 'delete') {
+    const id = String(r.body.id || r.body.grantId || '').trim();
+    if (!id) return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه مجوز الزامی است.' }, 400);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const gd = await storeGetData(cfg);
+      if (gd.fail) return storeFailResponse(gd.fail);
+      if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+      if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+      const idx = gd.obj.attendanceGrants.findIndex(function (g) { return g && String(g.id) === id; });
+      if (idx < 0) return jsonResponse({ ok: false, error: 'not_found', message: 'مجوز یافت نشد.' }, 404);
+      const g = gd.obj.attendanceGrants[idx];
+      if (action === 'delete') {
+        gd.obj.attendanceGrants.splice(idx, 1);
+      } else {
+        g.revoked = true;
+        g.revokedAt = new Date().toISOString();
+        g.revokedBy = who.name;
+        // اگر رزرو شده با درخواست باز، رزرو را آزاد کن (درخواست همچنان باقی است تا ادمین/مدیر رد کند)
+        g.reservedRequestId = null;
+      }
+      const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+      if (put.fail) return storeFailResponse(put.fail);
+      if (put.conflict) continue;
+      return jsonResponse({ ok: true, action: action, grant: g });
+    }
+    return jsonResponse({ ok: false, error: 'conflict' }, 409);
+  }
+
+  // صدور مجوز جدید
   const empCode = String(r.body.empCode || '').trim();
   const typeId = String(r.body.typeId || '').trim();
   const dateFrom = String(r.body.dateFrom || r.body.date || '').trim();
   const dateTo = String(r.body.dateTo || r.body.dateFrom || r.body.date || '').trim();
   if (!empCode || !typeId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و نوع الزامی است.' }, 400);
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   for (let attempt = 0; attempt < 4; attempt++) {
     const gd = await storeGetData(cfg);
     if (gd.fail) return storeFailResponse(gd.fail);
@@ -5560,6 +5643,10 @@ async function handleAdminGrantAttendance(request, who, env) {
       grantedBy: who.name,
       grantedAt: new Date().toISOString(),
       usedRequestId: null,
+      consumed: false,
+      revoked: false,
+      revokedAt: null,
+      revokedBy: null,
       allowAdvance: !!(r.body.allowAdvance || tdef.allowAdvance || (tdef.deductFromEntitlement && String(tdef.id || '').indexOf('leave') === 0))
     };
     gd.obj.attendanceGrants.unshift(grant);
