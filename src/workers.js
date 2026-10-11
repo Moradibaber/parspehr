@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v44" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v47" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -5510,6 +5510,11 @@ async function handleEmpAttendanceTypes(request, env) {
 
   const visible = types.filter(function (t) {
     if (!t) return false;
+    // لیست سیاه: این افراد این نوع را نمی‌بینند
+    if (Array.isArray(t.blacklistCodes) && t.blacklistCodes.length) {
+      const code = String(sess.code);
+      if (t.blacklistCodes.map(String).indexOf(code) >= 0) return false;
+    }
     // admin-grant types: only if open unused grant
     if (t.requiresAdminGrant) {
       return grants.some(function (g) { return String(g.typeId) === String(t.id); });
@@ -7477,6 +7482,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   .link { color: #0f766e; cursor: pointer; background: none; border: 0; font-family: inherit; font-size: 0.82rem; text-decoration: underline; padding: 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; background: #fff; padding: 6px; border-radius: 10px; }
   .tab { padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; font-size: 0.78rem; font-weight: 600; color: #0f766e; cursor: pointer; font-family: inherit; }
+  .tabs:not(.ua-ready) .tab[data-tab] { opacity: 0; pointer-events: none; }
+  .tabs.ua-ready .tab[data-tab] { opacity: 1; pointer-events: auto; }
   .tab.active { background: #0f766e; color: #fff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
@@ -7880,6 +7887,8 @@ function applyUserAccessUI(ua) {
       if (on2) { showTab(k2); break; }
     }
   }
+  var tabsEl = document.querySelector('.tabs');
+  if (tabsEl) tabsEl.classList.add('ua-ready');
 }
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
@@ -7889,8 +7898,8 @@ function showApp(j){
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
   fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
     .then(function(r){ return r.json(); })
-    .then(function(f){ if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); })
-    .catch(function(){});
+    .then(function(f){ if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {}); })
+    .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
   loadAttTypes();
 }
