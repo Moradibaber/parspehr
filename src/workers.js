@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v49" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v50" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -186,6 +186,120 @@ async function storeGetData(cfg) {
   return { version: Number(row.version) || 0, obj: obj };
 }
 
+
+function employeeFieldLabels() {
+  return {
+    fullName: 'نام و نام خانوادگی',
+    firstName: 'نام',
+    lastName: 'نام خانوادگی',
+    management: 'مدیریت',
+    deputy: 'معاونت',
+    unit: 'واحد',
+    group: 'گروه',
+    workplace: 'محل کار',
+    hireDate: 'تاریخ استخدام',
+    endDate: 'تاریخ پایان همکاری',
+    position: 'سمت',
+    basicSalary: 'حقوق پایه',
+    status: 'وضعیت',
+    contractType: 'نوع قرارداد',
+    bankName: 'نام بانک',
+    accountNumber: 'شماره حساب',
+    insuranceNo: 'شماره بیمه',
+    nationalId: 'کد ملی',
+    mobile: 'موبایل',
+    marital: 'وضعیت تأهل',
+    childrenCount: 'تعداد اولاد',
+    taxPercent: 'درصد مالیات',
+    exemption: 'معافیت',
+    seniorityBase: 'پایه سنوات'
+  };
+}
+
+function normEmpVal(v) {
+  if (v == null || v === undefined) return '';
+  if (typeof v === 'number') return String(v);
+  return String(v).trim();
+}
+
+function diffEmployeeChanges(prev, next) {
+  if (!prev || !next) return [];
+  const labels = employeeFieldLabels();
+  const keys = Object.keys(labels);
+  const out = [];
+  keys.forEach(function (k) {
+    const a = normEmpVal(prev[k]);
+    const b = normEmpVal(next[k]);
+    // fullName: also compose from first/last if needed
+    if (k === 'fullName') {
+      const fa = a || (normEmpVal(prev.firstName) + ' ' + normEmpVal(prev.lastName)).trim();
+      const fb = b || (normEmpVal(next.firstName) + ' ' + normEmpVal(next.lastName)).trim();
+      if (fa !== fb && (fa || fb)) {
+        out.push({ field: k, label: labels[k], from: fa || '—', to: fb || '—' });
+      }
+      return;
+    }
+    if (a !== b && (a || b)) {
+      out.push({ field: k, label: labels[k], from: a || '—', to: b || '—' });
+    }
+  });
+  // customItems by name
+  function itemMap(emp) {
+    const m = {};
+    (emp.customItems || emp.customs || []).forEach(function (ci) {
+      if (!ci || !ci.name) return;
+      m[String(ci.name)] = {
+        amount: Number(ci.amount) || 0,
+        enabled: ci.enabled !== false && ci.enabled !== 0
+      };
+    });
+    return m;
+  }
+  const pm = itemMap(prev);
+  const nm = itemMap(next);
+  const names = {};
+  Object.keys(pm).forEach(function (n) { names[n] = true; });
+  Object.keys(nm).forEach(function (n) { names[n] = true; });
+  Object.keys(names).forEach(function (n) {
+    const a = pm[n];
+    const b = nm[n];
+    if (!a && b) {
+      out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: '—', to: (b.enabled ? (b.amount + '') : 'غیرفعال') });
+    } else if (a && !b) {
+      out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: (a.enabled ? (a.amount + '') : 'غیرفعال'), to: 'حذف شد' });
+    } else if (a && b && (a.amount !== b.amount || a.enabled !== b.enabled)) {
+      const fromS = a.enabled ? String(a.amount) : 'غیرفعال';
+      const toS = b.enabled ? String(b.amount) : 'غیرفعال';
+      if (fromS !== toS) out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: fromS, to: toS });
+    }
+  });
+  return out;
+}
+
+function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
+  if (!obj || !code || !changes || !changes.length) return;
+  if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') obj.employeeChangeLog = {};
+  const key = String(code);
+  if (!Array.isArray(obj.employeeChangeLog[key])) obj.employeeChangeLog[key] = [];
+  const at = new Date().toISOString();
+  const by = String(updatedBy || 'system');
+  changes.forEach(function (c) {
+    obj.employeeChangeLog[key].push({
+      at: at,
+      by: by,
+      field: c.field,
+      label: c.label,
+      from: c.from,
+      to: c.to,
+      text: (c.label || c.field) + ' از «' + c.from + '» به «' + c.to + '» تغییر کرد'
+    });
+  });
+  // keep last 300
+  if (obj.employeeChangeLog[key].length > 300) {
+    obj.employeeChangeLog[key] = obj.employeeChangeLog[key].slice(-300);
+  }
+}
+
 async function storePutData(cfg, baseVersion, obj, updatedBy) {
   // Preserve portal fields the main app form does not know about (managerCode, portal password, requests…)
   try {
@@ -194,6 +308,12 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
         const map = {};
         prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+          obj.employeeChangeLog = (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object')
+            ? JSON.parse(JSON.stringify(prev.obj.employeeChangeLog))
+            : {};
+        }
+
         // Managers stored in portalMeta so main-app saves cannot wipe them.
         var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
         var prevMeta = prev.obj.portalMeta && typeof prev.obj.portalMeta === 'object' ? prev.obj.portalMeta : {};
@@ -230,12 +350,28 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
             if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
+            // تاریخچه تغییرات کارت کارمند
+            try {
+              const ch = diffEmployeeChanges(p, e);
+              if (ch.length) appendEmployeeChangeLog(obj, e.code, ch, updatedBy);
+            } catch (eLog) {}
           }
         });
+        // حفظ تاریخچه قبلی اگر کلاینت نفرستاده
+        if (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object') {
+          if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+            obj.employeeChangeLog = prev.obj.employeeChangeLog;
+          } else {
+            Object.keys(prev.obj.employeeChangeLog).forEach(function (k) {
+              if (!obj.employeeChangeLog[k]) obj.employeeChangeLog[k] = prev.obj.employeeChangeLog[k];
+            });
+          }
+        }
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
         if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
+        if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
         if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
@@ -6450,6 +6586,8 @@ async function route(request, env, users, found) {
     if (request.method === 'GET') return handleAdminGetUserAccess(request, who, env);
     return handleAdminSaveUserAccess(request, who, env);
   }
+  if (path === '/api/admin/employee-history') return handleAdminEmployeeHistory(request, who, env);
+  if (path === '/api/admin/contracts-report') return handleAdminContractsReport(request, who, env);
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
@@ -6815,6 +6953,69 @@ function normalizeUserAccess(raw) {
     if (nt[k] != null) d.navTabs[k] = !!nt[k];
   });
   return d;
+}
+
+
+async function handleAdminEmployeeHistory(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const url = new URL(request.url);
+  const code = String(url.searchParams.get('code') || url.searchParams.get('empCode') || '').trim();
+  const log = (gd.obj && gd.obj.employeeChangeLog) || {};
+  if (code) {
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === code; });
+    const rows = Array.isArray(log[code]) ? log[code].slice().reverse() : [];
+    return jsonResponse({ ok: true, code: code, fullName: emp ? (emp.fullName || '') : '', rows: rows });
+  }
+  // summary: last change per employee
+  const summary = Object.keys(log).map(function (c) {
+    const rows = log[c] || [];
+    const last = rows.length ? rows[rows.length - 1] : null;
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(c); });
+    return {
+      code: c,
+      fullName: emp ? (emp.fullName || '') : '',
+      count: rows.length,
+      lastAt: last ? last.at : null,
+      lastText: last ? last.text : ''
+    };
+  }).sort(function (a, b) { return String(b.lastAt || '').localeCompare(String(a.lastAt || '')); });
+  return jsonResponse({ ok: true, summary: summary });
+}
+
+async function handleAdminContractsReport(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const contracts = (gd.obj && gd.obj.contracts) || [];
+  const emps = (gd.obj && gd.obj.employees) || [];
+  const empMap = {};
+  emps.forEach(function (e) { if (e) empMap[String(e.code)] = e; });
+  const rows = (Array.isArray(contracts) ? contracts : []).map(function (c) {
+    const emp = empMap[String(c.empCode || c.code || '')] || {};
+    return {
+      empCode: c.empCode || c.code || '',
+      fullName: emp.fullName || c.fullName || '',
+      type: c.type || c.contractType || '',
+      duration: c.duration || c.months || '',
+      from: c.from || c.startDate || '',
+      to: c.to || c.endDate || '',
+      status: c.status || '',
+      signed: !!(c.signed || c.signedFile || c.fileUrl),
+      note: c.note || c.editNote || c.historyNote || '',
+      updatedAt: c.updatedAt || c.editedAt || ''
+    };
+  });
+  return jsonResponse({ ok: true, rows: rows, total: rows.length });
 }
 
 async function handleAdminGetUserAccess(request, who, env) {
