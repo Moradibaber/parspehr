@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v47" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v49" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -5450,6 +5450,15 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
     if (fixedDays === '' || fixedDays == null) fixedDays = null;
     else fixedDays = Number(fixedDays);
     if (fixedDays != null && (!isFinite(fixedDays) || fixedDays < 1)) fixedDays = null;
+    var bl = [];
+    if (Array.isArray(t.blacklistCodes)) {
+      bl = t.blacklistCodes.map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    } else if (t.blacklistCodes != null && String(t.blacklistCodes).trim()) {
+      bl = String(t.blacklistCodes).split(/[,،;]+/).map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    }
+    // unique
+    var blSeen = {};
+    bl = bl.filter(function (c) { if (blSeen[c]) return false; blSeen[c] = true; return true; });
     return {
       id: String(t.id || ('t_' + i + '_' + Date.now().toString(36))),
       name: String(t.name || '').trim() || ('نوع ' + (i + 1)),
@@ -5459,7 +5468,8 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
       fixedDays: fixedDays,
       frequency: normalizeFreq(t.frequency),
       requiresAdminGrant: !!t.requiresAdminGrant,
-      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0))
+      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0)),
+      blacklistCodes: bl
     };
   }).filter(function (t) { return t.name; });
 
