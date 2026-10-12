@@ -5123,6 +5123,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenCount: Number(emp.children) || 0,
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
+      personal: { fatherName: emp.fatherName || '', mobile: emp.mobile || emp.phone || '', address: emp.address || '' },
       photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
@@ -5194,6 +5195,11 @@ async function handleAdminEmployeeExtra(request, who, env) {
         const saved = storeEmpPhoto(gd.obj, empCode, ph);
         if (saved) emp.photo = saved;
       }
+    }
+    if (body.personal && typeof body.personal === 'object') {
+      emp.fatherName = String(body.personal.fatherName || '').trim().slice(0, 80);
+      emp.mobile = String(body.personal.mobile || '').trim().slice(0, 20);
+      emp.address = String(body.personal.address || '').trim().slice(0, 300);
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
@@ -6678,7 +6684,10 @@ function getPortalViewConfig(obj) {
     showProfile: c.showProfile !== false,
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
-    profileFields: Array.isArray(c.profileFields) ? c.profileFields : null
+    // نام پدر/موبایل/آدرس برای تنظیمات قدیمی هم در مشخصات پرسنلی پرتال نمایش داده شوند
+    profileFields: Array.isArray(c.profileFields)
+      ? ((c.profileExtraMigrated || !c.profileFields.length) ? c.profileFields : c.profileFields.concat(['fatherName', 'mobile', 'address'].filter(function (k) { return c.profileFields.indexOf(k) < 0; })))
+      : null
   };
 }
 
@@ -7161,7 +7170,8 @@ async function handleAdminSavePortalView(request, who, env) {
     showProfile: !!body.showProfile,
     profileMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
     profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
-    profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : []
+    profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : [],
+    profileExtraMigrated: true
   };
   // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
   if (body.userAccess && typeof body.userAccess === 'object') {
