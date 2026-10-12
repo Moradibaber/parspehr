@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v71" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v61" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -186,6 +186,133 @@ async function storeGetData(cfg) {
   return { version: Number(row.version) || 0, obj: obj };
 }
 
+
+function employeeFieldLabels() {
+  return {
+    fullName: 'نام و نام خانوادگی',
+    firstName: 'نام',
+    lastName: 'نام خانوادگی',
+    management: 'مدیریت',
+    deputy: 'معاونت',
+    unit: 'واحد',
+    group: 'گروه',
+    workplace: 'محل کار',
+    hireDate: 'تاریخ استخدام',
+    endDate: 'تاریخ پایان همکاری',
+    position: 'سمت',
+    basicSalary: 'حقوق پایه',
+    status: 'وضعیت',
+    contractType: 'نوع قرارداد',
+    bankName: 'نام بانک',
+    accountNumber: 'شماره حساب',
+    insuranceNo: 'شماره بیمه',
+    nationalId: 'کد ملی',
+    mobile: 'موبایل',
+    marital: 'وضعیت تأهل',
+    childrenCount: 'تعداد اولاد',
+    taxPercent: 'درصد مالیات',
+    exemption: 'معافیت',
+    seniorityBase: 'پایه سنوات'
+  };
+}
+
+function normEmpVal(v) {
+  if (v == null || v === undefined) return '';
+  if (typeof v === 'number') return String(v);
+  return String(v).trim();
+}
+
+function diffEmployeeChanges(prev, next) {
+  if (!prev || !next) return [];
+  const labels = employeeFieldLabels();
+  const keys = Object.keys(labels);
+  const out = [];
+  keys.forEach(function (k) {
+    const a = normEmpVal(prev[k]);
+    const b = normEmpVal(next[k]);
+    // fullName: also compose from first/last if needed
+    if (k === 'fullName') {
+      const fa = a || (normEmpVal(prev.firstName) + ' ' + normEmpVal(prev.lastName)).trim();
+      const fb = b || (normEmpVal(next.firstName) + ' ' + normEmpVal(next.lastName)).trim();
+      if (fa !== fb && (fa || fb)) {
+        out.push({ field: k, label: labels[k], from: fa || '—', to: fb || '—' });
+      }
+      return;
+    }
+    if (a !== b && (a || b)) {
+      out.push({ field: k, label: labels[k], from: a || '—', to: b || '—' });
+    }
+  });
+  // customItems by name — فقط تغییر واقعی مبلغ/فعال بودن (نه 0 در برابر غیرفعال)
+  function itemSig(emp) {
+    const m = {};
+    (emp.customItems || emp.customs || emp.items || []).forEach(function (ci) {
+      if (!ci || !ci.name) return;
+      const name = String(ci.name).trim();
+      if (!name) return;
+      const amount = Number(ci.amount);
+      const amt = isFinite(amount) ? amount : 0;
+      // فعال بودن: صریح false/0 = خاموش؛ در غیر این صورت اگر مبلغ > 0 یا enabled true
+      let en = true;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') en = false;
+      if (ci.active === false || ci.active === 0) en = false;
+      // مبلغ صفر و بدون فلگ فعال = معادل غیرفعال/خالی
+      if (!en || !(amt > 0)) {
+        m[name] = { key: 'off', label: 'غیرفعال' };
+      } else {
+        m[name] = { key: 'on:' + amt, label: String(amt) };
+      }
+    });
+    return m;
+  }
+  const pm = itemSig(prev);
+  const nm = itemSig(next);
+  const names = {};
+  Object.keys(pm).forEach(function (n) { names[n] = true; });
+  Object.keys(nm).forEach(function (n) { names[n] = true; });
+  function isOffState(x) {
+    if (!x || x.key === 'off') return true;
+    var s = String(x.label || '').trim();
+    if (!s || s === '—' || s === 'غیرفعال' || s === 'حذف شد') return true;
+    var n = Number(String(s).replace(/,/g, ''));
+    if (isFinite(n) && n === 0) return true;
+    return false;
+  }
+  Object.keys(names).forEach(function (n) {
+    const a = pm[n] || { key: 'off', label: '—' };
+    const b = nm[n] || { key: 'off', label: '—' };
+    if (a.key === b.key) return;
+    // 0 / غیرفعال / نبودن = معادل هم — ثبت نشود
+    if (isOffState(a) && isOffState(b)) return;
+    out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: a.label, to: b.label });
+  });
+  return out;
+}
+
+function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
+  if (!obj || !code || !changes || !changes.length) return;
+  if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') obj.employeeChangeLog = {};
+  const key = String(code);
+  if (!Array.isArray(obj.employeeChangeLog[key])) obj.employeeChangeLog[key] = [];
+  const at = new Date().toISOString();
+  const by = String(updatedBy || 'system');
+  changes.forEach(function (c) {
+    obj.employeeChangeLog[key].push({
+      at: at,
+      by: by,
+      field: c.field,
+      label: c.label,
+      from: c.from,
+      to: c.to,
+      text: (c.label || c.field) + ' از «' + c.from + '» به «' + c.to + '» تغییر کرد'
+    });
+  });
+  // keep last 300
+  if (obj.employeeChangeLog[key].length > 300) {
+    obj.employeeChangeLog[key] = obj.employeeChangeLog[key].slice(-300);
+  }
+}
+
 async function storePutData(cfg, baseVersion, obj, updatedBy) {
   // Preserve portal fields the main app form does not know about (managerCode, portal password, requests…)
   try {
@@ -194,6 +321,12 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
         const map = {};
         prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+          obj.employeeChangeLog = (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object')
+            ? JSON.parse(JSON.stringify(prev.obj.employeeChangeLog))
+            : {};
+        }
+
         // Managers stored in portalMeta so main-app saves cannot wipe them.
         var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
         var prevMeta = prev.obj.portalMeta && typeof prev.obj.portalMeta === 'object' ? prev.obj.portalMeta : {};
@@ -230,12 +363,28 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
             if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
+            // تاریخچه تغییرات کارت کارمند
+            try {
+              const ch = diffEmployeeChanges(p, e);
+              if (ch.length) appendEmployeeChangeLog(obj, e.code, ch, updatedBy);
+            } catch (eLog) {}
           }
         });
+        // حفظ تاریخچه قبلی اگر کلاینت نفرستاده
+        if (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object') {
+          if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+            obj.employeeChangeLog = prev.obj.employeeChangeLog;
+          } else {
+            Object.keys(prev.obj.employeeChangeLog).forEach(function (k) {
+              if (!obj.employeeChangeLog[k]) obj.employeeChangeLog[k] = prev.obj.employeeChangeLog[k];
+            });
+          }
+        }
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
         if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
+        if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
         if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
@@ -461,6 +610,35 @@ async function enrichCalcDataFromStore(env, data) {
 }
 
 // ---------- Payroll calculation ----------
+
+function listEmployeesMissingContract(obj) {
+  const emps = (obj && obj.employees) || [];
+  const contracts = (obj && obj.contracts) || [];
+  const out = [];
+  function isApprovedContract(c) {
+    if (!c) return false;
+    const st = String(c.status || '').toLowerCase();
+    if (st === 'terminated' || st === 'expired' || st === 'revoked') return false;
+    // accepted: explicit adminApproved OR legacy status active/approved
+    if (c.adminApproved === true || c.adminApproved === 1 || c.adminApproved === 'true') return true;
+    if (st === 'active' || st === 'approved' || st === 'signed') return true;
+    return false;
+  }
+  emps.forEach(function (e) {
+    if (!e || e.status === 'inactive') return;
+    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
+    const ok = mine.some(isApprovedContract);
+    if (!ok) {
+      out.push({
+        code: e.code,
+        fullName: e.fullName || '',
+        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
+      });
+    }
+  });
+  return out;
+}
+
 async function handlePayroll(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -483,6 +661,17 @@ async function handlePayroll(request, user, env) {
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
   data = await enrichCalcDataFromStore(env, data);
+  let contractWarnings = [];
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (!gd.fail && gd.obj) {
+        const full = Object.assign({}, gd.obj, { employees: data.employees });
+        contractWarnings = listEmployeesMissingContract(full);
+      }
+    }
+  } catch (eCw) {}
   let out;
   try {
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -490,7 +679,13 @@ async function handlePayroll(request, user, env) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
     return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
   }
-  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length }));
+  if (out && typeof out === 'object') {
+    out.contractWarnings = contractWarnings;
+    if (contractWarnings.length) {
+      out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
+    }
+  }
+  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length, contractWarnings: contractWarnings.length }));
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
@@ -758,7 +953,17 @@ async function handleEmpWhoami(request, env) {
   const now = Math.floor(Date.now() / 1000);
   const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
     ? empCookie(await makeEmpToken(env, sess.code, sess.fullName, now + SESSION_IDLE_SECONDS)) : null;
-  const body = { ok: true, code: sess.code, fullName: sess.fullName };
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (eUa) {}
+  const body = { ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess };
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -766,6 +971,24 @@ async function handleEmpWhoami(request, env) {
     });
   }
   return jsonResponse(body);
+}
+
+
+async function handleEmpFeatures(request, env) {
+  // public to logged-in employees; returns feature flags for portal UI
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && !gd.fail && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (e) {}
+  return jsonResponse({ ok: true, userAccess: userAccess });
 }
 
 async function handleMyPayslip(request, env) {
@@ -1209,7 +1432,8 @@ async function handleEmpCreateRequest(request, env) {
       const g = gd.obj.attendanceGrants.find(function (x) {
         if (String(x.empCode) !== String(emp.code)) return false;
         if (String(x.typeId) !== String(typeId)) return false;
-        if (x.usedRequestId) return false;
+        if (x.revoked || x.revokedAt) return false;
+        if (x.usedRequestId || x.consumed) return false;
         const from = x.dateFrom || x.date || '';
         const to = x.dateTo || x.dateFrom || x.date || '';
         if (!from && !to) return true; // unrestricted dates
@@ -1780,8 +2004,31 @@ function getContractCalendar(obj, contractType) {
     breakCountsAsWork: hourlyAllDay ? false : sched.breakCountsAsWork,
     dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
     floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
-    floatCompensate: hourlyAllDay ? false : sched.floatCompensate
+    floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
+    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {}
   };
+}
+
+/** برنامه موظفی یک روز خاص — در صورت نبود، برنامه پیش‌فرض نوع قرارداد */
+function getDayWorkSchedule(cal, y, m, d) {
+  const base = normalizeWorkSchedule(cal);
+  if (!cal || !cal.daySchedules) return base;
+  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const over = cal.daySchedules[keySlash] || cal.daySchedules[keyDash] || null;
+  if (!over || typeof over !== 'object') return base;
+  const out = Object.assign({}, base);
+  if (over.workStart) out.workStart = String(over.workStart).trim();
+  if (over.workEnd) out.workEnd = String(over.workEnd).trim();
+  if (over.dayEnd) out.dayEnd = String(over.dayEnd).trim();
+  if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = Math.max(0, Number(over.floatMinutes) || 0);
+  if (over.hasBreak != null) out.hasBreak = !!over.hasBreak;
+  if (over.breakStart) out.breakStart = String(over.breakStart).trim();
+  if (over.breakEnd) out.breakEnd = String(over.breakEnd).trim();
+  if (over.breakCountsAsWork != null) out.breakCountsAsWork = !!over.breakCountsAsWork;
+  out._fromDaySchedule = true;
+  out._dayKey = keySlash;
+  return out;
 }
 
 /** HH:MM یا HH:MM:SS → دقیقه از نیمه‌شب (۰..۱۴۳۹+) */
@@ -1939,7 +2186,18 @@ function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
   const isHourly = !!(opts.isHourly || opts.contractType === 'hourly' || (cal && cal._contractType === 'hourly'));
-  const sched = normalizeWorkSchedule(cal);
+  let sched;
+  if (opts.daySchedule && typeof opts.daySchedule === 'object') {
+    sched = Object.assign({}, normalizeWorkSchedule(cal), opts.daySchedule);
+  } else if (opts.year != null && opts.month != null && opts.day != null) {
+    sched = getDayWorkSchedule(cal, opts.year, opts.month, opts.day);
+  } else if (opts.dateKey) {
+    const pp = String(opts.dateKey).replace(/-/g, '/').split('/');
+    if (pp.length >= 3) sched = getDayWorkSchedule(cal, Number(pp[0]), Number(pp[1]), Number(pp[2]));
+    else sched = normalizeWorkSchedule(cal);
+  } else {
+    sched = normalizeWorkSchedule(cal);
+  }
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
@@ -3211,7 +3469,7 @@ async function handleEmpTimesheet(request, env) {
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { year: year, month: month, day: d, isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -3311,10 +3569,12 @@ async function handleEmpTimesheet(request, env) {
     mdE._fromTimesheet = true;
     mdE._timesheetSyncedAt = new Date().toISOString();
   } catch (eMdE) { console.error('emp md sync', eMdE); }
+  const userAccess = normalizeUserAccess((gd.obj.settings || {}).userAccess);
   return jsonResponse({
     ok: true,
     code,
     fullName: emp ? emp.fullName : '',
+    userAccess: userAccess,
     year, month,
     workDays: workWithAtt,
     leaveDays: reLeaveDays,
@@ -3713,7 +3973,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           in2: punch.in2 || '', out2: punch.out2 || '',
           in3: punch.in3 || '', out3: punch.out3 || '',
           in4: punch.in4 || '', out4: punch.out4 || ''
-        }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
         // تیک «جبران تأخیر با ماندن در پایان»: روزهایی که دیر آمده و بعد از پایان مانده‌اند علامت می‌خورند
         // تا در تایم‌شیت هم همین جبران اعمال شود
         if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dk] && !dryRun) punchStore[dk].floatCompensate = true;
@@ -4124,7 +4384,7 @@ async function handleAdminTimesheet(request, who, env) {
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
+      }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -5150,6 +5410,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         const p = parseJalaliYMD(dk.replace(/-/g, '/'));
         const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
         const calc = computeDayTimesheet(cal, punch, {
+          year: (p && p.y) || year, month: (p && p.m) || month, day: (p && p.d) || d,
           isHoliday: nonWork,
           floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
           earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
@@ -5338,6 +5599,15 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
     if (fixedDays === '' || fixedDays == null) fixedDays = null;
     else fixedDays = Number(fixedDays);
     if (fixedDays != null && (!isFinite(fixedDays) || fixedDays < 1)) fixedDays = null;
+    var bl = [];
+    if (Array.isArray(t.blacklistCodes)) {
+      bl = t.blacklistCodes.map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    } else if (t.blacklistCodes != null && String(t.blacklistCodes).trim()) {
+      bl = String(t.blacklistCodes).split(/[,،;]+/).map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    }
+    // unique
+    var blSeen = {};
+    bl = bl.filter(function (c) { if (blSeen[c]) return false; blSeen[c] = true; return true; });
     return {
       id: String(t.id || ('t_' + i + '_' + Date.now().toString(36))),
       name: String(t.name || '').trim() || ('نوع ' + (i + 1)),
@@ -5347,7 +5617,8 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
       fixedDays: fixedDays,
       frequency: normalizeFreq(t.frequency),
       requiresAdminGrant: !!t.requiresAdminGrant,
-      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0))
+      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0)),
+      blacklistCodes: bl
     };
   }).filter(function (t) { return t.name; });
 
@@ -5377,7 +5648,7 @@ async function handleEmpAttendanceTypes(request, env) {
   if (!types.length) types = defaultAttendanceTypes();
   const allReqs = (gd.obj && gd.obj.attendanceRequests) || [];
   const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
-    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId;
+    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId && !g.revoked && !g.revokedAt;
   });
   const settings = (gd.obj && gd.obj.settings) || {};
   const cy = Number(settings.currentYear) || 1405;
@@ -5398,6 +5669,11 @@ async function handleEmpAttendanceTypes(request, env) {
 
   const visible = types.filter(function (t) {
     if (!t) return false;
+    // لیست سیاه: این افراد این نوع را نمی‌بینند
+    if (Array.isArray(t.blacklistCodes) && t.blacklistCodes.length) {
+      const code = String(sess.code);
+      if (t.blacklistCodes.map(String).indexOf(code) >= 0) return false;
+    }
     // admin-grant types: only if open unused grant
     if (t.requiresAdminGrant) {
       return grants.some(function (g) { return String(g.typeId) === String(t.id); });
@@ -5528,15 +5804,97 @@ async function handleAdminGrantAttendance(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  function grantStatus(g) {
+    if (!g) return 'unknown';
+    if (g.revoked || g.revokedAt) return 'revoked';
+    if (g.consumed || g.usedRequestId) return 'used';
+    // تاریخ پایان گذشته؟
+    try {
+      const to = g.dateTo || g.dateFrom || g.date || '';
+      if (to) {
+        const p = parseJalaliYMD(to);
+        const cy = Number(((arguments[0] && arguments[0].settings) || {}).currentYear);
+        // فقط با مقایسه رشته yyyy-mm-dd
+        const key = dateKey(to);
+        const today = (function () {
+          // از تنظیمات سیستم اگر موجود
+          return null;
+        })();
+        // بدون تقویم میلادی دقیق: فقط اگر dateTo با start درخواست بعدتر باشد در درخواست چک می‌شود
+      }
+    } catch (e0) {}
+    return 'open';
+  }
+
+  // GET: فهرست همه مجوزها
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const list = ((gd.obj && gd.obj.attendanceGrants) || []).map(function (g) {
+      const st = (g.revoked || g.revokedAt) ? 'revoked' : ((g.consumed || g.usedRequestId) ? 'used' : 'open');
+      return {
+        id: g.id,
+        empCode: g.empCode,
+        empName: g.empName || '',
+        typeId: g.typeId,
+        typeName: g.typeName || '',
+        dateFrom: g.dateFrom || g.date || '',
+        dateTo: g.dateTo || g.dateFrom || g.date || '',
+        grantedBy: g.grantedBy || '',
+        grantedAt: g.grantedAt || '',
+        usedRequestId: g.usedRequestId || null,
+        consumed: !!g.consumed,
+        revoked: !!(g.revoked || g.revokedAt),
+        revokedAt: g.revokedAt || null,
+        revokedBy: g.revokedBy || null,
+        status: st
+      };
+    });
+    return jsonResponse({ ok: true, grants: list });
+  }
+
   const r = await readBody(request);
   if (r.error) return r.error;
+  const action = String(r.body.action || 'create').trim();
+
+  // لغو زودهنگام / حذف
+  if (action === 'revoke' || action === 'delete') {
+    const id = String(r.body.id || r.body.grantId || '').trim();
+    if (!id) return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه مجوز الزامی است.' }, 400);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const gd = await storeGetData(cfg);
+      if (gd.fail) return storeFailResponse(gd.fail);
+      if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+      if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+      const idx = gd.obj.attendanceGrants.findIndex(function (g) { return g && String(g.id) === id; });
+      if (idx < 0) return jsonResponse({ ok: false, error: 'not_found', message: 'مجوز یافت نشد.' }, 404);
+      const g = gd.obj.attendanceGrants[idx];
+      if (action === 'delete') {
+        gd.obj.attendanceGrants.splice(idx, 1);
+      } else {
+        g.revoked = true;
+        g.revokedAt = new Date().toISOString();
+        g.revokedBy = who.name;
+        // اگر رزرو شده با درخواست باز، رزرو را آزاد کن (درخواست همچنان باقی است تا ادمین/مدیر رد کند)
+        g.reservedRequestId = null;
+      }
+      const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+      if (put.fail) return storeFailResponse(put.fail);
+      if (put.conflict) continue;
+      return jsonResponse({ ok: true, action: action, grant: g });
+    }
+    return jsonResponse({ ok: false, error: 'conflict' }, 409);
+  }
+
+  // صدور مجوز جدید
   const empCode = String(r.body.empCode || '').trim();
   const typeId = String(r.body.typeId || '').trim();
   const dateFrom = String(r.body.dateFrom || r.body.date || '').trim();
   const dateTo = String(r.body.dateTo || r.body.dateFrom || r.body.date || '').trim();
   if (!empCode || !typeId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و نوع الزامی است.' }, 400);
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   for (let attempt = 0; attempt < 4; attempt++) {
     const gd = await storeGetData(cfg);
     if (gd.fail) return storeFailResponse(gd.fail);
@@ -5560,6 +5918,10 @@ async function handleAdminGrantAttendance(request, who, env) {
       grantedBy: who.name,
       grantedAt: new Date().toISOString(),
       usedRequestId: null,
+      consumed: false,
+      revoked: false,
+      revokedAt: null,
+      revokedBy: null,
       allowAdvance: !!(r.body.allowAdvance || tdef.allowAdvance || (tdef.deductFromEntitlement && String(tdef.id || '').indexOf('leave') === 0))
     };
     gd.obj.attendanceGrants.unshift(grant);
@@ -5715,7 +6077,14 @@ async function handleAdminGetHolidays(request, who, env) {
   const ct = String(urlCt.searchParams.get('contractType') || 'normal').trim() || 'normal';
   const cal = getContractCalendar(gd.obj, ct);
   const by = cal.holidaysByYear || {};
-  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [] });
+  const allDs = cal.daySchedules || {};
+  const yearPrefix = String(year) + '/';
+  const yearPrefix2 = String(year) + '-';
+  const daySchedules = {};
+  Object.keys(allDs).forEach(function (k) {
+    if (k.indexOf(yearPrefix) === 0 || k.indexOf(yearPrefix2) === 0) daySchedules[k.replace(/-/g, '/')] = allDs[k];
+  });
+  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [], daySchedules: daySchedules, defaultSchedule: normalizeWorkSchedule(cal) });
 }
 
 async function handleAdminSaveHolidays(request, who, env) {
@@ -5763,6 +6132,30 @@ async function handleAdminSaveHolidays(request, who, env) {
     gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days.slice();
     if (!gd.obj.settings.contractCalendars[ct]._seededYears) gd.obj.settings.contractCalendars[ct]._seededYears = {};
     gd.obj.settings.contractCalendars[ct]._seededYears[String(year)] = true; // حتی اگر خالی — دیگر پیش‌فرض نریز
+    // برنامه موظفی روزانه (اولویت بر ساعت کلی نوع قرارداد)
+    if (r.body.daySchedules != null && typeof r.body.daySchedules === 'object') {
+      if (!gd.obj.settings.contractCalendars[ct].daySchedules) gd.obj.settings.contractCalendars[ct].daySchedules = {};
+      const ds = gd.obj.settings.contractCalendars[ct].daySchedules;
+      const yearPrefix = String(year) + '/';
+      // حذف برنامه‌های همان سال سپس نوشتن جدید
+      Object.keys(ds).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) === 0) delete ds[k];
+      });
+      Object.keys(r.body.daySchedules).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) !== 0) return;
+        const v = r.body.daySchedules[k];
+        if (!v || typeof v !== 'object') return;
+        if (!v.workStart && !v.workEnd) return;
+        ds[kk] = {
+          workStart: v.workStart ? String(v.workStart).trim() : '',
+          workEnd: v.workEnd ? String(v.workEnd).trim() : '',
+          dayEnd: v.dayEnd ? String(v.dayEnd).trim() : '',
+          floatMinutes: v.floatMinutes != null && v.floatMinutes !== '' ? Number(v.floatMinutes) : null
+        };
+      });
+    }
     if (ct === 'normal') {
       if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
       gd.obj.settings.holidaysByYear[String(year)] = days.slice();
@@ -6202,6 +6595,12 @@ async function route(request, env, users, found) {
     if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
     return handleAdminSavePortalView(request, who, env);
   }
+  if (path === '/api/admin/user-access') {
+    if (request.method === 'GET') return handleAdminGetUserAccess(request, who, env);
+    return handleAdminSaveUserAccess(request, who, env);
+  }
+  if (path === '/api/admin/employee-history') return handleAdminEmployeeHistory(request, who, env);
+  if (path === '/api/admin/contracts-report') return handleAdminContractsReport(request, who, env);
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
@@ -6214,7 +6613,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
-    return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
+    return new Response(PORTAL_ADMIN_JS, {
       status: 200,
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -6513,6 +6912,161 @@ async function handleEmpProfile(request, env) {
   return jsonResponse({ ok: true, fields: fields });
 }
 
+
+function defaultUserAccess() {
+  return {
+    portalTabs: {
+      work: true,
+      leaveDaily: true,
+      leaveHourly: true,
+      missionDaily: true,
+      missionHourly: true,
+      ot: true,
+      night: true,
+      absenceHourly: true
+    },
+    timesheetCols: {
+      punch: true,
+      work: true,
+      ot: true,
+      night: true,
+      eot: true,
+      abs: true,
+      mis: true,
+      lv: true,
+      note: true
+    },
+    navTabs: {
+      payslip: true,
+      request: true,
+      mine: true,
+      timesheet: true,
+      decree: true,
+      profile: true,
+      contracts: true,
+      balances: true,
+      password: true
+    }
+  };
+}
+
+function normalizeUserAccess(raw) {
+  const d = defaultUserAccess();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const pt = r.portalTabs && typeof r.portalTabs === 'object' ? r.portalTabs : {};
+  const tc = r.timesheetCols && typeof r.timesheetCols === 'object' ? r.timesheetCols : {};
+  const nt = r.navTabs && typeof r.navTabs === 'object' ? r.navTabs : {};
+  Object.keys(d.portalTabs).forEach(function (k) {
+    if (pt[k] != null) d.portalTabs[k] = !!pt[k];
+  });
+  Object.keys(d.timesheetCols).forEach(function (k) {
+    if (tc[k] != null) d.timesheetCols[k] = !!tc[k];
+  });
+  Object.keys(d.navTabs).forEach(function (k) {
+    if (nt[k] != null) d.navTabs[k] = !!nt[k];
+  });
+  return d;
+}
+
+
+async function handleAdminEmployeeHistory(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const url = new URL(request.url);
+  const code = String(url.searchParams.get('code') || url.searchParams.get('empCode') || '').trim();
+  const log = (gd.obj && gd.obj.employeeChangeLog) || {};
+  if (code) {
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === code; });
+    const rows = Array.isArray(log[code]) ? log[code].slice().reverse() : [];
+    return jsonResponse({ ok: true, code: code, fullName: emp ? (emp.fullName || '') : '', rows: rows });
+  }
+  // summary: last change per employee
+  const summary = Object.keys(log).map(function (c) {
+    const rows = log[c] || [];
+    const last = rows.length ? rows[rows.length - 1] : null;
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(c); });
+    return {
+      code: c,
+      fullName: emp ? (emp.fullName || '') : '',
+      count: rows.length,
+      lastAt: last ? last.at : null,
+      lastText: last ? last.text : ''
+    };
+  }).sort(function (a, b) { return String(b.lastAt || '').localeCompare(String(a.lastAt || '')); });
+  return jsonResponse({ ok: true, summary: summary });
+}
+
+async function handleAdminContractsReport(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const contracts = (gd.obj && gd.obj.contracts) || [];
+  const emps = (gd.obj && gd.obj.employees) || [];
+  const empMap = {};
+  emps.forEach(function (e) { if (e) empMap[String(e.code)] = e; });
+  const rows = (Array.isArray(contracts) ? contracts : []).map(function (c) {
+    const emp = empMap[String(c.empCode || c.code || '')] || {};
+    return {
+      empCode: c.empCode || c.code || '',
+      fullName: emp.fullName || c.fullName || '',
+      type: c.type || c.contractType || '',
+      duration: c.duration || c.months || '',
+      from: c.from || c.startDate || '',
+      to: c.to || c.endDate || '',
+      status: c.status || '',
+      signed: !!(c.signed || c.signedFile || c.fileUrl),
+      note: c.note || c.editNote || c.historyNote || '',
+      updatedAt: c.updatedAt || c.editedAt || ''
+    };
+  });
+  return jsonResponse({ ok: true, rows: rows, total: rows.length });
+}
+
+async function handleAdminGetUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) gd.obj = {};
+  if (!gd.obj.settings) gd.obj.settings = {};
+  const ua = normalizeUserAccess(gd.obj.settings.userAccess);
+  return jsonResponse({ ok: true, userAccess: ua });
+}
+
+async function handleAdminSaveUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) gd.obj = {};
+    if (!gd.obj.settings) gd.obj.settings = {};
+    gd.obj.settings.userAccess = normalizeUserAccess(r.body.userAccess || r.body);
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true, userAccess: gd.obj.settings.userAccess });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 async function handleAdminGetPortalView(request, who, env) {
   if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   if (who.role !== 'admin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -6607,6 +7161,11 @@ async function handleAdminSavePortalView(request, who, env) {
     profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
     profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : []
   };
+  // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
+  if (body.userAccess && typeof body.userAccess === 'object') {
+    if (!obj.settings) obj.settings = {};
+    obj.settings.userAccess = normalizeUserAccess(body.userAccess);
+  }
   // persist
   const put = await storePutData(cfgStore, gd.version || 0, obj, who.name || 'admin');
   if (put && put.fail) return storeFailResponse(put.fail);
@@ -6685,13 +7244,25 @@ async function handleAdminContracts(request, who, env) {
       codes.forEach(function (code) {
         const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(code); });
         if (!emp) { missing.push(code); return; }
+        var durM = body.durationMonths != null && body.durationMonths !== '' ? parseInt(body.durationMonths, 10) : null;
+        if (isNaN(durM)) durM = null;
+        var fn = emp.firstName || emp.name || '';
+        var ln = emp.lastName || emp.family || emp.familyName || '';
+        if (!fn && !ln && emp.fullName) {
+          var parts = String(emp.fullName).trim().split(/\s+/);
+          if (parts.length >= 2) { fn = parts[0]; ln = parts.slice(1).join(' '); }
+          else { fn = emp.fullName; }
+        }
         gd.obj.contracts.unshift({
           id: 'ctr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
           empCode: String(emp.code),
-          empName: emp.fullName || '',
+          empName: emp.fullName || ((fn + ' ' + ln).trim()),
+          empFirstName: fn,
+          empLastName: ln,
           startDate: startDate,
           endDate: endDate,
           type: type,
+          durationMonths: durM,
           note: note,
           status: 'pending',
           adminApproved: false,
@@ -6701,6 +7272,8 @@ async function handleAdminContracts(request, who, env) {
           visibleToEmployee: visibleEmp,
           signedFileName: '',
           signedUploadedAt: '',
+          editLog: [],
+          edited: false,
           createdAt: new Date().toISOString(),
           createdBy: who.name
         });
@@ -6733,6 +7306,45 @@ async function handleAdminContracts(request, who, env) {
       ctr.showDurationToEmployee = !!body.showDurationToEmployee;
     } else if (action === 'set_visible') {
       ctr.visibleToEmployee = !!body.visibleToEmployee;
+    } else if (action === 'edit') {
+      const prevStart = ctr.startDate || '';
+      const prevEnd = ctr.endDate || '';
+      const prevType = ctr.type || '';
+      const prevDur = ctr.durationMonths != null ? ctr.durationMonths : '';
+      if (body.startDate != null) ctr.startDate = String(body.startDate || '').trim();
+      if (body.endDate != null) ctr.endDate = String(body.endDate || '').trim();
+      if (body.type != null) ctr.type = String(body.type || '').trim() || ctr.type;
+      if (body.note != null) ctr.note = String(body.note || '').trim();
+      if (body.durationMonths != null && body.durationMonths !== '') {
+        const dm = parseInt(body.durationMonths, 10);
+        ctr.durationMonths = isNaN(dm) ? null : dm;
+      }
+      if (body.showDurationToEmployee != null) ctr.showDurationToEmployee = !!body.showDurationToEmployee;
+      if (body.visibleToEmployee != null) ctr.visibleToEmployee = !!body.visibleToEmployee;
+      const parts = [];
+      if (prevStart !== (ctr.startDate || '') || prevEnd !== (ctr.endDate || '')) {
+        parts.push('قرارداد از تاریخ ' + (prevStart || '—') + ' تا ' + (prevEnd || '—') + ' به ' + (ctr.startDate || '—') + ' تا ' + (ctr.endDate || '—') + ' تغییر یافت');
+      }
+      if (prevType && prevType !== (ctr.type || '')) {
+        parts.push('نوع از ' + prevType + ' به ' + (ctr.type || '') + ' تغییر یافت');
+      }
+      if (String(prevDur) !== String(ctr.durationMonths != null ? ctr.durationMonths : '')) {
+        parts.push('مدت از ' + (prevDur !== '' ? prevDur + ' ماه' : '—') + ' به ' + (ctr.durationMonths != null ? ctr.durationMonths + ' ماه' : '—') + ' تغییر یافت');
+      }
+      const noteEdit = String(body.editNote || '').trim();
+      if (noteEdit) parts.push(noteEdit);
+      if (!parts.length) parts.push('ویرایش شد');
+      const entry = {
+        at: new Date().toISOString(),
+        by: who.name,
+        text: parts.join('؛ ')
+      };
+      if (!Array.isArray(ctr.editLog)) ctr.editLog = [];
+      ctr.editLog.unshift(entry);
+      if (ctr.editLog.length > 30) ctr.editLog.length = 30;
+      ctr.editedAt = entry.at;
+      ctr.editedBy = who.name;
+      ctr.edited = true;
     } else if (action === 'upload_signed') {
       const fileName = String(body.fileName || '').trim().slice(0, 200);
       const fileData = String(body.fileData || '');
@@ -6816,21 +7428,7 @@ async function handleAdminPayrollContractCheck(request, who, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const emps = (gd.obj && gd.obj.employees) || [];
-  const contracts = (gd.obj && gd.obj.contracts) || [];
-  const unapproved = [];
-  emps.forEach(function (e) {
-    if (e.status === 'inactive') return;
-    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
-    const ok = mine.some(function (c) { return c.adminApproved && c.status !== 'terminated'; });
-    if (!ok) {
-      unapproved.push({
-        code: e.code,
-        fullName: e.fullName || '',
-        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
-      });
-    }
-  });
+  const unapproved = listEmployeesMissingContract(gd.obj || {});
   return jsonResponse({ ok: true, unapproved: unapproved });
 }
 
@@ -6995,6 +7593,7 @@ export default {
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
     if (url.pathname === '/api/emp/logout') return handleEmpLogout();
     if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
+    if (url.pathname === '/api/emp/features') return handleEmpFeatures(request, env);
     if (url.pathname === '/api/emp/payslip') return handleMyPayslip(request, env);
     if (url.pathname === '/api/emp/change-password') return handleEmpChangePassword(request, env);
     if (url.pathname === '/api/emp/request') return handleEmpCreateRequest(request, env);
@@ -7023,7 +7622,7 @@ export default {
           }
         );
       }
-      return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
+      return new Response(PORTAL_ADMIN_JS, {
         status: 200,
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
@@ -7107,6 +7706,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   .link { color: #0f766e; cursor: pointer; background: none; border: 0; font-family: inherit; font-size: 0.82rem; text-decoration: underline; padding: 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; background: #fff; padding: 6px; border-radius: 10px; }
   .tab { padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; font-size: 0.78rem; font-weight: 600; color: #0f766e; cursor: pointer; font-family: inherit; }
+  .tabs:not(.ua-ready) .tab[data-tab] { opacity: 0; pointer-events: none; }
+  .tabs.ua-ready .tab[data-tab] { opacity: 1; pointer-events: auto; }
   .tab.active { background: #0f766e; color: #fff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
@@ -7478,10 +8079,51 @@ async function doLogin(){
     if(j.mustChangePassword) setTimeout(function(){alert('رمز فعلی همان کد پرسنلی است. از بخش تغییر رمز عوض کنید.');},300);
   }catch(e){err.textContent='خطا در ارتباط با سرور.'}
 }
+function applyUserAccessUI(ua) {
+  window.__pspUserAccess = ua || window.__pspUserAccess || null;
+  ua = window.__pspUserAccess || {};
+  var nt = ua.navTabs || {};
+  var style = document.getElementById('pspUaStyle');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'pspUaStyle';
+    document.head.appendChild(style);
+  }
+  var css = '';
+  var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password'];
+  keys.forEach(function(k) {
+    var on = nt[k] == null ? true : !!nt[k];
+    if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}';
+    var btn = document.querySelector('.tab[data-tab="' + k + '"]');
+    if (btn) {
+      if (on) btn.style.removeProperty('display');
+      else btn.style.setProperty('display', 'none', 'important');
+    }
+  });
+  style.textContent = css;
+  var active = document.querySelector('.tabs .tab.active');
+  if (active && (active.style.display === 'none' || (nt[active.getAttribute('data-tab')] === false))) {
+    var all = document.querySelectorAll('.tabs .tab[data-tab]');
+    for (var i = 0; i < all.length; i++) {
+      var k2 = all[i].getAttribute('data-tab');
+      if (k2 === 'approve') continue;
+      var on2 = nt[k2] == null ? true : !!nt[k2];
+      if (on2) { showTab(k2); break; }
+    }
+  }
+  var tabsEl = document.querySelector('.tabs');
+  if (tabsEl) tabsEl.classList.add('ua-ready');
+}
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  if (j.userAccess) applyUserAccessUI(j.userAccess);
+  // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
+  fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(f){ if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {}); })
+    .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
   loadAttTypes();
 }
@@ -7556,24 +8198,64 @@ async function loadTimesheet(){
   var year=Number(document.getElementById('tsYear').value), month=Number(document.getElementById('tsMonth').value);
   try{
     var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
-    var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+        var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    if(!j.userAccess){
+      try{
+        var fr=await fetch('/api/emp/features?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+        var fj=await fr.json();
+        if(fj&&fj.ok&&fj.userAccess) j.userAccess=fj.userAccess;
+      }catch(eF){}
+    }
+    if(j.userAccess){ try{ applyUserAccessUI(j.userAccess); }catch(eA){} }
     var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
-    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
+
+    var ua=j.userAccess||window.__pspUserAccess||{}; var pt=ua.portalTabs||{}; var tc=ua.timesheetCols||{};
+    function _showTab(k){ return pt[k]==null?true:!!pt[k]; }
+    function _showCol(k){ return tc[k]==null?true:!!tc[k]; }
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+_hm(j.hourlyLeave)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+_hm(j.missionHours)+'</td><td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td><td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td><td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td></tr></table>';
+    html+='<table style="margin-top:8px"><tr>';
+    if(_showTab('work')) html+='<th>کارکرد</th>';
+    if(_showTab('leaveDaily')) html+='<th>مرخصی روزانه</th>';
+    if(_showTab('leaveHourly')) html+='<th>مرخصی ساعتی</th>';
+    if(_showTab('missionDaily')) html+='<th>مأموریت روزانه</th>';
+    if(_showTab('missionHourly')) html+='<th>مأموریت ساعتی</th>';
+    if(_showTab('ot')) html+='<th>اضافه‌کار</th>';
+    if(_showTab('night')) html+='<th>شب‌کاری</th>';
+    if(_showTab('absenceHourly')) html+='<th>غیبت ساعتی</th>';
+    html+='</tr><tr>';
+    if(_showTab('work')) html+='<td>'+(j.workDays!=null?j.workDays:0)+'</td>';
+    if(_showTab('leaveDaily')) html+='<td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td>';
+    if(_showTab('leaveHourly')) html+='<td>'+_hm(j.hourlyLeave)+'</td>';
+    if(_showTab('missionDaily')) html+='<td>'+(j.missionDays!=null?j.missionDays:0)+'</td>';
+    if(_showTab('missionHourly')) html+='<td>'+_hm(j.missionHours)+'</td>';
+    if(_showTab('ot')) html+='<td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td>';
+    if(_showTab('night')) html+='<td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td>';
+    if(_showTab('absenceHourly')) html+='<td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td>';
+    html+='</tr></table>';
     function _hm2(h){var m=Math.round((Number(h)||0)*60);if(m<=0)return '';var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> | اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> | غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b></p>';
+    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">';
+    if(_showTab('work')||_showCol('work')) html+='ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> ';
+    if(_showTab('ot')||_showCol('ot')) html+='| اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> ';
+    if(_showTab('night')||_showCol('night')) html+='| شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> ';
+    if(_showTab('absenceHourly')||_showCol('abs')) html+='| غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b>';
+    html+='</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
       var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
       var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
       html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
-      html+='<th style="'+thE+'width:58px">تاریخ</th>';
-      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
-      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه‌کار</th><th style="'+thE+'width:28px">شب‌کاری</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
-      html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
+      html+='<th style="'+thE+'width:40px">تاریخ</th>';
+      if(_showCol('punch')){ for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:22px" title="ورود'+hi+'">ورود'+hi+'</th><th style="'+thE+'width:22px" title="خروج'+hi+'">خروج'+hi+'</th>';} }
+      if(_showCol('work')) html+='<th style="'+thE+'width:28px">کارکرد</th>';
+      if(_showCol('ot')) html+='<th style="'+thE+'width:26px">اضافه‌کار</th>';
+      if(_showCol('night')) html+='<th style="'+thE+'width:26px">شب‌کاری</th>';
+      if(_showCol('eot')) html+='<th style="'+thE+'width:24px">اض.قبل</th>';
+      if(_showCol('abs')) html+='<th style="'+thE+'width:26px">غیبت‌س</th>';
+      if(_showCol('mis')) html+='<th style="'+thE+'width:70px">مأموریت</th>';
+      if(_showCol('lv')) html+='<th style="'+thE+'width:70px">مرخصی</th>';
+      if(_showCol('note')) html+='<th style="'+thE+'width:90px">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
@@ -7581,18 +8263,20 @@ async function loadTimesheet(){
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
         function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
-        for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
-        html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
-        html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:48px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td></tr>';
+        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.48rem">'+d.date+'</td>';
+        if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
+        if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
+        if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
+        if(_showCol('night')) html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
+        if(_showCol('eot')) html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
+        if(_showCol('abs')) html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
+        if(_showCol('mis')) html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('lv')) html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('note')) html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:90px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td>';
+        html+='</tr>';
       });
       html+='</tbody></table></div>';
+
     }
     document.getElementById('tsBox').innerHTML=html+'</div>';
   }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
