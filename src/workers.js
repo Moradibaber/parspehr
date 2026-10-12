@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v56" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v57" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -257,7 +257,7 @@ function diffEmployeeChanges(prev, next) {
       if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') en = false;
       if (ci.active === false || ci.active === 0) en = false;
       // مبلغ صفر و بدون فلگ فعال = معادل غیرفعال/خالی
-      if (!en || amt === 0) {
+      if (!en || !(amt > 0)) {
         m[name] = { key: 'off', label: 'غیرفعال' };
       } else {
         m[name] = { key: 'on:' + amt, label: String(amt) };
@@ -270,13 +270,20 @@ function diffEmployeeChanges(prev, next) {
   const names = {};
   Object.keys(pm).forEach(function (n) { names[n] = true; });
   Object.keys(nm).forEach(function (n) { names[n] = true; });
+  function isOffState(x) {
+    if (!x || x.key === 'off') return true;
+    var s = String(x.label || '').trim();
+    if (!s || s === '—' || s === 'غیرفعال' || s === 'حذف شد') return true;
+    var n = Number(String(s).replace(/,/g, ''));
+    if (isFinite(n) && n === 0) return true;
+    return false;
+  }
   Object.keys(names).forEach(function (n) {
     const a = pm[n] || { key: 'off', label: '—' };
     const b = nm[n] || { key: 'off', label: '—' };
-    // هر دو خاموش/صفر = بدون تغییر
     if (a.key === b.key) return;
-    // از نبودن به غیرفعال/صفر هم تغییر محسوب نشود
-    if (a.key === 'off' && b.key === 'off') return;
+    // 0 / غیرفعال / نبودن = معادل هم — ثبت نشود
+    if (isOffState(a) && isOffState(b)) return;
     out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: a.label, to: b.label });
   });
   return out;
