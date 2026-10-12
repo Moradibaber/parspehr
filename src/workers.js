@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v61" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v62" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6613,7 +6613,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
-    return new Response(PORTAL_ADMIN_JS, {
+    return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
       status: 200,
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -7622,7 +7622,7 @@ export default {
           }
         );
       }
-      return new Response(PORTAL_ADMIN_JS, {
+      return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
         status: 200,
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
