@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261011v50" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v51" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -243,35 +243,41 @@ function diffEmployeeChanges(prev, next) {
       out.push({ field: k, label: labels[k], from: a || '—', to: b || '—' });
     }
   });
-  // customItems by name
-  function itemMap(emp) {
+  // customItems by name — فقط تغییر واقعی مبلغ/فعال بودن (نه 0 در برابر غیرفعال)
+  function itemSig(emp) {
     const m = {};
-    (emp.customItems || emp.customs || []).forEach(function (ci) {
+    (emp.customItems || emp.customs || emp.items || []).forEach(function (ci) {
       if (!ci || !ci.name) return;
-      m[String(ci.name)] = {
-        amount: Number(ci.amount) || 0,
-        enabled: ci.enabled !== false && ci.enabled !== 0
-      };
+      const name = String(ci.name).trim();
+      if (!name) return;
+      const amount = Number(ci.amount);
+      const amt = isFinite(amount) ? amount : 0;
+      // فعال بودن: صریح false/0 = خاموش؛ در غیر این صورت اگر مبلغ > 0 یا enabled true
+      let en = true;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') en = false;
+      if (ci.active === false || ci.active === 0) en = false;
+      // مبلغ صفر و بدون فلگ فعال = معادل غیرفعال/خالی
+      if (!en || amt === 0) {
+        m[name] = { key: 'off', label: 'غیرفعال' };
+      } else {
+        m[name] = { key: 'on:' + amt, label: String(amt) };
+      }
     });
     return m;
   }
-  const pm = itemMap(prev);
-  const nm = itemMap(next);
+  const pm = itemSig(prev);
+  const nm = itemSig(next);
   const names = {};
   Object.keys(pm).forEach(function (n) { names[n] = true; });
   Object.keys(nm).forEach(function (n) { names[n] = true; });
   Object.keys(names).forEach(function (n) {
-    const a = pm[n];
-    const b = nm[n];
-    if (!a && b) {
-      out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: '—', to: (b.enabled ? (b.amount + '') : 'غیرفعال') });
-    } else if (a && !b) {
-      out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: (a.enabled ? (a.amount + '') : 'غیرفعال'), to: 'حذف شد' });
-    } else if (a && b && (a.amount !== b.amount || a.enabled !== b.enabled)) {
-      const fromS = a.enabled ? String(a.amount) : 'غیرفعال';
-      const toS = b.enabled ? String(b.amount) : 'غیرفعال';
-      if (fromS !== toS) out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: fromS, to: toS });
-    }
+    const a = pm[n] || { key: 'off', label: '—' };
+    const b = nm[n] || { key: 'off', label: '—' };
+    // هر دو خاموش/صفر = بدون تغییر
+    if (a.key === b.key) return;
+    // از نبودن به غیرفعال/صفر هم تغییر محسوب نشود
+    if (a.key === 'off' && b.key === 'off') return;
+    out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: a.label, to: b.label });
   });
   return out;
 }
