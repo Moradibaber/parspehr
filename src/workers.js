@@ -363,6 +363,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.family === undefined && p.family) e.family = p.family;
             if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
+            ['fatherName', 'mobile', 'address'].forEach(function (k) { if (e[k] === undefined && p[k] !== undefined) e[k] = p[k]; });
             if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
             // تاریخچه تغییرات کارت کارمند
@@ -5024,6 +5025,7 @@ function snapshotEmpExtra(obj, emp) {
   if (!obj || !emp || emp.code == null) return;
   ensureEmployeeExtras(obj);
   var code = String(emp.code);
+  var prevPer = (obj.employeeExtras[code] && obj.employeeExtras[code].personal) || {};
   // عکس فقط در employeePhotos — داخل extras نگذار (حجم همگام‌سازی)
   obj.employeeExtras[code] = {
     family: emp.family || { members: [] },
@@ -5036,6 +5038,13 @@ function snapshotEmpExtra(obj, emp) {
     hasPhoto: !!(obj.employeePhotos && obj.employeePhotos[code]) || !!emp.photo,
     updatedAt: new Date().toISOString()
   };
+  // نام پدر / موبایل / آدرس — با ذخیره فرم اصلی پاک نشوند
+  var per = {};
+  ['fatherName', 'mobile', 'address'].forEach(function (k) {
+    var v = emp[k];
+    per[k] = (v !== undefined && v !== null) ? String(v) : String(prevPer[k] || '');
+  });
+  obj.employeeExtras[code].personal = per;
   // customItems مربوط به بیمه تکمیلی را هم نگه دار
   var suppItems = (emp.customItems || []).filter(function (ci) {
     return ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''));
@@ -5053,6 +5062,11 @@ function applyEmpExtra(obj, emp) {
     if (Array.isArray(ex.systemMessages)) emp.systemMessages = ex.systemMessages;
     if (ex.childrenEligibleCount != null) emp.childrenEligibleCount = ex.childrenEligibleCount;
     if (ex.children != null) emp.children = ex.children;
+    if (ex.personal && typeof ex.personal === 'object') {
+      ['fatherName', 'mobile', 'address'].forEach(function (k) {
+        if (ex.personal[k] !== undefined) emp[k] = ex.personal[k];
+      });
+    }
     emp.suppInsuranceDeduct = !!ex.suppInsuranceDeduct;
     emp.suppInsuranceDeductCount = Number(ex.suppInsuranceDeductCount) || 0;
     if (Array.isArray(ex.suppCustomItems) && ex.suppCustomItems.length) {
