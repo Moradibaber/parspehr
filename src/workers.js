@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v86" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v87" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -7945,8 +7945,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>روزانه / ساعتی</label><select id="rqMode"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
     </div>
     <div class="grid2">
-      <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr" oninput="applyFixedEnd()"></div>
-      <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr" oninput="this.dataset.manual='1'"></div>
+      <div><label id="rqStartLabel">از تاریخ</label><select id="rqStart" dir="ltr" style="font-family:Consolas,monospace;" onchange="applyFixedEnd()"></select></div>
+      <div id="rqEndWrap"><label>تا تاریخ</label><select id="rqEnd" dir="ltr" style="font-family:Consolas,monospace;" onchange="this.dataset.manual='1'"></select></div>
     </div>
     <div class="grid2 hidden" id="rqTimeWrap">
       <div><label>از ساعت</label><input id="rqFrom" type="time" value="08:00"></div>
@@ -8007,6 +8007,7 @@ function showTab(name){
   if(name==='timesheet') loadTimesheet();
   if(name==='decree') loadDecree();
   if(name==='profile') loadProfile();
+  if(name==='request'){ try{ fillRqDateSelects(); }catch(e){} }
   if(name==='contracts') loadContractsEmp();
   if(name==='balances') loadBalancesEmp();
   if(name==='payslip') loadPayslipArchive();
@@ -8194,6 +8195,43 @@ function addJDays(startStr,nDays){
   }
   return y+'/'+String(mo).padStart(2,'0')+'/'+String(d).padStart(2,'0');
 }
+function jalaliDaysInMonth(y,m){
+  y=Number(y)||1405; m=Number(m)||1;
+  if(m<=6) return 31;
+  if(m<=11) return 30;
+  var cy2=y-1309; var mod=((cy2%33)+33)%33;
+  var breaks=[1,5,9,13,17,22,26,30];
+  return breaks.indexOf(mod)>=0?30:29;
+}
+function pad2(n){ n=Number(n)||0; return (n<10?'0':'')+n; }
+function fillRqDateSelects(){
+  var yEl=document.getElementById('tsYear')||document.getElementById('psYear');
+  var mEl=document.getElementById('tsMonth')||document.getElementById('psMonth');
+  var y=yEl?Number(yEl.value):0;
+  var m=mEl?Number(mEl.value):0;
+  if(!y||!m){ try{ if(window.__pspYm){ y=window.__pspYm.y; m=window.__pspYm.m; } }catch(e){} }
+  if(!y) y=1405; if(!m) m=1;
+  var dim=jalaliDaysInMonth(y,m);
+  var start=document.getElementById('rqStart');
+  var end=document.getElementById('rqEnd');
+  if(!start||!end) return;
+  function fill(sel){
+    var prev=sel.value||'';
+    sel.innerHTML='';
+    for(var d=1; d<=dim; d++){
+      var v=y+'/'+pad2(m)+'/'+pad2(d);
+      var opt=document.createElement('option');
+      opt.value=v; opt.textContent=v;
+      sel.appendChild(opt);
+    }
+    if(prev){ for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===prev){ sel.selectedIndex=i; return; } } }
+    if(sel.options.length) sel.selectedIndex=0;
+  }
+  fill(start); fill(end);
+  start.style.fontFamily='Consolas,Tahoma,monospace';
+  end.style.fontFamily='Consolas,Tahoma,monospace';
+  start.dir='ltr'; end.dir='ltr';
+}
 function applyFixedEnd(){
   var id=document.getElementById('rqType').value;
   var t=attTypes.find(function(x){return String(x.id)===String(id)});
@@ -8237,6 +8275,7 @@ async function loadAttTypes(){
     var j=await r.json();
     if(!j.ok) return;
     attTypes=j.types||[];
+    try{ fillRqDateSelects(); }catch(eF){}
     var sel=document.getElementById('rqType');
     sel.innerHTML=attTypes.map(function(t){return '<option value="'+t.id+'">'+t.name+(t.kind==='mission'?' (مأموریت)':' (مرخصی)')+'</option>'}).join('')||'<option value="">—</option>';
     onTypeChange();
