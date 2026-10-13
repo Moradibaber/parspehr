@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261012v62" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v72" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -363,8 +363,32 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.family === undefined && p.family) e.family = p.family;
             if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
-            ['fatherName', 'mobile', 'address'].forEach(function (k) { if (e[k] === undefined && p[k] !== undefined) e[k] = p[k]; });
+            ['fatherName', 'mobile', 'address', 'phone'].forEach(function (k) {
+              var inc = e[k];
+              var prev = p[k];
+              var incEmpty = (inc === undefined || inc === null || String(inc).trim() === '');
+              var prevHas = (prev !== undefined && prev !== null && String(prev).trim() !== '');
+              if (incEmpty && prevHas) e[k] = prev;
+            });
+            if ((!e.mobile || String(e.mobile).trim() === '') && e.phone) e.mobile = e.phone;
+            if ((!e.phone || String(e.phone).trim() === '') && e.mobile) e.phone = e.mobile;
             if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
+
+            try {
+              var ex = (obj.employeeExtras && obj.employeeExtras[codeKey]) || (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {};
+              var per = (ex && ex.personal) || {};
+              if ((!e.fatherName || String(e.fatherName).trim() === '') && per.fatherName) e.fatherName = per.fatherName;
+              if ((!e.mobile || String(e.mobile).trim() === '') && (per.mobile || per.phone)) e.mobile = per.mobile || per.phone;
+              if ((!e.address || String(e.address).trim() === '') && per.address) e.address = per.address;
+              if (!obj.employeeExtras) obj.employeeExtras = {};
+              if (!obj.employeeExtras[codeKey] || typeof obj.employeeExtras[codeKey] !== 'object') obj.employeeExtras[codeKey] = Object.assign({}, (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {});
+              obj.employeeExtras[codeKey].personal = {
+                fatherName: e.fatherName || '',
+                mobile: e.mobile || e.phone || '',
+                address: e.address || ''
+              };
+            } catch (ePer) {}
+
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
             // تاریخچه تغییرات کارت کارمند
             try {
@@ -966,7 +990,38 @@ async function handleEmpWhoami(request, env) {
       }
     }
   } catch (eUa) {}
-  const body = { ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess };
+  let personal = { nationalId: '', fatherName: '', mobile: '', address: '' };
+  try {
+    const cfg2 = storeConfig(env);
+    if (cfg2) {
+      const gd2 = await storeGetData(cfg2);
+      if (gd2 && gd2.obj && Array.isArray(gd2.obj.employees)) {
+        const emp = gd2.obj.employees.find(function (x) { return String(x.code) === String(sess.code); });
+        if (emp) {
+          personal.nationalId = emp.nationalId || emp.national_id || '';
+          personal.fatherName = emp.fatherName || '';
+          personal.mobile = emp.mobile || emp.phone || '';
+          personal.address = emp.address || '';
+        }
+        const ex = gd2.obj.employeeExtras && gd2.obj.employeeExtras[String(sess.code)];
+        if (ex && ex.personal) {
+          if (!personal.fatherName && ex.personal.fatherName) personal.fatherName = ex.personal.fatherName;
+          if (!personal.mobile && (ex.personal.mobile || ex.personal.phone)) personal.mobile = ex.personal.mobile || ex.personal.phone;
+          if (!personal.address && ex.personal.address) personal.address = ex.personal.address;
+        }
+      }
+    }
+  } catch (eP) {}
+  const body = {
+    ok: true,
+    code: sess.code,
+    fullName: sess.fullName,
+    userAccess: userAccess,
+    nationalId: personal.nationalId,
+    fatherName: personal.fatherName,
+    mobile: personal.mobile,
+    address: personal.address
+  };
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -5211,9 +5266,16 @@ async function handleAdminEmployeeExtra(request, who, env) {
       }
     }
     if (body.personal && typeof body.personal === 'object') {
-      emp.fatherName = String(body.personal.fatherName || '').trim().slice(0, 80);
-      emp.mobile = String(body.personal.mobile || '').trim().slice(0, 20);
-      emp.address = String(body.personal.address || '').trim().slice(0, 300);
+      var pf = String(body.personal.fatherName != null ? body.personal.fatherName : (emp.fatherName || '')).trim().slice(0, 80);
+      var pm = String(body.personal.mobile != null ? body.personal.mobile : (emp.mobile || emp.phone || '')).trim().slice(0, 20);
+      var pa = String(body.personal.address != null ? body.personal.address : (emp.address || '')).trim().slice(0, 300);
+      emp.fatherName = pf;
+      emp.mobile = pm;
+      emp.phone = pm;
+      emp.address = pa;
+      if (!gd.obj.employeeExtras || typeof gd.obj.employeeExtras !== 'object') gd.obj.employeeExtras = {};
+      if (!gd.obj.employeeExtras[empCode] || typeof gd.obj.employeeExtras[empCode] !== 'object') gd.obj.employeeExtras[empCode] = {};
+      gd.obj.employeeExtras[empCode].personal = { fatherName: pf, mobile: pm, address: pa };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
@@ -6635,7 +6697,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
-    return new Response(PORTAL_ADMIN_JS, {
+    return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
       status: 200,
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -7648,7 +7710,7 @@ export default {
           }
         );
       }
-      return new Response(PORTAL_ADMIN_JS, {
+      return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
         status: 200,
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
@@ -8144,6 +8206,25 @@ function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  try {
+    var box = document.getElementById('pspEmpProfile');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'pspEmpProfile';
+      box.style.cssText = 'font-size:0.78rem;color:#334155;margin-top:6px;line-height:1.7;display:flex;flex-wrap:wrap;gap:4px 14px;';
+      var tb = document.querySelector('#appCard .topbar');
+      if (tb && tb.parentNode) tb.parentNode.insertBefore(box, tb.nextSibling);
+      else {
+        var ac = document.getElementById('appCard');
+        if (ac) ac.insertBefore(box, ac.firstChild);
+      }
+    }
+    function cell(lab, val) {
+      if (!val) return '';
+      return '<span><b style="color:#0f766e">'+lab+':</b> '+String(val)+'</span>';
+    }
+    box.innerHTML = [cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile), cell('آدرس', j.address)].filter(Boolean).join('');
+  } catch (eProf) {}
   if (j.userAccess) applyUserAccessUI(j.userAccess);
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
   fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
