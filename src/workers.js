@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v79" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v80" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1007,7 +1007,7 @@ async function handleEmpWhoami(request, env) {
       }
     }
   } catch (eUa) {}
-  let personal = { nationalId: '', fatherName: '', mobile: '', address: '', birthDate: '', militaryStatus: '', militaryExemptType: '', jobGrade: '', educationLevel: '', educationField: '', city: '' };
+  let personal = { nationalId: '', fatherName: '', mobile: '', address: '', birthDate: '', militaryStatus: '', militaryExemptType: '', jobGrade: '', educationLevel: '', educationField: '', city: '', management: '', deputy: '', group: '', managementDeputy: '', unit: '', workplace: '', position: '' };
   try {
     const cfg2 = storeConfig(env);
     if (cfg2) {
@@ -1028,6 +1028,17 @@ async function handleEmpWhoami(request, env) {
           personal.educationLevel = emp.educationLevel || per.educationLevel || '';
           personal.educationField = emp.educationField || per.educationField || '';
           personal.city = emp.city || per.city || '';
+          personal.management = emp.management || '';
+          personal.deputy = emp.deputy || '';
+          personal.group = emp.group || '';
+          personal.unit = emp.unit || '';
+          personal.workplace = emp.workplace || '';
+          personal.position = emp.position || '';
+          personal.managementDeputy = emp.managementDeputy || emp.management || emp.deputy || '';
+          if (!personal.managementDeputy && emp.management && emp.deputy)
+            personal.managementDeputy = String(emp.management) + ' / ' + String(emp.deputy);
+          else if (!personal.managementDeputy)
+            personal.managementDeputy = emp.management || emp.deputy || '';
         }
       }
     }
@@ -8248,11 +8259,14 @@ function showApp(j){
     }
     var mil = j.militaryStatus || '';
     if (mil === 'معاف' && j.militaryExemptType) mil = mil + ' (' + j.militaryExemptType + ')';
+    var mgmt = j.managementDeputy || j.management || j.deputy || '';
+    if (!mgmt && j.management && j.deputy) mgmt = String(j.management) + ' / ' + String(j.deputy);
     var html = [
       cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile),
-      cell('تاریخ تولد', j.birthDate), cell('نظام وظیفه', mil),
+      cell('تاریخ تولد', j.birthDate),
+      cell('مدیریت / معاونت', mgmt), cell('گروه', j.group),
       cell('رده شغلی', j.jobGrade), cell('مقطع تحصیلی', j.educationLevel), cell('رشته تحصیلی', j.educationField),
-      cell('آدرس', j.address)
+      cell('نظام وظیفه', mil), cell('آدرس', j.address)
     ].filter(Boolean).join('');
     box.innerHTML = html || '<span style="color:#64748b">اطلاعات تکمیلی ثبت نشده</span>';
     box.style.display = 'flex';
