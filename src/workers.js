@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v90" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v91" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1043,31 +1043,27 @@ async function handleEmpWhoami(request, env) {
       }
     }
   } catch (eP) {}
-  let currentYear = 1405, currentMonth = 1;
   let realJalaliYear = 1405, realJalaliMonth = 1, realJalaliDay = 1;
+  let requestYear = 1405, requestMonth = 1, requestGraceDays = 0;
+  let adminYear = 1405, adminMonth = 1;
   try {
     const cfgS = storeConfig(env);
     if (cfgS) {
       const gdS = await storeGetData(cfgS);
-      if (gdS && gdS.obj && gdS.obj.settings) {
-        currentYear = Number(gdS.obj.settings.currentYear) || 1405;
-        currentMonth = Number(gdS.obj.settings.currentMonth) || Number(gdS.obj.settings.activeMonth) || 0;
-      }
+      const st = (gdS && gdS.obj && gdS.obj.settings) || {};
+      adminYear = Number(st.currentYear) || 1405;
+      adminMonth = Number(st.currentMonth) || Number(st.activeMonth) || 0;
+      const pc = getPortalRequestMonth(st);
+      realJalaliYear = pc.realYear; realJalaliMonth = pc.realMonth; realJalaliDay = pc.realDay;
+      requestYear = pc.requestYear; requestMonth = pc.requestMonth; requestGraceDays = pc.graceDays;
     }
   } catch (eS) {}
-  try {
-    const d = new Date();
-    const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-    if (j && j.y) {
-      realJalaliYear = j.y; realJalaliMonth = j.m; realJalaliDay = j.d;
-    }
-  } catch (eJ) {}
-  if (!currentMonth || currentMonth < 1 || currentMonth > 12) currentMonth = realJalaliMonth;
-  if (!currentYear) currentYear = realJalaliYear;
+  if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
   const body = Object.assign({
     ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess,
-    currentYear: currentYear, currentMonth: currentMonth,
-    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
+    requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
+    currentYear: adminYear, currentMonth: adminMonth
   }, personal);
   if (renew) {
     return new Response(JSON.stringify(body), {
@@ -1093,29 +1089,27 @@ async function handleEmpFeatures(request, env) {
       }
     }
   } catch (e) {}
-  let currentYear = 1405, currentMonth = 1;
-  let realJalaliYear = 1405, realJalaliMonth = 1;
+  let realJalaliYear = 1405, realJalaliMonth = 1, realJalaliDay = 1;
+  let requestYear = 1405, requestMonth = 1, requestGraceDays = 0;
+  let adminYear = 1405, adminMonth = 1;
   try {
     const cfg2 = storeConfig(env);
     if (cfg2) {
       const gd2 = await storeGetData(cfg2);
-      if (gd2 && !gd2.fail && gd2.obj && gd2.obj.settings) {
-        currentYear = Number(gd2.obj.settings.currentYear) || 1405;
-        currentMonth = Number(gd2.obj.settings.currentMonth) || Number(gd2.obj.settings.activeMonth) || 0;
-      }
+      const st = (gd2 && !gd2.fail && gd2.obj && gd2.obj.settings) ? gd2.obj.settings : {};
+      adminYear = Number(st.currentYear) || 1405;
+      adminMonth = Number(st.currentMonth) || Number(st.activeMonth) || 0;
+      const pc = getPortalRequestMonth(st);
+      realJalaliYear = pc.realYear; realJalaliMonth = pc.realMonth; realJalaliDay = pc.realDay;
+      requestYear = pc.requestYear; requestMonth = pc.requestMonth; requestGraceDays = pc.graceDays;
     }
   } catch (e2) {}
-  try {
-    const d2 = new Date();
-    const j2 = gregorianToJalali(d2.getFullYear(), d2.getMonth() + 1, d2.getDate());
-    if (j2 && j2.y) { realJalaliYear = j2.y; realJalaliMonth = j2.m; }
-  } catch (e3) {}
-  if (!currentMonth || currentMonth < 1 || currentMonth > 12) currentMonth = realJalaliMonth;
-  if (!currentYear) currentYear = realJalaliYear;
+  if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
   return jsonResponse({
     ok: true, userAccess: userAccess,
-    currentYear: currentYear, currentMonth: currentMonth,
-    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
+    requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
+    currentYear: adminYear, currentMonth: adminMonth
   });
 }
 
@@ -1463,18 +1457,22 @@ async function handleEmpCreateRequest(request, env) {
 
     // only current month (from settings) is allowed
     const settings = gd.obj.settings || {};
-    const cy = Number(settings.currentYear) || 1405;
-    let cm = Number(settings.currentMonth) || Number(settings.activeMonth) || 0;
+    const portalCal = getPortalRequestMonth(settings);
     const pStart = parseJalaliYMD(startDate);
     if (!pStart) return jsonResponse({ ok: false, error: 'bad_request', message: 'فرمت تاریخ نامعتبر است.' }, 400);
-    if (!cm) {
-      return jsonResponse({ ok: false, error: 'no_current_month', message: 'ماه جاری درخواست‌ها در سیستم تنظیم نشده. ادمین از تب «مأموریت/مرخصی و سایر» ماه جاری را ثبت کند.' }, 400);
+    let okMonth = (pStart.y === portalCal.realYear && pStart.m === portalCal.realMonth);
+    if (!okMonth && portalCal.graceDays > 0 && portalCal.realDay <= portalCal.graceDays) {
+      let py = portalCal.realYear, pm = portalCal.realMonth - 1;
+      if (pm < 1) { pm = 12; py -= 1; }
+      okMonth = (pStart.y === py && pStart.m === pm);
     }
-    const targetY = cy;
-    const targetM = cm;
-    if (pStart.y !== cy || pStart.m !== cm) {
-      return jsonResponse({ ok: false, error: 'wrong_month', message: 'فقط درخواست در ماه جاری سیستم (' + cy + '/' + cm + ') مجاز است.' }, 400);
+    if (!okMonth) {
+      let msg = 'فقط درخواست در ماه شمسی جاری (' + portalCal.realYear + '/' + portalCal.realMonth + ') مجاز است.';
+      if (portalCal.graceDays > 0) msg += ' تا ' + portalCal.graceDays + ' روز اول ماه، ماه قبل هم مجاز است.';
+      return jsonResponse({ ok: false, error: 'wrong_month', message: msg }, 400);
     }
+    const cy = portalCal.realYear;
+    const cm = portalCal.realMonth;
 
     // resolve type from admin-defined list
     let types = gd.obj.attendanceTypes || [];
@@ -4779,6 +4777,30 @@ function gregorianToJalali(gy, gm, gd) {
   else { jm = 7 + Math.floor((days - 186) / 30); jd = 1 + ((days - 186) % 30); }
   return { y: jy, m: jm, d: jd };
 }
+
+/** ماه مجاز درخواست مرخصی/مأموریت: ماه شمسی واقعی؛ تا N روز اول ماه بعد، ماه قبل هم مجاز */
+function getPortalRequestMonth(settings) {
+  settings = settings || {};
+  const d = new Date();
+  const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  let ry = (j && j.y) ? j.y : 1405;
+  let rm = (j && j.m) ? j.m : 1;
+  let rd = (j && j.d) ? j.d : 1;
+  let grace = Number(settings.requestGraceDays);
+  if (!isFinite(grace) || grace < 0) grace = 0;
+  if (grace > 31) grace = 31;
+  let reqY = ry, reqM = rm;
+  if (grace > 0 && rd <= grace) {
+    reqM = rm - 1;
+    if (reqM < 1) { reqM = 12; reqY = ry - 1; }
+  }
+  return {
+    realYear: ry, realMonth: rm, realDay: rd,
+    requestYear: reqY, requestMonth: reqM,
+    graceDays: grace
+  };
+}
+
 function parseImportDateToJalali(raw) {
   raw = String(raw || '').trim();
   if (!raw) return null;
@@ -5854,16 +5876,14 @@ async function handleEmpAttendanceTypes(request, env) {
     }
     return true;
   });
-  let cm = Number(settings.currentMonth) || Number(settings.activeMonth) || 0;
-  if (!cm || cm < 1 || cm > 12) {
-    try {
-      const d = new Date();
-      const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-      if (j && j.y) { cm = j.m; }
-    } catch (eC) {}
-    if (!cm) cm = 1;
-  }
-  return jsonResponse({ ok: true, types: visible, grants: grants, currentYear: cy, currentMonth: cm });
+  const pcAtt = getPortalRequestMonth(settings);
+  return jsonResponse({
+    ok: true, types: visible, grants: grants,
+    realJalaliYear: pcAtt.realYear, realJalaliMonth: pcAtt.realMonth, realJalaliDay: pcAtt.realDay,
+    requestYear: pcAtt.requestYear, requestMonth: pcAtt.requestMonth, requestGraceDays: pcAtt.graceDays,
+    currentYear: Number(settings.currentYear) || pcAtt.realYear,
+    currentMonth: Number(settings.currentMonth) || Number(settings.activeMonth) || pcAtt.realMonth
+  });
 }
 
 
@@ -6130,6 +6150,12 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     gd.obj.settings.currentYear = year;
     gd.obj.settings.currentMonth = month;
+    if (r.body.requestGraceDays != null) {
+      var gDays = Number(r.body.requestGraceDays);
+      if (!isFinite(gDays) || gDays < 0) gDays = 0;
+      if (gDays > 31) gDays = 31;
+      gd.obj.settings.requestGraceDays = gDays;
+    }
     ensureContractCalendars(gd.obj);
     const ct = String(r.body.contractType || 'normal').trim() || 'normal';
     if (!gd.obj.settings.contractCalendars[ct]) {
@@ -8262,13 +8288,10 @@ function jalaliDaysInMonth(y,m){
 }
 function pad2(n){ n=Number(n)||0; return (n<10?'0':'')+n; }
 function fillRqDateSelects(){
-  var yEl=document.getElementById('tsYear')||document.getElementById('psYear');
-  var mEl=document.getElementById('tsMonth')||document.getElementById('psMonth');
-  var y=yEl?Number(yEl.value):0;
-  var m=mEl?Number(mEl.value):0;
-  if(!y||!m){ try{ if(window.__pspYm){ y=window.__pspYm.y; m=window.__pspYm.m; } }catch(e){} }
+  var y=0, m=0;
+  try{ if(window.__pspRequestYm){ y=Number(window.__pspRequestYm.y)||0; m=Number(window.__pspRequestYm.m)||0; } }catch(e){}
+  if(!y||!m){ try{ if(window.__pspYm){ y=Number(window.__pspYm.realY||window.__pspYm.y)||0; m=Number(window.__pspYm.realM||window.__pspYm.m)||0; } }catch(e2){} }
   if(!y) y=1405; if(!m) m=1;
-  try{ window.__pspYm = Object.assign({}, window.__pspYm||{}, { y:y, m:m }); }catch(e0){}
   var dim=jalaliDaysInMonth(y,m);
   var start=document.getElementById('rqStart');
   var end=document.getElementById('rqEnd');
@@ -8290,16 +8313,6 @@ function fillRqDateSelects(){
   end.style.fontFamily='Consolas,Tahoma,monospace';
   start.dir='ltr'; end.dir='ltr';
 }
-(function wireCalSelects(){
-  if(window.__pspCalWired) return; window.__pspCalWired=true;
-  ['tsYear','tsMonth','psYear','psMonth','year','month'].forEach(function(id){
-    var el=document.getElementById(id);
-    if(!el) return;
-    el.addEventListener('change', function(){
-      try{ fillRqDateSelects(); }catch(e){}
-    });
-  });
-})();
 function applyFixedEnd(){
   var id=document.getElementById('rqType').value;
   var t=attTypes.find(function(x){return String(x.id)===String(id)});
@@ -8399,18 +8412,24 @@ function applyUserAccessUI(ua) {
 }
 function applyPortalCalendar(src){
   if(!src) return;
-  var y = Number(src.currentYear) || Number(src.realJalaliYear) || 0;
-  var m = Number(src.currentMonth) || Number(src.realJalaliMonth) || 0;
-  if(!y || !m) return;
-  try{ window.__pspYm = { y: y, m: m, realY: src.realJalaliYear, realM: src.realJalaliMonth }; }catch(e){}
+  var ry = Number(src.realJalaliYear) || 0;
+  var rm = Number(src.realJalaliMonth) || 0;
+  var qy = Number(src.requestYear) || ry;
+  var qm = Number(src.requestMonth) || rm;
+  if(!ry || !rm){ ry = qy; rm = qm; }
+  if(!ry || !rm) return;
+  try{
+    window.__pspYm = { y: ry, m: rm, realY: ry, realM: rm };
+    window.__pspRequestYm = { y: qy, m: qm, grace: Number(src.requestGraceDays)||0 };
+  }catch(e){}
   function setVal(id, val){
     var el = document.getElementById(id);
     if(!el) return;
     el.value = String(val);
   }
-  setVal('tsYear', y); setVal('tsMonth', m);
-  setVal('psYear', y); setVal('psMonth', m);
-  setVal('year', y); setVal('month', m);
+  setVal('tsYear', ry); setVal('tsMonth', rm);
+  setVal('psYear', ry); setVal('psMonth', rm);
+  setVal('year', ry); setVal('month', rm);
   try{ fillRqDateSelects(); }catch(e2){}
 }
 function showApp(j){
