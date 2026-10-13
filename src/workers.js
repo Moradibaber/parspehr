@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v78" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v79" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -8234,7 +8234,7 @@ function showApp(j){
     if (!box) {
       box = document.createElement('div');
       box.id = 'pspEmpProfile';
-      box.style.cssText = 'font-size:0.78rem;color:#334155;margin-top:6px;line-height:1.7;display:flex;flex-wrap:wrap;gap:4px 14px;';
+      box.style.cssText = 'font-size:0.8rem;color:#334155;margin:8px 0 10px;padding:8px 10px;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;line-height:1.85;display:flex;flex-wrap:wrap;gap:4px 16px;';
       var tb = document.querySelector('#appCard .topbar');
       if (tb && tb.parentNode) tb.parentNode.insertBefore(box, tb.nextSibling);
       else {
@@ -8243,15 +8243,19 @@ function showApp(j){
       }
     }
     function cell(lab, val) {
-      if (!val) return '';
-      return '<span><b style="color:#0f766e">'+lab+':</b> '+String(val)+'</span>';
+      if (val == null || String(val).trim() === '') return '';
+      return '<span style="min-width:140px"><b style="color:#0f766e">'+lab+':</b> '+String(val)+'</span>';
     }
-    box.innerHTML = [
+    var mil = j.militaryStatus || '';
+    if (mil === 'معاف' && j.militaryExemptType) mil = mil + ' (' + j.militaryExemptType + ')';
+    var html = [
       cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile),
-      cell('تاریخ تولد', j.birthDate), cell('نظام وظیفه', j.militaryStatus), cell('نوع معافیت', j.militaryExemptType),
+      cell('تاریخ تولد', j.birthDate), cell('نظام وظیفه', mil),
       cell('رده شغلی', j.jobGrade), cell('مقطع تحصیلی', j.educationLevel), cell('رشته تحصیلی', j.educationField),
       cell('آدرس', j.address)
     ].filter(Boolean).join('');
+    box.innerHTML = html || '<span style="color:#64748b">اطلاعات تکمیلی ثبت نشده</span>';
+    box.style.display = 'flex';
   } catch (eProf) {}
   if (j.userAccess) applyUserAccessUI(j.userAccess);
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
