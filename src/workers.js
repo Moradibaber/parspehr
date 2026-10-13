@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v76" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v77" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -192,11 +192,18 @@ function employeeFieldLabels() {
     fullName: 'نام و نام خانوادگی',
     firstName: 'نام',
     lastName: 'نام خانوادگی',
+    birthDate: 'تاریخ تولد',
     management: 'مدیریت',
     deputy: 'معاونت',
     unit: 'واحد',
     group: 'گروه',
+    jobGrade: 'رده شغلی',
     workplace: 'محل کار',
+    city: 'شهر محل سکونت',
+    militaryStatus: 'وضعیت نظام وظیفه',
+    militaryExemptType: 'نوع معافیت نظام وظیفه',
+    educationLevel: 'مقطع تحصیلی',
+    educationField: 'رشته تحصیلی',
     hireDate: 'تاریخ استخدام',
     endDate: 'تاریخ پایان همکاری',
     position: 'سمت',
@@ -363,7 +370,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.family === undefined && p.family) e.family = p.family;
             if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
-            ['fatherName', 'mobile', 'address', 'phone'].forEach(function (k) {
+            ['fatherName','mobile','address','phone','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function (k) {
               var inc = e[k];
               var prev = p[k];
               var incEmpty = (inc === undefined || inc === null || String(inc).trim() === '');
@@ -380,12 +387,22 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               if ((!e.fatherName || String(e.fatherName).trim() === '') && per.fatherName) e.fatherName = per.fatherName;
               if ((!e.mobile || String(e.mobile).trim() === '') && (per.mobile || per.phone)) e.mobile = per.mobile || per.phone;
               if ((!e.address || String(e.address).trim() === '') && per.address) e.address = per.address;
+              ['birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function(pk){
+                if ((!e[pk] || String(e[pk]).trim() === '') && per[pk]) e[pk] = per[pk];
+              });
               if (!obj.employeeExtras) obj.employeeExtras = {};
               if (!obj.employeeExtras[codeKey] || typeof obj.employeeExtras[codeKey] !== 'object') obj.employeeExtras[codeKey] = Object.assign({}, (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {});
               obj.employeeExtras[codeKey].personal = {
                 fatherName: e.fatherName || '',
                 mobile: e.mobile || e.phone || '',
-                address: e.address || ''
+                address: e.address || '',
+                birthDate: e.birthDate || '',
+                militaryStatus: e.militaryStatus || '',
+                militaryExemptType: e.militaryExemptType || '',
+                jobGrade: e.jobGrade || '',
+                educationLevel: e.educationLevel || '',
+                educationField: e.educationField || '',
+                city: e.city || ''
               };
             } catch (ePer) {}
 
@@ -990,38 +1007,32 @@ async function handleEmpWhoami(request, env) {
       }
     }
   } catch (eUa) {}
-  let personal = { nationalId: '', fatherName: '', mobile: '', address: '' };
+  let personal = { nationalId: '', fatherName: '', mobile: '', address: '', birthDate: '', militaryStatus: '', militaryExemptType: '', jobGrade: '', educationLevel: '', educationField: '', city: '' };
   try {
     const cfg2 = storeConfig(env);
     if (cfg2) {
       const gd2 = await storeGetData(cfg2);
       if (gd2 && gd2.obj && Array.isArray(gd2.obj.employees)) {
         const emp = gd2.obj.employees.find(function (x) { return String(x.code) === String(sess.code); });
+        const ex = gd2.obj.employeeExtras && gd2.obj.employeeExtras[String(sess.code)];
+        const per = (ex && ex.personal) || {};
         if (emp) {
           personal.nationalId = emp.nationalId || emp.national_id || '';
-          personal.fatherName = emp.fatherName || '';
-          personal.mobile = emp.mobile || emp.phone || '';
-          personal.address = emp.address || '';
-        }
-        const ex = gd2.obj.employeeExtras && gd2.obj.employeeExtras[String(sess.code)];
-        if (ex && ex.personal) {
-          if (!personal.fatherName && ex.personal.fatherName) personal.fatherName = ex.personal.fatherName;
-          if (!personal.mobile && (ex.personal.mobile || ex.personal.phone)) personal.mobile = ex.personal.mobile || ex.personal.phone;
-          if (!personal.address && ex.personal.address) personal.address = ex.personal.address;
+          personal.fatherName = emp.fatherName || per.fatherName || '';
+          personal.mobile = emp.mobile || emp.phone || per.mobile || '';
+          personal.address = emp.address || per.address || '';
+          personal.birthDate = emp.birthDate || per.birthDate || '';
+          personal.militaryStatus = emp.militaryStatus || per.militaryStatus || '';
+          personal.militaryExemptType = emp.militaryExemptType || per.militaryExemptType || '';
+          personal.jobGrade = emp.jobGrade || per.jobGrade || '';
+          personal.educationLevel = emp.educationLevel || per.educationLevel || '';
+          personal.educationField = emp.educationField || per.educationField || '';
+          personal.city = emp.city || per.city || '';
         }
       }
     }
   } catch (eP) {}
-  const body = {
-    ok: true,
-    code: sess.code,
-    fullName: sess.fullName,
-    userAccess: userAccess,
-    nationalId: personal.nationalId,
-    fatherName: personal.fatherName,
-    mobile: personal.mobile,
-    address: personal.address
-  };
+  const body = Object.assign({ ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess }, personal);
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -5192,7 +5203,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenCount: Number(emp.children) || 0,
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
-      personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; return { fatherName: emp.fatherName || ex.fatherName || '', mobile: emp.mobile || emp.phone || ex.mobile || '', address: emp.address || ex.address || '' }; })(),
+      personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; function g(k){ return emp[k] || ex[k] || ''; } return { fatherName: g('fatherName'), mobile: emp.mobile || emp.phone || ex.mobile || '', address: g('address'), birthDate: g('birthDate'), militaryStatus: g('militaryStatus'), militaryExemptType: g('militaryExemptType'), jobGrade: g('jobGrade'), educationLevel: g('educationLevel'), educationField: g('educationField'), city: g('city') }; })(),
       photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
@@ -5266,16 +5277,28 @@ async function handleAdminEmployeeExtra(request, who, env) {
       }
     }
     if (body.personal && typeof body.personal === 'object') {
-      var pf = String(body.personal.fatherName != null ? body.personal.fatherName : (emp.fatherName || '')).trim().slice(0, 80);
-      var pm = String(body.personal.mobile != null ? body.personal.mobile : (emp.mobile || emp.phone || '')).trim().slice(0, 20);
-      var pa = String(body.personal.address != null ? body.personal.address : (emp.address || '')).trim().slice(0, 300);
-      emp.fatherName = pf;
-      emp.mobile = pm;
-      emp.phone = pm;
-      emp.address = pa;
+      function pstr(k, max, fallback) {
+        if (body.personal[k] != null) return String(body.personal[k]).trim().slice(0, max);
+        return String(fallback || '').trim().slice(0, max);
+      }
+      var pf = pstr('fatherName', 80, emp.fatherName);
+      var pm = pstr('mobile', 20, emp.mobile || emp.phone);
+      var pa = pstr('address', 300, emp.address);
+      emp.fatherName = pf; emp.mobile = pm; emp.phone = pm; emp.address = pa;
+      emp.birthDate = pstr('birthDate', 20, emp.birthDate);
+      emp.militaryStatus = pstr('militaryStatus', 40, emp.militaryStatus);
+      emp.militaryExemptType = pstr('militaryExemptType', 80, emp.militaryExemptType);
+      emp.jobGrade = pstr('jobGrade', 80, emp.jobGrade);
+      emp.educationLevel = pstr('educationLevel', 40, emp.educationLevel);
+      emp.educationField = pstr('educationField', 120, emp.educationField);
+      emp.city = pstr('city', 80, emp.city);
       if (!gd.obj.employeeExtras || typeof gd.obj.employeeExtras !== 'object') gd.obj.employeeExtras = {};
       if (!gd.obj.employeeExtras[empCode] || typeof gd.obj.employeeExtras[empCode] !== 'object') gd.obj.employeeExtras[empCode] = {};
-      gd.obj.employeeExtras[empCode].personal = { fatherName: pf, mobile: pm, address: pa };
+      gd.obj.employeeExtras[empCode].personal = {
+        fatherName: emp.fatherName || '', mobile: emp.mobile || '', address: emp.address || '',
+        birthDate: emp.birthDate || '', militaryStatus: emp.militaryStatus || '', militaryExemptType: emp.militaryExemptType || '',
+        jobGrade: emp.jobGrade || '', educationLevel: emp.educationLevel || '', educationField: emp.educationField || '', city: emp.city || ''
+      };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
@@ -8223,7 +8246,12 @@ function showApp(j){
       if (!val) return '';
       return '<span><b style="color:#0f766e">'+lab+':</b> '+String(val)+'</span>';
     }
-    box.innerHTML = [cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile), cell('آدرس', j.address)].filter(Boolean).join('');
+    box.innerHTML = [
+      cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile),
+      cell('تاریخ تولد', j.birthDate), cell('نظام وظیفه', j.militaryStatus), cell('نوع معافیت', j.militaryExemptType),
+      cell('رده شغلی', j.jobGrade), cell('مقطع تحصیلی', j.educationLevel), cell('رشته تحصیلی', j.educationField),
+      cell('آدرس', j.address)
+    ].filter(Boolean).join('');
   } catch (eProf) {}
   if (j.userAccess) applyUserAccessUI(j.userAccess);
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
