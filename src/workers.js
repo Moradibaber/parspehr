@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v85" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v86" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -7874,6 +7874,31 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   .req-card .meta { color: #64748b; font-size: 0.75rem; margin-top: 4px; }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   @media print { body { background: #fff; padding: 0; } .no-print { display: none !important; } .card { box-shadow: none; } }
+  .ts-sum-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; max-width: 100%; }
+  .ts-sum-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 0.72rem; }
+  .ts-sum-table th, .ts-sum-table td { padding: 6px 4px !important; text-align: center; white-space: nowrap; }
+  .ts-sum-cards { display: none; }
+  .ts-day-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-height: 65vh; max-width: 100%; border: 1px solid #99f6e4; border-radius: 8px; }
+  .ts-day-table { border-collapse: collapse; font-size: 0.62rem; width: max-content; min-width: 100%; table-layout: auto; }
+  .ts-day-table th, .ts-day-table td { padding: 3px 4px !important; text-align: center; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
+  .ts-day-table th { background: #ecfdf5; position: sticky; top: 0; z-index: 2; font-size: 0.58rem; }
+  .ts-day-table th.sticky-date, .ts-day-table td.sticky-date { position: sticky; right: 0; background: #f0fdfa; z-index: 1; font-weight: 600; }
+  .ts-day-table th.sticky-date { z-index: 3; }
+  @media (max-width: 640px) {
+    body { padding: 6px; font-size: 0.82rem; }
+    .card { padding: 12px 10px; border-radius: 12px; }
+    .tabs { gap: 2px; padding: 4px; }
+    .tab { padding: 5px 7px; font-size: 0.7rem; }
+    .ts-sum-table { display: none; }
+    .ts-sum-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .ts-sum-card { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 8px 6px; text-align: center; }
+    .ts-sum-card .lab { display: block; font-size: 0.68rem; color: #0f766e; font-weight: 600; margin-bottom: 2px; }
+    .ts-sum-card .val { display: block; font-size: 0.9rem; font-weight: 700; color: #134e4a; }
+    .ts-day-table { font-size: 0.6rem; }
+    .ts-day-table th { font-size: 0.55rem; padding: 4px 3px !important; }
+    .ts-day-table td { font-size: 0.58rem; padding: 3px 3px !important; }
+    h2 { font-size: 0.9rem; }
+  }
 </style>
 </head>
 <body>
@@ -8369,25 +8394,23 @@ async function loadTimesheet(){
     function _showTab(k){ return pt[k]==null?true:!!pt[k]; }
     function _showCol(k){ return tc[k]==null?true:!!tc[k]; }
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<table style="margin-top:8px"><tr>';
-    if(_showTab('work')) html+='<th>کارکرد</th>';
-    if(_showTab('leaveDaily')) html+='<th>مرخصی روزانه</th>';
-    if(_showTab('leaveHourly')) html+='<th>مرخصی ساعتی</th>';
-    if(_showTab('missionDaily')) html+='<th>مأموریت روزانه</th>';
-    if(_showTab('missionHourly')) html+='<th>مأموریت ساعتی</th>';
-    if(_showTab('ot')) html+='<th>اضافه‌کار</th>';
-    if(_showTab('night')) html+='<th>شب‌کاری</th>';
-    if(_showTab('absenceHourly')) html+='<th>غیبت ساعتی</th>';
+    var _sumItems=[];
+    if(_showTab('work')) _sumItems.push(['کارکرد', (j.workDays!=null?j.workDays:0)]);
+    if(_showTab('leaveDaily')) _sumItems.push(['مرخصی روزانه', (j.leaveDays!=null?j.leaveDays:0)]);
+    if(_showTab('leaveHourly')) _sumItems.push(['مرخصی ساعتی', _hm(j.hourlyLeave)]);
+    if(_showTab('missionDaily')) _sumItems.push(['مأموریت روزانه', (j.missionDays!=null?j.missionDays:0)]);
+    if(_showTab('missionHourly')) _sumItems.push(['مأموریت ساعتی', _hm(j.missionHours)]);
+    if(_showTab('ot')) _sumItems.push(['اضافه‌کار', (j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأییدنشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')]);
+    if(_showTab('night')) _sumItems.push(['شب‌کاری', (j.nightHoursHM||_hm(j.nightHours))]);
+    if(_showTab('absenceHourly')) _sumItems.push(['غیبت ساعتی', (j.hourlyAbsenceHM||_hm(sumAbs))]);
+    html+='<div class="ts-sum-wrap"><table class="ts-sum-table"><tr>';
+    _sumItems.forEach(function(it){ html+='<th>'+it[0]+'</th>'; });
     html+='</tr><tr>';
-    if(_showTab('work')) html+='<td>'+(j.workDays!=null?j.workDays:0)+'</td>';
-    if(_showTab('leaveDaily')) html+='<td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td>';
-    if(_showTab('leaveHourly')) html+='<td>'+_hm(j.hourlyLeave)+'</td>';
-    if(_showTab('missionDaily')) html+='<td>'+(j.missionDays!=null?j.missionDays:0)+'</td>';
-    if(_showTab('missionHourly')) html+='<td>'+_hm(j.missionHours)+'</td>';
-    if(_showTab('ot')) html+='<td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td>';
-    if(_showTab('night')) html+='<td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td>';
-    if(_showTab('absenceHourly')) html+='<td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td>';
-    html+='</tr></table>';
+    _sumItems.forEach(function(it){ html+='<td>'+it[1]+'</td>'; });
+    html+='</tr></table></div>';
+    html+='<div class="ts-sum-cards">';
+    _sumItems.forEach(function(it){ html+='<div class="ts-sum-card"><span class="lab">'+it[0]+'</span><span class="val">'+it[1]+'</span></div>'; });
+    html+='</div>';
     function _hm2(h){var m=Math.round((Number(h)||0)*60);if(m<=0)return '';var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
     html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">';
     if(_showTab('work')||_showCol('work')) html+='ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> ';
@@ -8397,27 +8420,34 @@ async function loadTimesheet(){
     html+='</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
-      var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
-      html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
-      html+='<th style="'+thE+'width:40px">تاریخ</th>';
-      if(_showCol('punch')){ for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:22px" title="ورود'+hi+'">ورود'+hi+'</th><th style="'+thE+'width:22px" title="خروج'+hi+'">خروج'+hi+'</th>';} }
-      if(_showCol('work')) html+='<th style="'+thE+'width:28px">کارکرد</th>';
-      if(_showCol('ot')) html+='<th style="'+thE+'width:26px">اضافه‌کار</th>';
-      if(_showCol('night')) html+='<th style="'+thE+'width:26px">شب‌کاری</th>';
-      if(_showCol('eot')) html+='<th style="'+thE+'width:24px">اض.قبل</th>';
-      if(_showCol('abs')) html+='<th style="'+thE+'width:26px">غیبت‌س</th>';
-      if(_showCol('mis')) html+='<th style="'+thE+'width:70px">مأموریت</th>';
-      if(_showCol('lv')) html+='<th style="'+thE+'width:70px">مرخصی</th>';
-      if(_showCol('note')) html+='<th style="'+thE+'width:90px">توضیح</th>';
+      var thE='border:1px solid #99f6e4;';
+      var tdE='border:1px solid #e2e8f0;direction:ltr;';
+      var isMobile = (typeof window!=='undefined' && window.innerWidth<=640);
+      html+='<div class="ts-day-wrap"><table class="ts-day-table"><thead><tr>';
+      html+='<th class="sticky-date" style="'+thE+'">تاریخ</th>';
+      if(_showCol('punch')){
+        for(var hi=1;hi<=4;hi++){
+          var hIn=isMobile?('و'+hi):('ورود '+hi);
+          var hOut=isMobile?('خ'+hi):('خروج '+hi);
+          html+='<th style="'+thE+'" title="ورود '+hi+'">'+hIn+'</th><th style="'+thE+'" title="خروج '+hi+'">'+hOut+'</th>';
+        }
+      }
+      if(_showCol('work')) html+='<th style="'+thE+'">'+(isMobile?'کار':'کارکرد')+'</th>';
+      if(_showCol('ot')) html+='<th style="'+thE+'">'+(isMobile?'اضافه':'اضافه‌کار')+'</th>';
+      if(_showCol('night')) html+='<th style="'+thE+'">'+(isMobile?'شب':'شب‌کاری')+'</th>';
+      if(_showCol('eot')) html+='<th style="'+thE+'">'+(isMobile?'ق.اضافه':'اض.قبل')+'</th>';
+      if(_showCol('abs')) html+='<th style="'+thE+'">'+(isMobile?'غیبت':'غیبت‌س')+'</th>';
+      if(_showCol('mis')) html+='<th style="'+thE+'">مأموریت</th>';
+      if(_showCol('lv')) html+='<th style="'+thE+'">مرخصی</th>';
+      if(_showCol('note')) html+='<th style="'+thE+'">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
-        function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.48rem">'+d.date+'</td>';
+        function cell(v,bad){ return '<td style="'+tdE+(bad?red:'')+'">'+(v||'')+'</td>'; }
+        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;">'+d.date+'</td>';
         if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
         if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
