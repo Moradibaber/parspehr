@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v80" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v81" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6795,9 +6795,14 @@ function getPortalViewConfig(obj) {
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
     // نام پدر/موبایل/آدرس برای تنظیمات قدیمی هم در مشخصات پرسنلی پرتال نمایش داده شوند
-    profileFields: Array.isArray(c.profileFields)
-      ? ((c.profileExtraMigrated || !c.profileFields.length) ? c.profileFields : c.profileFields.concat(['fatherName', 'mobile', 'address'].filter(function (k) { return c.profileFields.indexOf(k) < 0; })))
-      : null
+    profileFields: (function(){
+      var extra = ['fatherName', 'mobile', 'address', 'birthDate', 'managementDeputy', 'group', 'jobGrade', 'educationLevel', 'educationField', 'militaryStatus', 'militaryExemptType', 'city'];
+      if (!Array.isArray(c.profileFields)) return null;
+      if (!c.profileFields.length) return c.profileFields; // empty = all
+      var out = c.profileFields.slice();
+      extra.forEach(function(k){ if (out.indexOf(k) < 0) out.push(k); });
+      return out;
+    })()
   };
 }
 
@@ -6947,7 +6952,10 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'fullName', label: 'نام و نام خانوادگی', value: emp.fullName || '' },
     { key: 'code', label: 'کد پرسنلی', value: emp.code || '' },
     { key: 'position', label: 'سمت', value: emp.position || '' },
+    { key: 'managementDeputy', label: 'مدیریت / معاونت', value: (function(){ var v = emp.managementDeputy || ''; if (!v && emp.management && emp.deputy) v = String(emp.management) + ' / ' + String(emp.deputy); if (!v) v = emp.management || emp.deputy || ''; return v; })() },
     { key: 'unit', label: 'واحد', value: emp.unit || '' },
+    { key: 'group', label: 'گروه', value: emp.group || '' },
+    { key: 'jobGrade', label: 'رده شغلی', value: emp.jobGrade || '' },
     { key: 'workplace', label: 'محل خدمت', value: emp.workplace || '' },
     { key: 'hireDate', label: 'تاریخ استخدام', value: emp.hireDate || '' },
     { key: 'endDate', label: 'تاریخ پایان', value: emp.endDate || '' },
@@ -6967,6 +6975,11 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'insuranceNo2', label: 'شماره بیمه (ثانویه)', value: emp.insuranceNo2 || '' },
     { key: 'fatherName', label: 'نام پدر', value: emp.fatherName || '' },
     { key: 'birthDate', label: 'تاریخ تولد', value: emp.birthDate || '' },
+    { key: 'educationLevel', label: 'مقطع تحصیلی', value: emp.educationLevel || '' },
+    { key: 'educationField', label: 'رشته تحصیلی', value: emp.educationField || '' },
+    { key: 'militaryStatus', label: 'وضعیت نظام وظیفه', value: emp.militaryStatus || '' },
+    { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه', value: emp.militaryExemptType || '' },
+    { key: 'city', label: 'شهر محل سکونت', value: emp.city || '' },
     { key: 'address', label: 'آدرس', value: emp.address || '' },
     { key: 'email', label: 'ایمیل', value: emp.email || '' }
   ];
@@ -7029,6 +7042,13 @@ async function handleEmpProfile(request, env) {
       return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات برای شما فعال نیست.' });
     }
   }
+  try {
+    const ex = gd.obj.employeeExtras && gd.obj.employeeExtras[String(emp.code)];
+    const per = (ex && ex.personal) || {};
+    ['fatherName','mobile','address','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function(k){
+      if ((!emp[k] || String(emp[k]).trim()==='') && per[k]) emp[k] = per[k];
+    });
+  } catch (eM) {}
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
   return jsonResponse({ ok: true, fields: fields });
 }
@@ -7233,7 +7253,10 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'fullName', label: 'نام و نام خانوادگی' },
     { key: 'code', label: 'کد پرسنلی' },
     { key: 'position', label: 'سمت' },
+    { key: 'managementDeputy', label: 'مدیریت / معاونت' },
     { key: 'unit', label: 'واحد' },
+    { key: 'group', label: 'گروه' },
+    { key: 'jobGrade', label: 'رده شغلی' },
     { key: 'workplace', label: 'محل خدمت' },
     { key: 'hireDate', label: 'تاریخ استخدام' },
     { key: 'endDate', label: 'تاریخ پایان' },
@@ -7252,6 +7275,11 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'seniorityBase', label: 'پایه سنوات' },
     { key: 'fatherName', label: 'نام پدر' },
     { key: 'birthDate', label: 'تاریخ تولد' },
+    { key: 'educationLevel', label: 'مقطع تحصیلی' },
+    { key: 'educationField', label: 'رشته تحصیلی' },
+    { key: 'militaryStatus', label: 'وضعیت نظام وظیفه' },
+    { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه' },
+    { key: 'city', label: 'شهر محل سکونت' },
     { key: 'address', label: 'آدرس' },
     { key: 'email', label: 'ایمیل' }
   ];
@@ -8241,35 +8269,8 @@ function showApp(j){
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
   try {
-    var box = document.getElementById('pspEmpProfile');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'pspEmpProfile';
-      box.style.cssText = 'font-size:0.8rem;color:#334155;margin:8px 0 10px;padding:8px 10px;border:1px solid #99f6e4;border-radius:10px;background:#f0fdfa;line-height:1.85;display:flex;flex-wrap:wrap;gap:4px 16px;';
-      var tb = document.querySelector('#appCard .topbar');
-      if (tb && tb.parentNode) tb.parentNode.insertBefore(box, tb.nextSibling);
-      else {
-        var ac = document.getElementById('appCard');
-        if (ac) ac.insertBefore(box, ac.firstChild);
-      }
-    }
-    function cell(lab, val) {
-      if (val == null || String(val).trim() === '') return '';
-      return '<span style="min-width:140px"><b style="color:#0f766e">'+lab+':</b> '+String(val)+'</span>';
-    }
-    var mil = j.militaryStatus || '';
-    if (mil === 'معاف' && j.militaryExemptType) mil = mil + ' (' + j.militaryExemptType + ')';
-    var mgmt = j.managementDeputy || j.management || j.deputy || '';
-    if (!mgmt && j.management && j.deputy) mgmt = String(j.management) + ' / ' + String(j.deputy);
-    var html = [
-      cell('کد ملی', j.nationalId), cell('نام پدر', j.fatherName), cell('شماره همراه', j.mobile),
-      cell('تاریخ تولد', j.birthDate),
-      cell('مدیریت / معاونت', mgmt), cell('گروه', j.group),
-      cell('رده شغلی', j.jobGrade), cell('مقطع تحصیلی', j.educationLevel), cell('رشته تحصیلی', j.educationField),
-      cell('نظام وظیفه', mil), cell('آدرس', j.address)
-    ].filter(Boolean).join('');
-    box.innerHTML = html || '<span style="color:#64748b">اطلاعات تکمیلی ثبت نشده</span>';
-    box.style.display = 'flex';
+    var oldBar = document.getElementById('pspEmpProfile');
+    if (oldBar && oldBar.parentNode) oldBar.parentNode.removeChild(oldBar);
   } catch (eProf) {}
   if (j.userAccess) applyUserAccessUI(j.userAccess);
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
