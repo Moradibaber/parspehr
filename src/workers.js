@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v87" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v88" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -8211,6 +8211,7 @@ function fillRqDateSelects(){
   var m=mEl?Number(mEl.value):0;
   if(!y||!m){ try{ if(window.__pspYm){ y=window.__pspYm.y; m=window.__pspYm.m; } }catch(e){} }
   if(!y) y=1405; if(!m) m=1;
+  try{ window.__pspYm = Object.assign({}, window.__pspYm||{}, { y:y, m:m }); }catch(e0){}
   var dim=jalaliDaysInMonth(y,m);
   var start=document.getElementById('rqStart');
   var end=document.getElementById('rqEnd');
@@ -8232,6 +8233,16 @@ function fillRqDateSelects(){
   end.style.fontFamily='Consolas,Tahoma,monospace';
   start.dir='ltr'; end.dir='ltr';
 }
+(function wireCalSelects(){
+  if(window.__pspCalWired) return; window.__pspCalWired=true;
+  ['tsYear','tsMonth','psYear','psMonth','year','month'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('change', function(){
+      try{ fillRqDateSelects(); }catch(e){}
+    });
+  });
+})();
 function applyFixedEnd(){
   var id=document.getElementById('rqType').value;
   var t=attTypes.find(function(x){return String(x.id)===String(id)});
@@ -8328,6 +8339,22 @@ function applyUserAccessUI(ua) {
   var tabsEl = document.querySelector('.tabs');
   if (tabsEl) tabsEl.classList.add('ua-ready');
 }
+function applyPortalCalendar(src){
+  if(!src) return;
+  var y = Number(src.currentYear) || Number(src.realJalaliYear) || 0;
+  var m = Number(src.currentMonth) || Number(src.realJalaliMonth) || 0;
+  if(!y || !m) return;
+  try{ window.__pspYm = { y: y, m: m, realY: src.realJalaliYear, realM: src.realJalaliMonth }; }catch(e){}
+  function setVal(id, val){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.value = String(val);
+  }
+  setVal('tsYear', y); setVal('tsMonth', m);
+  setVal('psYear', y); setVal('psMonth', m);
+  setVal('year', y); setVal('month', m);
+  try{ fillRqDateSelects(); }catch(e2){}
+}
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
@@ -8337,10 +8364,14 @@ function showApp(j){
     if (oldBar && oldBar.parentNode) oldBar.parentNode.removeChild(oldBar);
   } catch (eProf) {}
   if (j.userAccess) applyUserAccessUI(j.userAccess);
+  try{ applyPortalCalendar(j); }catch(eC){}
   // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
   fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
     .then(function(r){ return r.json(); })
-    .then(function(f){ if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {}); })
+    .then(function(f){
+      if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {});
+      if (f && f.ok) try{ applyPortalCalendar(f); }catch(e3){}
+    })
     .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
   loadAttTypes();
