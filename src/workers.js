@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v89" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v90" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -5854,17 +5854,15 @@ async function handleEmpAttendanceTypes(request, env) {
     }
     return true;
   });
-  let cy = 1405, cm = 1;
-  try {
-    const st = (gd.obj && gd.obj.settings) || {};
-    cy = Number(st.currentYear) || 1405;
-    cm = Number(st.currentMonth) || Number(st.activeMonth) || 0;
-    if (!cm) {
+  let cm = Number(settings.currentMonth) || Number(settings.activeMonth) || 0;
+  if (!cm || cm < 1 || cm > 12) {
+    try {
       const d = new Date();
       const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-      if (j && j.y) { cy = j.y; cm = j.m; }
-    }
-  } catch (eC) {}
+      if (j && j.y) { cm = j.m; }
+    } catch (eC) {}
+    if (!cm) cm = 1;
+  }
   return jsonResponse({ ok: true, types: visible, grants: grants, currentYear: cy, currentMonth: cm });
 }
 
