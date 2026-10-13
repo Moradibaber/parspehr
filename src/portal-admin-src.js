@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-10-13-v85';",
-  "  try { console.log('%c[psp] portal-boot 2026-10-13-v85', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-10-13-v86';",
+  "  try { console.log('%c[psp] portal-boot 2026-10-13-v86', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  if (window.__pspPortalAdmin) return;",
   "  function pspInjectCompactStyles() {",
   "    var st = document.getElementById('pspCompactStyle');",
