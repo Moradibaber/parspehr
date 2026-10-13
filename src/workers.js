@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v88" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261013v89" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1043,7 +1043,32 @@ async function handleEmpWhoami(request, env) {
       }
     }
   } catch (eP) {}
-  const body = Object.assign({ ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess }, personal);
+  let currentYear = 1405, currentMonth = 1;
+  let realJalaliYear = 1405, realJalaliMonth = 1, realJalaliDay = 1;
+  try {
+    const cfgS = storeConfig(env);
+    if (cfgS) {
+      const gdS = await storeGetData(cfgS);
+      if (gdS && gdS.obj && gdS.obj.settings) {
+        currentYear = Number(gdS.obj.settings.currentYear) || 1405;
+        currentMonth = Number(gdS.obj.settings.currentMonth) || Number(gdS.obj.settings.activeMonth) || 0;
+      }
+    }
+  } catch (eS) {}
+  try {
+    const d = new Date();
+    const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (j && j.y) {
+      realJalaliYear = j.y; realJalaliMonth = j.m; realJalaliDay = j.d;
+    }
+  } catch (eJ) {}
+  if (!currentMonth || currentMonth < 1 || currentMonth > 12) currentMonth = realJalaliMonth;
+  if (!currentYear) currentYear = realJalaliYear;
+  const body = Object.assign({
+    ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess,
+    currentYear: currentYear, currentMonth: currentMonth,
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay
+  }, personal);
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -1068,7 +1093,30 @@ async function handleEmpFeatures(request, env) {
       }
     }
   } catch (e) {}
-  return jsonResponse({ ok: true, userAccess: userAccess });
+  let currentYear = 1405, currentMonth = 1;
+  let realJalaliYear = 1405, realJalaliMonth = 1;
+  try {
+    const cfg2 = storeConfig(env);
+    if (cfg2) {
+      const gd2 = await storeGetData(cfg2);
+      if (gd2 && !gd2.fail && gd2.obj && gd2.obj.settings) {
+        currentYear = Number(gd2.obj.settings.currentYear) || 1405;
+        currentMonth = Number(gd2.obj.settings.currentMonth) || Number(gd2.obj.settings.activeMonth) || 0;
+      }
+    }
+  } catch (e2) {}
+  try {
+    const d2 = new Date();
+    const j2 = gregorianToJalali(d2.getFullYear(), d2.getMonth() + 1, d2.getDate());
+    if (j2 && j2.y) { realJalaliYear = j2.y; realJalaliMonth = j2.m; }
+  } catch (e3) {}
+  if (!currentMonth || currentMonth < 1 || currentMonth > 12) currentMonth = realJalaliMonth;
+  if (!currentYear) currentYear = realJalaliYear;
+  return jsonResponse({
+    ok: true, userAccess: userAccess,
+    currentYear: currentYear, currentMonth: currentMonth,
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth
+  });
 }
 
 async function handleMyPayslip(request, env) {
@@ -5806,7 +5854,18 @@ async function handleEmpAttendanceTypes(request, env) {
     }
     return true;
   });
-  return jsonResponse({ ok: true, types: visible, grants: grants });
+  let cy = 1405, cm = 1;
+  try {
+    const st = (gd.obj && gd.obj.settings) || {};
+    cy = Number(st.currentYear) || 1405;
+    cm = Number(st.currentMonth) || Number(st.activeMonth) || 0;
+    if (!cm) {
+      const d = new Date();
+      const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+      if (j && j.y) { cy = j.y; cm = j.m; }
+    }
+  } catch (eC) {}
+  return jsonResponse({ ok: true, types: visible, grants: grants, currentYear: cy, currentMonth: cm });
 }
 
 
@@ -8286,6 +8345,7 @@ async function loadAttTypes(){
     var j=await r.json();
     if(!j.ok) return;
     attTypes=j.types||[];
+    try{ if(j.currentYear||j.currentMonth) applyPortalCalendar(j); }catch(eC){}
     try{ fillRqDateSelects(); }catch(eF){}
     var sel=document.getElementById('rqType');
     sel.innerHTML=attTypes.map(function(t){return '<option value="'+t.id+'">'+t.name+(t.kind==='mission'?' (مأموریت)':' (مرخصی)')+'</option>'}).join('')||'<option value="">—</option>';
