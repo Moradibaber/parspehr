@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-10-14-v95';",
-  "  try { console.log('%c[psp] portal-boot 2026-10-14-v95', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-10-14-v96';",
+  "  try { console.log('%c[psp] portal-boot 2026-10-14-v96', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  if (window.__pspPortalAdmin) return;",
   "  function pspInjectCompactStyles() {",
   "    var st = document.getElementById('pspCompactStyle');",
@@ -2450,8 +2450,8 @@ export default [
   "        }).join('');",
   "      }",
   "      function fieldChecks(opts, selected, prefix, idKey, labelKey){",
-  "        var sel = Array.isArray(selected) ? selected.map(String) : [];",
-  "        var all = !sel.length;",
+  "        var sel = Array.isArray(selected) ? selected.map(String) : null;",
+  "        var all = (sel === null);",
   "        return opts.map(function(o){",
   "          var id = String(o[idKey] || o.id || o.key || '');",
   "          var lab = String(o[labelKey] || o.name || o.label || id);",
