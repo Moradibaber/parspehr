@@ -8859,11 +8859,11 @@ async function loadBroadcast(){
     var html='';
     j.messages.forEach(function(m){
       var when=''; try{ when=new Date(m.createdAt).toLocaleString('fa-IR'); }catch(e){}
-      html+='<div class="bcast-item" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:10px;color:#78350f;font-size:0.85rem;">'
+      html+='<div class="bcast-item" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:10px;color:#78350f;font-size:0.85rem;max-width:100%;min-width:0;box-sizing:border-box;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;">'
         +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
-        +'<b>📢 '+bcEsc(m.title||'پیام مدیریت')+'</b>'
+        +'<b style="min-width:0;overflow-wrap:anywhere;word-break:break-word;">📢 '+bcEsc(m.title||'پیام مدیریت')+'</b>'
         +'<button type="button" class="link" style="font-size:0.75rem;" onclick="this.parentNode.parentNode.remove()">بستن</button></div>'
-        +'<div style="white-space:pre-wrap;margin-top:6px;line-height:1.8;">'+bcEsc(m.text)+'</div>'
+        +'<div style="white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-width:100%;margin-top:6px;line-height:1.8;">'+bcEsc(m.text)+'</div>'
         +'<div style="margin-top:6px;font-size:0.7rem;color:#92400e;">'+bcEsc(when)+'</div></div>';
     });
     box.innerHTML=html;
