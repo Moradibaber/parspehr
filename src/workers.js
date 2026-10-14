@@ -431,7 +431,11 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
         if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
-        if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        // تنظیمات نمایش حکم/مشخصات فقط توسط خود ذخیره‌ی پورتال‌ویو (updatedBy = 'portal-view:...') قابل تغییر است؛
+        // ذخیره‌های دیگر (فرم اصلی) نسخه‌ی قبلی را حفظ می‌کنند. (قبلاً این خط ذخیره‌ی خود پورتال‌ویو را هم برمی‌گرداند!)
+        if (String(updatedBy || '').indexOf('portal-view:') !== 0) {
+          if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        }
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
           obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
@@ -7403,7 +7407,7 @@ async function handleAdminGetPortalView(request, who, env) {
     if (!h) return;
     const id = String(h.id || h.name || '');
     const name = String(h.name || h.id || '').trim();
-    if (name) decreeOptions.push({ id: id, name: name });
+    if (name && !decreeOptions.some(function (o) { return o.name === name; })) decreeOptions.push({ id: id, name: name });
   });
   (obj.allowances || []).forEach(function (a) {
     if (!a || !a.name) return;
@@ -7478,30 +7482,34 @@ async function handleAdminSavePortalView(request, who, env) {
   const body = r.body || {};
   const cfgStore = storeConfig(env);
   if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  const gd = await storeGetData(cfgStore);
-  if (gd.fail) return storeFailResponse(gd.fail);
-  const obj = gd.obj || {};
-  obj.portalViewConfig = {
-    showDecree: !!body.showDecree,
-    decreeMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.decreeMode) >= 0 ? body.decreeMode : 'self',
-    decreeSelectedCodes: Array.isArray(body.decreeSelectedCodes) ? body.decreeSelectedCodes.map(String).slice(0, 500) : [],
-    decreeFields: Array.isArray(body.decreeFields) ? body.decreeFields.map(String).slice(0, 200) : [],
-    showProfile: !!body.showProfile,
-    profileMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
-    profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
-    profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : [],
-    fieldsConfigured: true,
-    profileExtraMigrated: true
-  };
-  // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
-  if (body.userAccess && typeof body.userAccess === 'object') {
-    if (!obj.settings) obj.settings = {};
-    obj.settings.userAccess = normalizeUserAccess(body.userAccess);
+  const modes = ['self', 'self_and_manager', 'all', 'selected'];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const gd = await storeGetData(cfgStore);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const obj = gd.obj || {};
+    obj.portalViewConfig = {
+      showDecree: !!body.showDecree,
+      decreeMode: modes.indexOf(body.decreeMode) >= 0 ? body.decreeMode : 'self',
+      decreeSelectedCodes: Array.isArray(body.decreeSelectedCodes) ? body.decreeSelectedCodes.map(String).slice(0, 500) : [],
+      decreeFields: Array.isArray(body.decreeFields) ? body.decreeFields.map(String).slice(0, 400) : [],
+      showProfile: !!body.showProfile,
+      profileMode: modes.indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
+      profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
+      profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 200) : [],
+      fieldsConfigured: true,
+      profileExtraMigrated: true
+    };
+    // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
+    if (body.userAccess && typeof body.userAccess === 'object') {
+      if (!obj.settings) obj.settings = {};
+      obj.settings.userAccess = normalizeUserAccess(body.userAccess);
+    }
+    const put = await storePutData(cfgStore, gd.version || 0, obj, 'portal-view:' + (who.name || 'admin'));
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue; // نسخه عوض شده؛ دوباره بخوان و ذخیره کن
+    return jsonResponse({ ok: true, config: obj.portalViewConfig, userAccess: (obj.settings && obj.settings.userAccess) || undefined });
   }
-  // persist
-  const put = await storePutData(cfgStore, gd.version || 0, obj, who.name || 'admin');
-  if (put && put.fail) return storeFailResponse(put.fail);
-  return jsonResponse({ ok: true, config: obj.portalViewConfig });
+  return jsonResponse({ ok: false, error: 'conflict', message: 'ذخیره به‌دلیل تداخل انجام نشد؛ دوباره تلاش کنید.' }, 409);
 }
 
 
