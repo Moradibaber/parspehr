@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v99" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v100" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6462,12 +6462,17 @@ async function handleAdminListAttendanceRequests(request, who, env) {
   const year = Number(r.body.year);
   const month = Number(r.body.month);
   const code = String(r.body.code || '').trim();
+  const codes = Array.isArray(r.body.codes) ? r.body.codes.map(function (c) { return String(c).trim(); }).filter(Boolean).slice(0, 2000) : [];
+  const jk = function (s) { const p = parseJalaliYMD(s); return p ? (p.y * 10000 + p.m * 100 + p.d) : 0; };
+  const fromKey = jk(r.body.fromDate);
+  const toKey = jk(r.body.toDate);
+  const kindF = String(r.body.kind || '').trim();
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
   let list = (gd.obj && gd.obj.attendanceRequests) || [];
-  if (isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
+  if (!fromKey && !toKey && isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
     list = list.filter(function (x) {
       const p = parseJalaliYMD(x.startDate);
       if (!p) return false;
@@ -6479,7 +6484,33 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   if (code) list = list.filter(function (x) { return String(x.empCode) === code; });
-  return jsonResponse({ ok: true, requests: list.slice(0, 500) });
+  if (codes.length) list = list.filter(function (x) { return codes.indexOf(String(x.empCode)) >= 0; });
+  let attTypes = (gd.obj && gd.obj.attendanceTypes) || [];
+  if (!attTypes.length) attTypes = defaultAttendanceTypes();
+  const typeById = {};
+  attTypes.forEach(function (t) { if (t) typeById[String(t.id)] = t; });
+  if (fromKey || toKey) {
+    list = list.filter(function (x) {
+      const s = jk(x.startDate);
+      if (!s) return false;
+      const e = jk(x.endDate) || s;
+      if (fromKey && e < fromKey) return false;
+      if (toKey && s > toKey) return false;
+      return true;
+    });
+  }
+  if (kindF) {
+    list = list.filter(function (x) {
+      const t = typeById[String(x.typeId)];
+      return ((t && t.kind) || x.kind || '') === kindF;
+    });
+  }
+  const filtered = !!(codes.length || fromKey || toKey || kindF);
+  const out = list.slice(0, filtered ? 5000 : 500).map(function (x) {
+    const t = typeById[String(x.typeId)];
+    return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
+  });
+  return jsonResponse({ ok: true, requests: out });
 }
 
 async function handleAdminUpdateAttendanceRequest(request, who, env) {
