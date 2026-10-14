@@ -436,6 +436,10 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (String(updatedBy || '').indexOf('portal-view:') !== 0) {
           if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
         }
+        // پیام‌های همگانی ادمین: فقط ذخیره‌های خود پیام‌رسان (updatedBy = 'bcast:...') می‌توانند تغییرشان دهند
+        if (String(updatedBy || '').indexOf('bcast:') !== 0) {
+          if (Array.isArray(prev.obj.broadcastMessages)) obj.broadcastMessages = prev.obj.broadcastMessages;
+        }
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
           obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
@@ -6854,6 +6858,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/import-punches') return handleAdminImportPunches(request, who, env);
   if (path === '/api/admin/employee-extra') return handleAdminEmployeeExtra(request, who, env);
   if (path === '/api/admin/system-messages') return handleAdminSystemMessages(request, who, env);
+  if (path === '/api/admin/broadcast') return handleAdminBroadcast(request, who, env);
   if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
@@ -7337,18 +7342,31 @@ async function handleAdminContractsReport(request, who, env) {
   const emps = (gd.obj && gd.obj.employees) || [];
   const empMap = {};
   emps.forEach(function (e) { if (e) empMap[String(e.code)] = e; });
+  const typeFa = { temporary: 'موقت', fixed: 'دائم', daily: 'روزمزد', hourly: 'ساعتی' };
+  const statusFa = { pending: 'در انتظار تأیید', active: 'فعال', expired: 'منقضی', terminated: 'فسخ‌شده', revoked: 'ابطال‌شده' };
   const rows = (Array.isArray(contracts) ? contracts : []).map(function (c) {
     const emp = empMap[String(c.empCode || c.code || '')] || {};
+    const typeKey = String(c.type || c.contractType || '');
+    const statusKey = String(c.status || (c.adminApproved ? 'active' : 'pending'));
     return {
       empCode: c.empCode || c.code || '',
-      fullName: emp.fullName || c.fullName || '',
-      type: c.type || c.contractType || '',
-      duration: c.duration || c.months || '',
-      from: c.from || c.startDate || '',
-      to: c.to || c.endDate || '',
-      status: c.status || '',
-      signed: !!(c.signed || c.signedFile || c.fileUrl),
+      fullName: emp.fullName || c.empName || c.fullName || '',
+      unit: emp.unit || '',
+      position: emp.position || '',
+      typeKey: typeKey,
+      type: typeFa[typeKey] || typeKey,
+      duration: (c.durationMonths != null && c.durationMonths !== '') ? c.durationMonths : (c.duration || c.months || ''),
+      from: c.startDate || c.from || '',
+      to: c.endDate || c.to || '',
+      statusKey: statusKey,
+      status: statusFa[statusKey] || statusKey,
+      approved: !!c.adminApproved,
+      signed: !!(c.signedFileName || c.signedUploadedAt || c.signed || c.signedFile || c.fileUrl),
+      fileName: c.signedFileName || '',
+      visible: c.visibleToEmployee !== false,
       note: c.note || c.editNote || c.historyNote || '',
+      createdAt: c.createdAt || '',
+      createdBy: c.createdBy || '',
       updatedAt: c.updatedAt || c.editedAt || ''
     };
   });
@@ -7512,6 +7530,156 @@ async function handleAdminSavePortalView(request, who, env) {
   return jsonResponse({ ok: false, error: 'conflict', message: 'ذخیره به‌دلیل تداخل انجام نشد؛ دوباره تلاش کنید.' }, 409);
 }
 
+
+
+// ---------- Broadcast messages (admin → employees) ----------
+const BCAST_HOURS = { '1': 1, '2': 2, '6': 6, '12': 12, '24': 24, '48': 48, '72': 72, '168': 168 };
+
+function bcastIsExpired(m, nowMs) {
+  return !!(m && m.expiresAt && Date.parse(m.expiresAt) <= nowMs);
+}
+function bcastTargets(m, code) {
+  return !!(m && (m.toAll || (Array.isArray(m.recipients) && m.recipients.indexOf(String(code)) >= 0)));
+}
+function bcastActiveFor(m, code, nowMs) {
+  if (!bcastTargets(m, code)) return false;
+  if (bcastIsExpired(m, nowMs)) return false;
+  if (m.expiry === 'afterRead' && m.reads && m.reads[String(code)]) return false;
+  return true;
+}
+
+async function handleAdminBroadcast(request, who, env) {
+  if (who.role !== 'admin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const obj = gd.obj || {};
+    const emps = (obj.employees || []).filter(function (e) { return e && e.status !== 'inactive'; });
+    const nameOf = {};
+    (obj.employees || []).forEach(function (e) { if (e) nameOf[String(e.code)] = e.fullName || ''; });
+    const nowMs = Date.now();
+    const messages = (Array.isArray(obj.broadcastMessages) ? obj.broadcastMessages : []).map(function (m) {
+      const reads = m.reads && typeof m.reads === 'object' ? m.reads : {};
+      const recips = m.toAll ? emps.map(function (e) { return String(e.code); }) : (m.recipients || []).map(String);
+      const readCount = recips.filter(function (c) { return !!reads[c]; }).length;
+      let status = 'active';
+      if (bcastIsExpired(m, nowMs)) status = 'expired';
+      else if (m.expiry === 'afterRead' && recips.length && readCount >= recips.length) status = 'completed';
+      return {
+        id: m.id, title: m.title || '', text: m.text || '', createdAt: m.createdAt || '', createdBy: m.createdBy || '',
+        toAll: !!m.toAll, recipientCount: recips.length,
+        recipientNames: m.toAll ? [] : recips.slice(0, 60).map(function (c) { return (nameOf[c] || '') + ' (' + c + ')'; }),
+        expiry: m.expiry || 'hours', hours: m.hours || 0, expiresAt: m.expiresAt || '',
+        readCount: readCount, status: status
+      };
+    });
+    const employees = emps.map(function (e) {
+      return { code: String(e.code), fullName: e.fullName || '', unit: e.unit || '' };
+    }).sort(function (a, b) { return String(a.fullName).localeCompare(String(b.fullName), 'fa'); });
+    return jsonResponse({ ok: true, messages: messages, employees: employees });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const action = String(body.action || 'send');
+  if (action !== 'send' && action !== 'delete') return jsonResponse({ ok: false, message: 'عملیات نامعتبر.' }, 400);
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const obj = gd.obj;
+    if (!Array.isArray(obj.broadcastMessages)) obj.broadcastMessages = [];
+
+    let sentId = '';
+    if (action === 'send') {
+      const text = String(body.text || '').trim().slice(0, 2000);
+      if (!text) return jsonResponse({ ok: false, message: 'متن پیام خالی است.' }, 400);
+      const title = String(body.title || '').trim().slice(0, 120);
+      const toAll = !!body.toAll;
+      const valid = {};
+      (obj.employees || []).forEach(function (e) { if (e) valid[String(e.code)] = true; });
+      const codes = (Array.isArray(body.codes) ? body.codes : []).map(String).filter(function (c, i, a) { return valid[c] && a.indexOf(c) === i; });
+      if (!toAll && !codes.length) return jsonResponse({ ok: false, message: 'هیچ گیرنده‌ای انتخاب نشده است.' }, 400);
+      const dur = String(body.duration || '24');
+      let expiry = 'hours', hours = 0, expiresAt = '';
+      if (dur === 'afterRead') {
+        expiry = 'afterRead';
+      } else if (BCAST_HOURS[dur]) {
+        hours = BCAST_HOURS[dur];
+        expiresAt = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+      } else {
+        return jsonResponse({ ok: false, message: 'مدت نمایش نامعتبر است.' }, 400);
+      }
+      sentId = 'bm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+      obj.broadcastMessages.unshift({
+        id: sentId, title: title, text: text,
+        createdAt: new Date().toISOString(), createdBy: who.name || 'admin',
+        toAll: toAll, recipients: toAll ? [] : codes,
+        expiry: expiry, hours: hours, expiresAt: expiresAt, reads: {}
+      });
+      if (obj.broadcastMessages.length > 300) obj.broadcastMessages.length = 300;
+    } else {
+      const id = String(body.id || '');
+      const before = obj.broadcastMessages.length;
+      obj.broadcastMessages = obj.broadcastMessages.filter(function (m) { return m && m.id !== id; });
+      if (obj.broadcastMessages.length === before) return jsonResponse({ ok: false, message: 'پیام یافت نشد.' }, 404);
+    }
+    const put = await storePutData(cfg, gd.version, obj, 'bcast:' + (who.name || 'admin'));
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true, id: sentId });
+  }
+  return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره؛ دوباره تلاش کنید.' }, 409);
+}
+
+async function handleEmpBroadcast(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const code = String(sess.code);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const nowMs = Date.now();
+    const list = (gd.obj && Array.isArray(gd.obj.broadcastMessages) ? gd.obj.broadcastMessages : [])
+      .filter(function (m) { return bcastActiveFor(m, code, nowMs); })
+      .map(function (m) {
+        return { id: m.id, title: m.title || '', text: m.text || '', createdAt: m.createdAt || '', expiresAt: m.expiresAt || '', expiry: m.expiry || 'hours', read: !!(m.reads && m.reads[code]) };
+      });
+    return jsonResponse({ ok: true, messages: list });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const ids = (Array.isArray((r.body || {}).ids) ? r.body.ids : []).map(String).slice(0, 50);
+  if (!ids.length) return jsonResponse({ ok: true });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.broadcastMessages)) return jsonResponse({ ok: true });
+    let changed = false;
+    gd.obj.broadcastMessages.forEach(function (m) {
+      if (!m || ids.indexOf(m.id) < 0 || !bcastTargets(m, code)) return;
+      if (!m.reads || typeof m.reads !== 'object') m.reads = {};
+      if (!m.reads[code]) { m.reads[code] = new Date().toISOString(); changed = true; }
+    });
+    if (!changed) return jsonResponse({ ok: true });
+    const put = await storePutData(cfg, gd.version, gd.obj, 'bcast:read:' + code);
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
 
 
 // ---------- Contracts ----------
@@ -7942,6 +8110,7 @@ export default {
     if (url.pathname === '/api/emp/contracts') return handleEmpContracts(request, env);
     if (url.pathname === '/api/emp/decree') return handleEmpDecree(request, env);
     if (url.pathname === '/api/emp/profile') return handleEmpProfile(request, env);
+    if (url.pathname === '/api/emp/broadcast') return handleEmpBroadcast(request, env);
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
     if (url.pathname === '/api/emp/logout') return handleEmpLogout();
     if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
@@ -8114,6 +8283,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   <div class="err" id="loginErr"></div>
 </div>
 <div class="hidden" id="appCard">
+  <div id="bcastBox" class="no-print"></div>
   <div class="card no-print">
     <div class="topbar"><span id="whoLabel" style="font-weight:600;"></span><button class="link" onclick="doLogout()">خروج</button></div>
     <div class="tabs">
@@ -8227,6 +8397,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <div class="err" id="passErr"></div>
   </div>
 </div>
+<div class="no-print" style="text-align:center;font-size:0.78rem;color:#0f766e;margin:18px 0 10px;">تهیه کننده: محمد مرادی بابرصاد</div>
 </div>
 <script>
 var monthsFa=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
@@ -8645,6 +8816,29 @@ function showApp(j){
     .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
   loadAttTypes();
+  try{ loadBroadcast(); }catch(eBc){}
+}
+function bcEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadBroadcast(){
+  var box=document.getElementById('bcastBox'); if(!box) return;
+  try{
+    var r=await fetch('/api/emp/broadcast?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+    var j=await r.json();
+    if(!j||!j.ok||!(j.messages||[]).length){ box.innerHTML=''; return; }
+    var html='';
+    j.messages.forEach(function(m){
+      var when=''; try{ when=new Date(m.createdAt).toLocaleString('fa-IR'); }catch(e){}
+      html+='<div class="bcast-item" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:10px;color:#78350f;font-size:0.85rem;">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
+        +'<b>📢 '+bcEsc(m.title||'پیام مدیریت')+'</b>'
+        +'<button type="button" class="link" style="font-size:0.75rem;" onclick="this.parentNode.parentNode.remove()">بستن</button></div>'
+        +'<div style="white-space:pre-wrap;margin-top:6px;line-height:1.8;">'+bcEsc(m.text)+'</div>'
+        +'<div style="margin-top:6px;font-size:0.7rem;color:#92400e;">'+bcEsc(when)+'</div></div>';
+    });
+    box.innerHTML=html;
+    var ids=j.messages.filter(function(m){return !m.read;}).map(function(m){return m.id;});
+    if(ids.length) fetch('/api/emp/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:ids}),credentials:'same-origin'}).catch(function(){});
+  }catch(e){}
 }
 async function checkSession(){try{var r=await fetch('/api/emp/whoami',{credentials:'same-origin'});var j=await r.json();if(j.ok)showApp(j)}catch(e){}}
 async function doLogout(){try{await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'})}catch(e){}location.reload()}
