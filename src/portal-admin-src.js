@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-10-14-v96';",
-  "  try { console.log('%c[psp] portal-boot 2026-10-14-v96', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-10-14-v97';",
+  "  try { console.log('%c[psp] portal-boot 2026-10-14-v97', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  if (window.__pspPortalAdmin) return;",
   "  function pspInjectCompactStyles() {",
   "    var st = document.getElementById('pspCompactStyle');",
@@ -2456,7 +2456,7 @@ export default [
   "          var id = String(o[idKey] || o.id || o.key || '');",
   "          var lab = String(o[labelKey] || o.name || o.label || id);",
   "          var on = all || sel.indexOf(id) >= 0 || sel.indexOf(lab) >= 0;",
-  "          return '<label style=\"display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:0.78rem;white-space:nowrap;\"><input type=\"checkbox\" class=\"'+prefix+'\" value=\"'+id.replace(/\"/g,'&quot;')+'\"'+(on?' checked':'')+'> '+lab+'</label>';",
+  "          return '<label style=\"display:inline-flex;align-items:center;gap:4px;margin:2px 6px;font-size:0.78rem;white-space:nowrap;\"><input type=\"checkbox\" class=\"'+prefix+'\" value=\"'+id.replace(/\"/g,'&quot;')+'\" data-name=\"'+lab.replace(/\"/g,'&quot;')+'\"'+(on?' checked':'')+'> '+lab+'</label>';",
   "        }).join('');",
   "      }",
   "      function empChecks(selected, prefix){",
@@ -2576,7 +2576,7 @@ export default [
   "    }",
   "    function savePortalViewCfg(){",
   "      var st = document.getElementById('pspPortalViewStatus');",
-  "      function checked(cls){ var a=[]; document.querySelectorAll('.'+cls+':checked').forEach(function(c){ a.push(c.value); }); return a; }",
+  "      function checked(cls){ var a=[]; document.querySelectorAll('.'+cls+':checked').forEach(function(c){ if(c.value) a.push(c.value); var n=c.getAttribute('data-name'); if(n && a.indexOf(n)<0) a.push(n); }); return a; }",
   "      var body = {",
   "        showDecree: !!(document.getElementById('pspPvShowDecree')||{}).checked,",
   "        decreeMode: (document.getElementById('pspPvDecreeMode')||{}).value || 'self',",
