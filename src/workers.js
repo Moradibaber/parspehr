@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v97" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v98" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1153,11 +1153,24 @@ async function handleMyPayslip(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
+  let payCode = String((r.body && r.body.code) || sess.code).trim() || String(sess.code);
+  const allEmpsP = gd.obj.employees || [];
+  if (payCode !== String(sess.code)) {
+    const targetP = allEmpsP.find(function (e) { return String(e.code) === payCode; });
+    if (!targetP || typeof isManagerOf !== 'function' || !isManagerOf(sess.code, targetP, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده فیش این فرد برای شما مجاز نیست.' }, 403);
+    }
+  }
+  const viewableP = allEmpsP.filter(function (e) {
+    return String(e.code) === String(sess.code) || (typeof isManagerOf === 'function' && isManagerOf(sess.code, e, gd.obj));
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const key = year + '-' + month;
   const rows = (gd.obj.payrolls && gd.obj.payrolls[key]) || [];
-  const rec = rows.find(x => String(x.code) === String(sess.code));
+  const rec = Array.isArray(rows)
+    ? rows.find(function (x) { return String(x.code) === payCode; })
+    : (rows && (rows[payCode] || rows[String(payCode)])) || null;
   if (!rec) {
-    return jsonResponse({ ok: false, error: 'not_found', message: 'برای این ماه فیشی ثبت نشده است.' }, 404);
+    return jsonResponse({ ok: false, error: 'not_found', message: 'برای این ماه فیشی ثبت نشده است.', viewable: viewableP, code: payCode }, 404);
   }
 
   // company info (from settings if available)
@@ -1211,6 +1224,8 @@ async function handleMyPayslip(request, env) {
     ok: true,
     year: year,
     month: month,
+    code: payCode,
+    viewable: typeof viewableP !== 'undefined' ? viewableP : [],
     company: {
       name: company.name || company.companyName || '',
       address: company.address || '',
@@ -6895,12 +6910,13 @@ function getPortalViewConfig(obj) {
   const c = (obj && obj.portalViewConfig) || {};
   var decreeFields = null;
   var profileFields = null;
-  if (c.fieldsConfigured) {
+  var configured = !!c.fieldsConfigured;
+  if (configured) {
     decreeFields = Array.isArray(c.decreeFields) ? c.decreeFields.map(String) : [];
     profileFields = Array.isArray(c.profileFields) ? c.profileFields.map(String) : [];
   } else {
-    if (Array.isArray(c.decreeFields) && c.decreeFields.length) decreeFields = c.decreeFields.map(String);
-    if (Array.isArray(c.profileFields) && c.profileFields.length) profileFields = c.profileFields.map(String);
+    if (Array.isArray(c.decreeFields)) decreeFields = c.decreeFields.map(String);
+    if (Array.isArray(c.profileFields)) profileFields = c.profileFields.map(String);
   }
   return {
     showDecree: c.showDecree !== false,
@@ -6911,10 +6927,9 @@ function getPortalViewConfig(obj) {
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
     profileFields: profileFields,
-    fieldsConfigured: !!c.fieldsConfigured
+    fieldsConfigured: configured || Array.isArray(c.decreeFields) || Array.isArray(c.profileFields)
   };
 }
-
 
 function resolveEmpManagerCodes(emp, obj) {
   if (!emp) return { m1: '', m2: '' };
@@ -6990,15 +7005,14 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
       const a = String(allowedFieldIds[i] || '').trim();
       if (!a) continue;
       if (a === idS || a === nameS) return true;
-      if (a.indexOf('name:') === 0 && (a.slice(5) === nameS || norm(a.slice(5)) === nName)) return true;
+      if (a.indexOf('name:') === 0 && a.slice(5) === nameS) return true;
       const nA = norm(a);
       if (nA && (nA === nId || nA === nName)) return true;
-      if (nName && nA && (nName.indexOf(nA) >= 0 || nA.indexOf(nName) >= 0)) return true;
     }
     return false;
   }
 
-function push(id, name, amount) {
+  function push(id, name, amount) {
     const n = String(name || '').trim();
     if (!n) return;
     if (!isAllowed(id, n)) return;
@@ -7098,6 +7112,10 @@ function push(id, name, amount) {
     push(d.id, d.name, d.amount);
   });
 
+  
+  if (allowedFieldIds != null) {
+    items = items.filter(function (it) { return isAllowed(it.id, it.name); });
+  }
   return items;
 }
 
@@ -7180,7 +7198,7 @@ async function handleEmpDecree(request, env) {
   let total = 0;
   items.forEach(function (it) { total += Number(it.amount) || 0; });
   const viewable = listViewableEmployees(allEmps, pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, gd.obj);
-  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total, viewable: viewable, mode: pvc.decreeMode });
+  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total, viewable: viewable, mode: pvc.decreeMode, allowedFields: pvc.decreeFields, fieldsConfigured: !!pvc.fieldsConfigured });
 }
 
 async function handleEmpProfile(request, env) {
@@ -7211,7 +7229,7 @@ async function handleEmpProfile(request, env) {
   } catch (eM) {}
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
   const viewable = listViewableEmployees(allEmps, pvc.profileMode, pvc.profileSelectedCodes, sess.code, gd.obj);
-  return jsonResponse({ ok: true, fields: fields, code: emp.code, fullName: emp.fullName || '', viewable: viewable, mode: pvc.profileMode });
+  return jsonResponse({ ok: true, fields: fields, code: emp.code, fullName: emp.fullName || '', viewable: viewable, mode: pvc.profileMode, allowedFields: pvc.profileFields, fieldsConfigured: !!pvc.fieldsConfigured });
 }
 
 
@@ -8105,10 +8123,26 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel" id="panel-payslip">
     <h2 class="no-print">فیش حقوقی</h2>
-    <div class="grid2 no-print"><div><label>سال</label><input type="number" id="year" value="1405"></div>
-    <div><label>ماه</label><select id="month"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
-    <button class="primary no-print" onclick="loadPayslip()">نمایش فیش</button>
-    <button class="sm no-print" style="margin-top:8px;width:auto;" onclick="window.print()">چاپ</button>
+    <div id="psFilterRow" class="no-print" style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-bottom:8px;">
+      <div id="psEmpSelHost" style="flex:1 1 140px;min-width:120px;display:none;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">فرد</label>
+        <select id="psEmpSel" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"></select>
+      </div>
+      <div style="flex:0 0 90px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">سال</label>
+        <input type="number" id="year" value="1405" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;box-sizing:border-box;">
+      </div>
+      <div style="flex:0 0 110px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">ماه</label>
+        <select id="month" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select>
+      </div>
+      <div style="flex:1 1 90px;">
+        <button class="primary" onclick="loadPayslip()" style="width:100%;padding:8px 12px;margin:0;">نمایش فیش</button>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="sm" style="padding:8px 12px;margin:0;" onclick="window.print()">چاپ</button>
+      </div>
+    </div>
     <div class="err no-print" id="appErr"></div><div id="payslipBox"></div>
   </div>
   <div class="card panel hidden" id="panel-request">
@@ -8610,9 +8644,12 @@ async function loadPayslip(){
   var err=document.getElementById('appErr'); err.textContent=''; document.getElementById('payslipBox').innerHTML='';
   var year=Number(document.getElementById('year').value), month=Number(document.getElementById('month').value);
   try{
-    var r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
+    var r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify((function(){var b={year:year,month:month};var el=document.getElementById('psEmpSel');if(el&&el.value)b.code=el.value;return b;})()),credentials:'same-origin'});
     var j=await r.json();
-    if(!j.ok){err.textContent=j.message||'فیشی یافت نشد.';return}
+    if(!j.ok){err.textContent=j.message||'فیشی یافت نشد.';
+      try{if(j.viewable&&j.viewable.length>1){var host=document.getElementById('psEmpSelHost');var se=document.getElementById('psEmpSel');if(host)host.style.display='';if(se){var cur=se.value||j.code||'';se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(cur)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');if(!se.__wired){se.__wired=true;se.addEventListener('change',function(){loadPayslip();});}}} }catch(eV){}
+      return;}
+    try{if(j.viewable&&j.viewable.length>1){var host=document.getElementById('psEmpSelHost');var se=document.getElementById('psEmpSel');if(host)host.style.display='';if(se){var cur=se.value||j.code||'';se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(cur)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');if(!se.__wired){se.__wired=true;se.addEventListener('change',function(){loadPayslip();});}}}else{var host2=document.getElementById('psEmpSelHost');if(host2)host2.style.display='none';}}catch(eV2){}
     var p=j.payslip, items='';
     (p.itemDetails||[]).forEach(function(it){items+='<tr><td>'+it.name+(it.qty!=null&&it.qty!==''?' ('+it.qty+')':'')+'</td><td>'+fmt(it.amount)+'</td></tr>'});
     var companyName=(j.company&&j.company.name)?j.company.name:'فیش حقوقی';
