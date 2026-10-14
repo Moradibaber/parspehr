@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v100" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v101" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1517,6 +1517,9 @@ async function handleEmpCreateRequest(request, env) {
     }
     const cy = portalCal.realYear;
     const cm = portalCal.realMonth;
+    // ماه مجاز درخواست = ماه تاریخ شروع (جاری، یا ماه قبل در روزهای مهلت)؛ کل بازه باید داخل همین ماه باشد
+    const targetY = pStart.y;
+    const targetM = pStart.m;
 
     // resolve type from admin-defined list
     let types = gd.obj.attendanceTypes || [];
