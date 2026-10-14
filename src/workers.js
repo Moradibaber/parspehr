@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261004v21" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v100" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -186,6 +186,144 @@ async function storeGetData(cfg) {
   return { version: Number(row.version) || 0, obj: obj };
 }
 
+
+function employeeFieldLabels() {
+  return {
+    fullName: 'نام و نام خانوادگی',
+    firstName: 'نام',
+    lastName: 'نام خانوادگی',
+    birthDate: 'تاریخ تولد',
+    management: 'مدیریت',
+    deputy: 'معاونت',
+    unit: 'واحد',
+    group: 'گروه',
+    jobGrade: 'رده شغلی',
+    workplace: 'محل کار',
+    city: 'شهر محل سکونت',
+    province: 'استان محل سکونت',
+    gender: 'جنسیت',
+    militaryStatus: 'وضعیت نظام وظیفه',
+    militaryExemptType: 'نوع معافیت نظام وظیفه',
+    educationLevel: 'مقطع تحصیلی',
+    educationField: 'رشته تحصیلی',
+    hireDate: 'تاریخ استخدام',
+    endDate: 'تاریخ پایان همکاری',
+    position: 'سمت',
+    basicSalary: 'حقوق پایه',
+    status: 'وضعیت',
+    contractType: 'نوع قرارداد',
+    bankName: 'نام بانک',
+    accountNumber: 'شماره حساب',
+    insuranceNo: 'شماره بیمه',
+    nationalId: 'کد ملی',
+    mobile: 'شماره همراه',
+    fatherName: 'نام پدر',
+    address: 'آدرس',
+    marital: 'وضعیت تأهل',
+    childrenCount: 'تعداد اولاد',
+    taxPercent: 'درصد مالیات',
+    exemption: 'معافیت',
+    seniorityBase: 'پایه سنوات'
+  };
+}
+
+function normEmpVal(v) {
+  if (v == null || v === undefined) return '';
+  if (typeof v === 'number') return String(v);
+  return String(v).trim();
+}
+
+function diffEmployeeChanges(prev, next) {
+  if (!prev || !next) return [];
+  const labels = employeeFieldLabels();
+  const keys = Object.keys(labels);
+  const out = [];
+  keys.forEach(function (k) {
+    const a = normEmpVal(prev[k]);
+    const b = normEmpVal(next[k]);
+    // fullName: also compose from first/last if needed
+    if (k === 'fullName') {
+      const fa = a || (normEmpVal(prev.firstName) + ' ' + normEmpVal(prev.lastName)).trim();
+      const fb = b || (normEmpVal(next.firstName) + ' ' + normEmpVal(next.lastName)).trim();
+      if (fa !== fb && (fa || fb)) {
+        out.push({ field: k, label: labels[k], from: fa || '—', to: fb || '—' });
+      }
+      return;
+    }
+    if (a !== b && (a || b)) {
+      out.push({ field: k, label: labels[k], from: a || '—', to: b || '—' });
+    }
+  });
+  // customItems by name — فقط تغییر واقعی مبلغ/فعال بودن (نه 0 در برابر غیرفعال)
+  function itemSig(emp) {
+    const m = {};
+    (emp.customItems || emp.customs || emp.items || []).forEach(function (ci) {
+      if (!ci || !ci.name) return;
+      const name = String(ci.name).trim();
+      if (!name) return;
+      const amount = Number(ci.amount);
+      const amt = isFinite(amount) ? amount : 0;
+      // فعال بودن: صریح false/0 = خاموش؛ در غیر این صورت اگر مبلغ > 0 یا enabled true
+      let en = true;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') en = false;
+      if (ci.active === false || ci.active === 0) en = false;
+      // مبلغ صفر و بدون فلگ فعال = معادل غیرفعال/خالی
+      if (!en || !(amt > 0)) {
+        m[name] = { key: 'off', label: 'غیرفعال' };
+      } else {
+        m[name] = { key: 'on:' + amt, label: String(amt) };
+      }
+    });
+    return m;
+  }
+  const pm = itemSig(prev);
+  const nm = itemSig(next);
+  const names = {};
+  Object.keys(pm).forEach(function (n) { names[n] = true; });
+  Object.keys(nm).forEach(function (n) { names[n] = true; });
+  function isOffState(x) {
+    if (!x || x.key === 'off') return true;
+    var s = String(x.label || '').trim();
+    if (!s || s === '—' || s === 'غیرفعال' || s === 'حذف شد') return true;
+    var n = Number(String(s).replace(/,/g, ''));
+    if (isFinite(n) && n === 0) return true;
+    return false;
+  }
+  Object.keys(names).forEach(function (n) {
+    const a = pm[n] || { key: 'off', label: '—' };
+    const b = nm[n] || { key: 'off', label: '—' };
+    if (a.key === b.key) return;
+    // 0 / غیرفعال / نبودن = معادل هم — ثبت نشود
+    if (isOffState(a) && isOffState(b)) return;
+    out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: a.label, to: b.label });
+  });
+  return out;
+}
+
+function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
+  if (!obj || !code || !changes || !changes.length) return;
+  if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') obj.employeeChangeLog = {};
+  const key = String(code);
+  if (!Array.isArray(obj.employeeChangeLog[key])) obj.employeeChangeLog[key] = [];
+  const at = new Date().toISOString();
+  const by = String(updatedBy || 'system');
+  changes.forEach(function (c) {
+    obj.employeeChangeLog[key].push({
+      at: at,
+      by: by,
+      field: c.field,
+      label: c.label,
+      from: c.from,
+      to: c.to,
+      text: (c.label || c.field) + ' از «' + c.from + '» به «' + c.to + '» تغییر کرد'
+    });
+  });
+  // keep last 300
+  if (obj.employeeChangeLog[key].length > 300) {
+    obj.employeeChangeLog[key] = obj.employeeChangeLog[key].slice(-300);
+  }
+}
+
 async function storePutData(cfg, baseVersion, obj, updatedBy) {
   // Preserve portal fields the main app form does not know about (managerCode, portal password, requests…)
   try {
@@ -194,6 +332,12 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
         const map = {};
         prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+          obj.employeeChangeLog = (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object')
+            ? JSON.parse(JSON.stringify(prev.obj.employeeChangeLog))
+            : {};
+        }
+
         // Managers stored in portalMeta so main-app saves cannot wipe them.
         var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
         var prevMeta = prev.obj.portalMeta && typeof prev.obj.portalMeta === 'object' ? prev.obj.portalMeta : {};
@@ -228,15 +372,74 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (e.family === undefined && p.family) e.family = p.family;
             if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
             if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
+            ['fatherName','mobile','address','phone','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function (k) {
+              var inc = e[k];
+              var prev = p[k];
+              var incEmpty = (inc === undefined || inc === null || String(inc).trim() === '');
+              var prevHas = (prev !== undefined && prev !== null && String(prev).trim() !== '');
+              if (incEmpty && prevHas) e[k] = prev;
+            });
+            if ((!e.mobile || String(e.mobile).trim() === '') && e.phone) e.mobile = e.phone;
+            if ((!e.phone || String(e.phone).trim() === '') && e.mobile) e.phone = e.mobile;
             if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
+
+            try {
+              var ex = (obj.employeeExtras && obj.employeeExtras[codeKey]) || (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {};
+              var per = (ex && ex.personal) || {};
+              if ((!e.fatherName || String(e.fatherName).trim() === '') && per.fatherName) e.fatherName = per.fatherName;
+              if ((!e.mobile || String(e.mobile).trim() === '') && (per.mobile || per.phone)) e.mobile = per.mobile || per.phone;
+              if ((!e.address || String(e.address).trim() === '') && per.address) e.address = per.address;
+              ['birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function(pk){
+                if ((!e[pk] || String(e[pk]).trim() === '') && per[pk]) e[pk] = per[pk];
+              });
+              if (!obj.employeeExtras) obj.employeeExtras = {};
+              if (!obj.employeeExtras[codeKey] || typeof obj.employeeExtras[codeKey] !== 'object') obj.employeeExtras[codeKey] = Object.assign({}, (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {});
+              obj.employeeExtras[codeKey].personal = {
+                fatherName: e.fatherName || '',
+                mobile: e.mobile || e.phone || '',
+                address: e.address || '',
+                birthDate: e.birthDate || '',
+                militaryStatus: e.militaryStatus || '',
+                militaryExemptType: e.militaryExemptType || '',
+                jobGrade: e.jobGrade || '',
+                educationLevel: e.educationLevel || '',
+                educationField: e.educationField || '',
+                city: e.city || ''
+              };
+            } catch (ePer) {}
+
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
+            // تاریخچه تغییرات کارت کارمند
+            try {
+              const ch = diffEmployeeChanges(p, e);
+              if (ch.length) appendEmployeeChangeLog(obj, e.code, ch, updatedBy);
+            } catch (eLog) {}
           }
         });
+        // حفظ تاریخچه قبلی اگر کلاینت نفرستاده
+        if (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object') {
+          if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+            obj.employeeChangeLog = prev.obj.employeeChangeLog;
+          } else {
+            Object.keys(prev.obj.employeeChangeLog).forEach(function (k) {
+              if (!obj.employeeChangeLog[k]) obj.employeeChangeLog[k] = prev.obj.employeeChangeLog[k];
+            });
+          }
+        }
         if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
         if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
-        if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
+        // تنظیمات نمایش حکم/مشخصات فقط توسط خود ذخیره‌ی پورتال‌ویو (updatedBy = 'portal-view:...') قابل تغییر است؛
+        // ذخیره‌های دیگر (فرم اصلی) نسخه‌ی قبلی را حفظ می‌کنند. (قبلاً این خط ذخیره‌ی خود پورتال‌ویو را هم برمی‌گرداند!)
+        if (String(updatedBy || '').indexOf('portal-view:') !== 0) {
+          if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        }
+        // پیام‌های همگانی ادمین: فقط ذخیره‌های خود پیام‌رسان (updatedBy = 'bcast:...') می‌توانند تغییرشان دهند
+        if (String(updatedBy || '').indexOf('bcast:') !== 0) {
+          if (Array.isArray(prev.obj.broadcastMessages)) obj.broadcastMessages = prev.obj.broadcastMessages;
+        }
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
           obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
@@ -461,6 +664,35 @@ async function enrichCalcDataFromStore(env, data) {
 }
 
 // ---------- Payroll calculation ----------
+
+function listEmployeesMissingContract(obj) {
+  const emps = (obj && obj.employees) || [];
+  const contracts = (obj && obj.contracts) || [];
+  const out = [];
+  function isApprovedContract(c) {
+    if (!c) return false;
+    const st = String(c.status || '').toLowerCase();
+    if (st === 'terminated' || st === 'expired' || st === 'revoked') return false;
+    // accepted: explicit adminApproved OR legacy status active/approved
+    if (c.adminApproved === true || c.adminApproved === 1 || c.adminApproved === 'true') return true;
+    if (st === 'active' || st === 'approved' || st === 'signed') return true;
+    return false;
+  }
+  emps.forEach(function (e) {
+    if (!e || e.status === 'inactive') return;
+    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
+    const ok = mine.some(isApprovedContract);
+    if (!ok) {
+      out.push({
+        code: e.code,
+        fullName: e.fullName || '',
+        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
+      });
+    }
+  });
+  return out;
+}
+
 async function handlePayroll(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -483,6 +715,17 @@ async function handlePayroll(request, user, env) {
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
   data = await enrichCalcDataFromStore(env, data);
+  let contractWarnings = [];
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (!gd.fail && gd.obj) {
+        const full = Object.assign({}, gd.obj, { employees: data.employees });
+        contractWarnings = listEmployeesMissingContract(full);
+      }
+    }
+  } catch (eCw) {}
   let out;
   try {
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -490,7 +733,13 @@ async function handlePayroll(request, user, env) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
     return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
   }
-  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length }));
+  if (out && typeof out === 'object') {
+    out.contractWarnings = contractWarnings;
+    if (contractWarnings.length) {
+      out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
+    }
+  }
+  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length, contractWarnings: contractWarnings.length }));
   return jsonResponse(out, out.ok ? 200 : 400);
 }
 
@@ -758,7 +1007,93 @@ async function handleEmpWhoami(request, env) {
   const now = Math.floor(Date.now() / 1000);
   const renew = (sess.exp - now < SESSION_IDLE_SECONDS / 2)
     ? empCookie(await makeEmpToken(env, sess.code, sess.fullName, now + SESSION_IDLE_SECONDS)) : null;
-  const body = { ok: true, code: sess.code, fullName: sess.fullName };
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (eUa) {}
+  let personal = { nationalId: '', fatherName: '', mobile: '', address: '', birthDate: '', militaryStatus: '', militaryExemptType: '', jobGrade: '', educationLevel: '', educationField: '', city: '', management: '', deputy: '', group: '', managementDeputy: '', unit: '', workplace: '', position: '' };
+  try {
+    const cfg2 = storeConfig(env);
+    if (cfg2) {
+      const gd2 = await storeGetData(cfg2);
+      if (gd2 && gd2.obj && Array.isArray(gd2.obj.employees)) {
+        const emp = gd2.obj.employees.find(function (x) { return String(x.code) === String(sess.code); });
+        const ex = gd2.obj.employeeExtras && gd2.obj.employeeExtras[String(sess.code)];
+        const per = (ex && ex.personal) || {};
+        if (emp) {
+          personal.nationalId = emp.nationalId || emp.national_id || '';
+          personal.fatherName = emp.fatherName || per.fatherName || '';
+          personal.mobile = emp.mobile || emp.phone || per.mobile || '';
+          personal.address = emp.address || per.address || '';
+          personal.birthDate = emp.birthDate || per.birthDate || '';
+          personal.militaryStatus = emp.militaryStatus || per.militaryStatus || '';
+          personal.militaryExemptType = emp.militaryExemptType || per.militaryExemptType || '';
+          personal.jobGrade = emp.jobGrade || per.jobGrade || '';
+          personal.educationLevel = emp.educationLevel || per.educationLevel || '';
+          personal.educationField = emp.educationField || per.educationField || '';
+          personal.city = emp.city || per.city || '';
+          personal.province = emp.province || emp.state || per.province || '';
+          personal.gender = emp.gender || emp.sex || per.gender || '';
+          personal.management = emp.management || '';
+          personal.deputy = emp.deputy || '';
+          personal.group = emp.group || '';
+          personal.unit = emp.unit || '';
+          personal.workplace = emp.workplace || '';
+          personal.position = emp.position || '';
+          personal.managementDeputy = emp.managementDeputy || emp.management || emp.deputy || '';
+          if (!personal.managementDeputy && emp.management && emp.deputy)
+            personal.managementDeputy = String(emp.management) + ' / ' + String(emp.deputy);
+          else if (!personal.managementDeputy)
+            personal.managementDeputy = emp.management || emp.deputy || '';
+        }
+      }
+    }
+  } catch (eP) {}
+  let realJalaliYear = 1405, realJalaliMonth = 1, realJalaliDay = 1;
+  let requestYear = 1405, requestMonth = 1, requestGraceDays = 0;
+  let adminYear = 1405, adminMonth = 1;
+  try {
+    const cfgS = storeConfig(env);
+    if (cfgS) {
+      const gdS = await storeGetData(cfgS);
+      const st = (gdS && gdS.obj && gdS.obj.settings) || {};
+      adminYear = Number(st.currentYear) || 1405;
+      adminMonth = Number(st.currentMonth) || Number(st.activeMonth) || 0;
+      const pc = getPortalRequestMonth(st);
+      realJalaliYear = pc.realYear; realJalaliMonth = pc.realMonth; realJalaliDay = pc.realDay;
+      requestYear = pc.requestYear; requestMonth = pc.requestMonth; requestGraceDays = pc.graceDays;
+    }
+  } catch (eS) {}
+  if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
+    let portalView = { showDecree: true, showProfile: true, decreeMode: 'self', profileMode: 'self' };
+  try {
+    const cfgPv2 = storeConfig(env);
+    if (cfgPv2) {
+      const gdPv2 = await storeGetData(cfgPv2);
+      if (gdPv2 && gdPv2.obj) {
+        const pvc2 = getPortalViewConfig(gdPv2.obj);
+        portalView = {
+          showDecree: !!pvc2.showDecree,
+          showProfile: !!pvc2.showProfile,
+          decreeMode: pvc2.decreeMode || 'self',
+          profileMode: pvc2.profileMode || 'self'
+        };
+      }
+    }
+  } catch (ePv2) {}
+const body = Object.assign({
+    ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess,
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
+    requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
+    currentYear: adminYear, currentMonth: adminMonth,
+    portalView: portalView
+    }, personal);
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -766,6 +1101,45 @@ async function handleEmpWhoami(request, env) {
     });
   }
   return jsonResponse(body);
+}
+
+
+async function handleEmpFeatures(request, env) {
+  // public to logged-in employees; returns feature flags for portal UI
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  let userAccess = defaultUserAccess();
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (gd && !gd.fail && gd.obj && gd.obj.settings) {
+        userAccess = normalizeUserAccess(gd.obj.settings.userAccess);
+      }
+    }
+  } catch (e) {}
+  let realJalaliYear = 1405, realJalaliMonth = 1, realJalaliDay = 1;
+  let requestYear = 1405, requestMonth = 1, requestGraceDays = 0;
+  let adminYear = 1405, adminMonth = 1;
+  try {
+    const cfg2 = storeConfig(env);
+    if (cfg2) {
+      const gd2 = await storeGetData(cfg2);
+      const st = (gd2 && !gd2.fail && gd2.obj && gd2.obj.settings) ? gd2.obj.settings : {};
+      adminYear = Number(st.currentYear) || 1405;
+      adminMonth = Number(st.currentMonth) || Number(st.activeMonth) || 0;
+      const pc = getPortalRequestMonth(st);
+      realJalaliYear = pc.realYear; realJalaliMonth = pc.realMonth; realJalaliDay = pc.realDay;
+      requestYear = pc.requestYear; requestMonth = pc.requestMonth; requestGraceDays = pc.graceDays;
+    }
+  } catch (e2) {}
+  if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
+  return jsonResponse({
+    ok: true, userAccess: userAccess,
+    realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
+    requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
+    currentYear: adminYear, currentMonth: adminMonth
+  });
 }
 
 async function handleMyPayslip(request, env) {
@@ -787,11 +1161,24 @@ async function handleMyPayslip(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
+  let payCode = String((r.body && r.body.code) || sess.code).trim() || String(sess.code);
+  const allEmpsP = gd.obj.employees || [];
+  if (payCode !== String(sess.code)) {
+    const targetP = allEmpsP.find(function (e) { return String(e.code) === payCode; });
+    if (!targetP || typeof isManagerOf !== 'function' || !isManagerOf(sess.code, targetP, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده فیش این فرد برای شما مجاز نیست.' }, 403);
+    }
+  }
+  const viewableP = allEmpsP.filter(function (e) {
+    return String(e.code) === String(sess.code) || (typeof isManagerOf === 'function' && isManagerOf(sess.code, e, gd.obj));
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const key = year + '-' + month;
   const rows = (gd.obj.payrolls && gd.obj.payrolls[key]) || [];
-  const rec = rows.find(x => String(x.code) === String(sess.code));
+  const rec = Array.isArray(rows)
+    ? rows.find(function (x) { return String(x.code) === payCode; })
+    : (rows && (rows[payCode] || rows[String(payCode)])) || null;
   if (!rec) {
-    return jsonResponse({ ok: false, error: 'not_found', message: 'برای این ماه فیشی ثبت نشده است.' }, 404);
+    return jsonResponse({ ok: false, error: 'not_found', message: 'برای این ماه فیشی ثبت نشده است.', viewable: viewableP, code: payCode }, 404);
   }
 
   // company info (from settings if available)
@@ -845,6 +1232,8 @@ async function handleMyPayslip(request, env) {
     ok: true,
     year: year,
     month: month,
+    code: payCode,
+    viewable: typeof viewableP !== 'undefined' ? viewableP : [],
     company: {
       name: company.name || company.companyName || '',
       address: company.address || '',
@@ -1112,18 +1501,22 @@ async function handleEmpCreateRequest(request, env) {
 
     // only current month (from settings) is allowed
     const settings = gd.obj.settings || {};
-    const cy = Number(settings.currentYear) || 1405;
-    let cm = Number(settings.currentMonth) || Number(settings.activeMonth) || 0;
+    const portalCal = getPortalRequestMonth(settings);
     const pStart = parseJalaliYMD(startDate);
     if (!pStart) return jsonResponse({ ok: false, error: 'bad_request', message: 'فرمت تاریخ نامعتبر است.' }, 400);
-    if (!cm) {
-      return jsonResponse({ ok: false, error: 'no_current_month', message: 'ماه جاری درخواست‌ها در سیستم تنظیم نشده. ادمین از تب «مأموریت/مرخصی و سایر» ماه جاری را ثبت کند.' }, 400);
+    let okMonth = (pStart.y === portalCal.realYear && pStart.m === portalCal.realMonth);
+    if (!okMonth && portalCal.graceDays > 0 && portalCal.realDay <= portalCal.graceDays) {
+      let py = portalCal.realYear, pm = portalCal.realMonth - 1;
+      if (pm < 1) { pm = 12; py -= 1; }
+      okMonth = (pStart.y === py && pStart.m === pm);
     }
-    const targetY = cy;
-    const targetM = cm;
-    if (pStart.y !== cy || pStart.m !== cm) {
-      return jsonResponse({ ok: false, error: 'wrong_month', message: 'فقط درخواست در ماه جاری سیستم (' + cy + '/' + cm + ') مجاز است.' }, 400);
+    if (!okMonth) {
+      let msg = 'فقط درخواست در ماه شمسی جاری (' + portalCal.realYear + '/' + portalCal.realMonth + ') مجاز است.';
+      if (portalCal.graceDays > 0) msg += ' تا ' + portalCal.graceDays + ' روز اول ماه، ماه قبل هم مجاز است.';
+      return jsonResponse({ ok: false, error: 'wrong_month', message: msg }, 400);
     }
+    const cy = portalCal.realYear;
+    const cm = portalCal.realMonth;
 
     // resolve type from admin-defined list
     let types = gd.obj.attendanceTypes || [];
@@ -1209,7 +1602,8 @@ async function handleEmpCreateRequest(request, env) {
       const g = gd.obj.attendanceGrants.find(function (x) {
         if (String(x.empCode) !== String(emp.code)) return false;
         if (String(x.typeId) !== String(typeId)) return false;
-        if (x.usedRequestId) return false;
+        if (x.revoked || x.revokedAt) return false;
+        if (x.usedRequestId || x.consumed) return false;
         const from = x.dateFrom || x.date || '';
         const to = x.dateTo || x.dateFrom || x.date || '';
         if (!from && !to) return true; // unrestricted dates
@@ -1706,13 +2100,18 @@ function ensureContractCalendars(obj) {
       if (!Array.isArray(cal.workWeekDays) || !cal.workWeekDays.length) {
         cal.workWeekDays = [6, 0, 1, 2, 3];
       }
-      // اگر سال جاری هیچ تعطیلی ندارد، فقط همان سال را با پیش‌فرض پر کن (سال‌های دیگر دست نخورند)
-      if (!Array.isArray(cal.holidaysByYear[String(cy)]) || cal.holidaysByYear[String(cy)].length === 0) {
-        if (cal._seededYears && cal._seededYears[String(cy)]) {
-          // قبلاً ادمین عمداً خالی کرده — دست نزن
-        } else {
-          cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
-        }
+      // ترمیم: مقادیر نوع «ساعتی» (۰۰:۰۰ تا ۲۳:۵۹، شناوری ۰، هر ۷ روز هفته) به‌اشتباه روی نوع دیگری ذخیره شده بود
+      if (t.id !== 'hourly'
+        && cal.workStart === '00:00' && cal.workEnd === '23:59'
+        && Number(cal.floatMinutes) === 0 && !cal.hasBreak
+        && cal.workWeekDays.length >= 7) {
+        const dws = defaultWorkSchedule();
+        cal.workWeekDays = [6, 0, 1, 2, 3];
+        Object.keys(dws).forEach(function (k) { cal[k] = dws[k]; });
+      }
+      // فقط اگر کلید سال اصلاً وجود ندارد پیش‌فرض بگذار؛ آرایه خالی = ادمین عمداً پاک کرده
+      if (!Array.isArray(cal.holidaysByYear[String(cy)])) {
+        cal.holidaysByYear[String(cy)] = defaultIranHolidaysForYear(cy);
       }
     }
   });
@@ -1758,20 +2157,48 @@ function getContractCalendar(obj, contractType) {
   const ct = String(contractType || 'normal').trim() || 'normal';
   const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
   const sched = normalizeWorkSchedule(cal);
+  // ساعتی: بازه کاری کل شبانه‌روز (حضور هر ساعتی معتبر است)
+  const hourlyAllDay = (ct === 'hourly');
   return {
-    workWeekDays: Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3],
+    _contractType: ct,
+    workWeekDays: hourlyAllDay
+      ? [0, 1, 2, 3, 4, 5, 6]
+      : (Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3]),
     countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
     holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {},
-    workStart: sched.workStart,
-    workEnd: sched.workEnd,
-    hasBreak: sched.hasBreak,
+    workStart: hourlyAllDay ? '00:00' : sched.workStart,
+    workEnd: hourlyAllDay ? '23:59' : sched.workEnd,
+    hasBreak: hourlyAllDay ? false : sched.hasBreak,
     breakStart: sched.breakStart,
     breakEnd: sched.breakEnd,
-    breakCountsAsWork: sched.breakCountsAsWork,
-    dayEnd: sched.dayEnd,
-    floatMinutes: sched.floatMinutes,
-    floatCompensate: sched.floatCompensate
+    breakCountsAsWork: hourlyAllDay ? false : sched.breakCountsAsWork,
+    dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
+    floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
+    floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
+    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {}
   };
+}
+
+/** برنامه موظفی یک روز خاص — در صورت نبود، برنامه پیش‌فرض نوع قرارداد */
+function getDayWorkSchedule(cal, y, m, d) {
+  const base = normalizeWorkSchedule(cal);
+  if (!cal || !cal.daySchedules) return base;
+  const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const over = cal.daySchedules[keySlash] || cal.daySchedules[keyDash] || null;
+  if (!over || typeof over !== 'object') return base;
+  const out = Object.assign({}, base);
+  if (over.workStart) out.workStart = String(over.workStart).trim();
+  if (over.workEnd) out.workEnd = String(over.workEnd).trim();
+  if (over.dayEnd) out.dayEnd = String(over.dayEnd).trim();
+  if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = Math.max(0, Number(over.floatMinutes) || 0);
+  if (over.hasBreak != null) out.hasBreak = !!over.hasBreak;
+  if (over.breakStart) out.breakStart = String(over.breakStart).trim();
+  if (over.breakEnd) out.breakEnd = String(over.breakEnd).trim();
+  if (over.breakCountsAsWork != null) out.breakCountsAsWork = !!over.breakCountsAsWork;
+  out._fromDaySchedule = true;
+  out._dayKey = keySlash;
+  return out;
 }
 
 /** HH:MM یا HH:MM:SS → دقیقه از نیمه‌شب (۰..۱۴۳۹+) */
@@ -1872,11 +2299,10 @@ function holidayItemMatchesDay(item, y, m, d) {
 function getDayMeta(obj, y, m, d, contractType) {
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
-  const cal = getContractCalendar(obj, contractType);
-  const listA = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
-  const listB = (obj && obj.settings && obj.settings.holidaysByYear && (obj.settings.holidaysByYear[String(y)] || obj.settings.holidaysByYear[y])) || [];
-  // ادغام: اول قرارداد، بعد سراسری
-  const list = [].concat(listA || [], listB || []);
+  const ct = String(contractType || 'normal').trim() || 'normal';
+  const cal = getContractCalendar(obj, ct);
+  // فقط تعطیلات تقویم همان نوع قرارداد — نه تعطیلات سراسری مشترک
+  const list = (cal.holidaysByYear && (cal.holidaysByYear[String(y)] || cal.holidaysByYear[y])) || [];
   let meta = null;
   (list || []).forEach(function (item) {
     if (!holidayItemMatchesDay(item, y, m, d)) return;
@@ -1900,6 +2326,11 @@ function getDayMeta(obj, y, m, d, contractType) {
       };
     }
   });
+  // ساعتی: فقط تعطیلات ثبت‌شده در تقویم خودش — آخر هفته به‌عنوان تعطیل رنگ نمی‌شود
+  // (حضور در هر روز/ساعت ممکن است)
+  if (ct === 'hourly') {
+    return meta;
+  }
   const wd = jalaliWeekday(y, m, d);
   const isWeekend = (cal.workWeekDays || []).indexOf(wd) < 0;
   if (!meta && isWeekend) {
@@ -1924,13 +2355,25 @@ function formatHoursHMFromHours(hours) {
 function computeDayTimesheet(cal, punches, opts) {
   opts = opts || {};
   const isHoliday = !!opts.isHoliday;
-  const sched = normalizeWorkSchedule(cal);
+  const isHourly = !!(opts.isHourly || opts.contractType === 'hourly' || (cal && cal._contractType === 'hourly'));
+  let sched;
+  if (opts.daySchedule && typeof opts.daySchedule === 'object') {
+    sched = Object.assign({}, normalizeWorkSchedule(cal), opts.daySchedule);
+  } else if (opts.year != null && opts.month != null && opts.day != null) {
+    sched = getDayWorkSchedule(cal, opts.year, opts.month, opts.day);
+  } else if (opts.dateKey) {
+    const pp = String(opts.dateKey).replace(/-/g, '/').split('/');
+    if (pp.length >= 3) sched = getDayWorkSchedule(cal, Number(pp[0]), Number(pp[1]), Number(pp[2]));
+    else sched = normalizeWorkSchedule(cal);
+  } else {
+    sched = normalizeWorkSchedule(cal);
+  }
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
-  const floatM = sched.floatMinutes;
-  const compensate = sched.floatCompensate;
-  const official = officialWorkMinutes(sched);
+  const floatM = isHourly ? 0 : sched.floatMinutes;
+  const compensate = isHourly ? false : (!!sched.floatCompensate || !!opts.floatCompensate);
+  const official = isHourly ? 0 : officialWorkMinutes(sched);
 
   // نرمال‌سازی پانچ‌ها
   let pairs = [];
@@ -1959,8 +2402,8 @@ function computeDayTimesheet(cal, punches, opts) {
     present += Math.max(0, b - a);
   });
 
-  // کسر وقفه فقط اگر وقفه فعال و جزو کار نباشد
-  if (sched.hasBreak && !sched.breakCountsAsWork) {
+  // کسر وقفه فقط اگر وقفه فعال و جزو کار نباشد (برای ساعتی اعمال نمی‌شود)
+  if (!isHourly && sched.hasBreak && !sched.breakCountsAsWork) {
     const bs = timeToMinutes(sched.breakStart);
     const be = timeToMinutes(sched.breakEnd);
     if (bs != null && be != null && completePairs.length) {
@@ -1974,6 +2417,44 @@ function computeDayTimesheet(cal, punches, opts) {
       });
       if (covers) present = Math.max(0, present - br);
     }
+  }
+
+  // —— قرارداد ساعتی: فقط مجموع حضور جفت‌های کامل؛ بدون موظفی/غیبت/شناوری/اضافه‌کار/شب‌کاری ——
+  if (isHourly) {
+    function fmtHM_h(mins) { return formatHoursHM(mins); }
+    const hasCompleteH = completePairs.length > 0;
+    return {
+      officialMinutes: 0,
+      presentMinutes: Math.round(present),
+      delayMinutes: 0,
+      earlyLeaveMinutes: 0,
+      compensatedMinutes: 0,
+      otMinutes: 0,
+      shortfallMinutes: 0,
+      hourlyAbsenceMinutes: 0,
+      hourlyAbsenceHours: 0,
+      hourlyAbsenceHM: fmtHM_h(0),
+      workHoursHM: fmtHM_h(present),
+      floatMinutes: 0,
+      floatCompensate: false,
+      isHoliday: false,
+      hasCompletePair: hasCompleteH,
+      withinFloat: true,
+      incompletePunch: incompletePairs.length > 0,
+      firstIn: null,
+      lastOut: null,
+      requiredEnd: null,
+      workHours: Math.round((present / 60) * 100) / 100,
+      otHours: 0,
+      otHoursHM: fmtHM_h(0),
+      nightMinutes: 0,
+      nightHours: 0,
+      nightHoursHM: fmtHM_h(0),
+      earlyOtMinutes: 0,
+      earlyOtHours: 0,
+      earlyOtHoursHM: fmtHM_h(0),
+      isHourly: true
+    };
   }
 
   const firstIn = completePairs.length
@@ -2068,6 +2549,46 @@ function computeDayTimesheet(cal, punches, opts) {
   const condFull = isCondMeta && !dayMeta.closeFrom && (dayMeta.fullDay !== false);
   const condHalf = isCondMeta && !!dayMeta.closeFrom;
   const forceNoFloat = dayMeta && dayMeta.applyFloat === false;
+
+  // حضور فقط داخل بازه موظفی [start, end] — مبنای کارکرد و کسری
+  // جبران شناوری/تیک جبران: دقایق compensated به کارکرد اضافه و از کسری کم می‌شود
+  // خارج شناوری بدون تیک جبران: compensated=0 → شکاف صبح + شکاف عصر هر دو کسری‌اند (دو مرخصی/مأموریت)
+  let presenceInWindow = 0;
+  if (start != null && end != null) {
+    completePairs.forEach(function (p) {
+      let a = p.inn, b = p.out;
+      if (a == null || b == null) return;
+      if (b < a) b += 24 * 60;
+      presenceInWindow += overlapMinutes(a, b, start, end);
+    });
+    if (sched.hasBreak && !sched.breakCountsAsWork) {
+      const bs2 = timeToMinutes(sched.breakStart);
+      const be2 = timeToMinutes(sched.breakEnd);
+      if (bs2 != null && be2 != null) {
+        let br2 = be2 - bs2; if (br2 < 0) br2 += 24 * 60;
+        let covers2 = false;
+        completePairs.forEach(function (p) {
+          let a = p.inn, b = p.out;
+          if (a == null || b == null) return;
+          if (b < a) b += 24 * 60;
+          if (a <= bs2 && b >= be2) covers2 = true;
+        });
+        if (covers2) presenceInWindow = Math.max(0, presenceInWindow - br2);
+      }
+    }
+  } else {
+    presenceInWindow = present;
+  }
+  // کارکرد مؤثر = حضور در پنجره + جبران معتبر (ماندن بعد از پایان که تأخیر صبح را پوشاند)
+  const creditComp = (!isHoliday && !condFull && !opts.unpaidLeave && !opts.fullDayLeaveOrMission)
+    ? (compensated || 0) : 0;
+  let presentForShort = Math.min(present, presenceInWindow + creditComp);
+  // workPresent برای روز عادی از همین مبنا (تعطیل/شرایطی پایین‌تر ممکن است بازنویسی کنند)
+  if (!isHoliday && !condFull && !condHalf) {
+    workPresent = presentForShort;
+  }
+  const beyondFloat = hasComplete && firstIn != null && start != null &&
+    (firstIn - start) > (floatM || 0) && !compensate;
 
   if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
     // تعطیل رسمی/هفته: تمام حضور = اضافه‌کار (شب‌کاری جدا)
@@ -2170,7 +2691,32 @@ function computeDayTimesheet(cal, punches, opts) {
   // - روز مرخصی/مأموریت روزانه (غیر بدون‌حقوق) → صفر
   // - مرخصی بدون حقوق → کل موظفی
   // - روز عادی → کمبود پس از حضور + پوشش ساعتی
-  const covered = Number(opts.coveredMinutes) || 0;
+  let covered = Number(opts.coveredMinutes) || 0;
+  // فقط بخشی از مرخصی/مأموریت ساعتی که روی «غیبت واقعی» داخل [شروع، پایان] می‌افتد پوشش حساب می‌شود
+  // (بازه تکراری/هم‌پوشان یا بازه‌ای که فرد حاضر بوده، کسری را پر نمی‌کند)
+  if (Array.isArray(opts.coveredIntervals) && !isHoliday && !(dayMeta && dayMeta.closeFrom) && start != null && end != null) {
+    const presMerged = [];
+    completePairs.map(function (p) { let a0 = p.inn, b0 = p.out; if (b0 < a0) b0 += 24 * 60; return [a0, b0]; })
+      .sort(function (x, y) { return x[0] - y[0]; })
+      .forEach(function (p) {
+        if (presMerged.length && p[0] <= presMerged[presMerged.length - 1][1]) presMerged[presMerged.length - 1][1] = Math.max(presMerged[presMerged.length - 1][1], p[1]);
+        else presMerged.push([p[0], p[1]]);
+      });
+    let eff = 0;
+    const mergedCov = [];
+    opts.coveredIntervals.slice().sort(function (x, y) { return x[0] - y[0]; }).forEach(function (iv) {
+      if (mergedCov.length && iv[0] <= mergedCov[mergedCov.length - 1][1]) mergedCov[mergedCov.length - 1][1] = Math.max(mergedCov[mergedCov.length - 1][1], iv[1]);
+      else mergedCov.push([iv[0], iv[1]]);
+    });
+    mergedCov.forEach(function (iv) {
+      const c0 = Math.max(iv[0], start), c1 = Math.min(iv[1], end);
+      if (c1 <= c0) return;
+      let m = c1 - c0;
+      presMerged.forEach(function (p) { m -= overlapMinutes(c0, c1, p[0], p[1]); });
+      eff += Math.max(0, m);
+    });
+    covered = eff;
+  }
   let shortfall = 0;
   const holidayFull = isHoliday || (dayMeta && dayMeta.fullDay && (dayMeta.conditional || dayMeta.type === 'conditional' || dayMeta.type === 'official' || dayMeta.type === 'weekend'));
   if (holidayFull) {
@@ -2192,7 +2738,10 @@ function computeDayTimesheet(cal, punches, opts) {
   } else if (opts.fullDayLeaveOrMission) {
     shortfall = 0;
   } else {
-    shortfall = Math.max(0, official - present - covered);
+    // کسری = موظفی − (حضور در پنجره + جبران معتبر) − پوشش ساعتی
+    // مثال بدون جبران: ورود ۰۷:۰۱ خروج ۱۵:۲۵ → حضور‌پنجره ۵۰۴، کسری ۲۱ (۱۶ صبح + ۵ عصر)
+    // مثال با جبران: ورود ۰۷:۱۵ خروج ۱۶:۰۰ → حضور‌پنجره ۴۹۵ + جبران ۳۰ = ۵۲۵، کسری ۰
+    shortfall = Math.max(0, official - presentForShort - covered);
   }
 
   // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
@@ -2486,6 +3035,7 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
   const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
   const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
   let mins = 0;
+  const iv = [];
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
     if (x.mode !== 'hourly') return;
@@ -2496,11 +3046,40 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
     const a = timeToMinutes(x.fromTime);
     const b = timeToMinutes(x.toTime);
     if (a == null || b == null || b <= a) return;
-    mins += (b - a);
+    iv.push([a, b]);
   });
+  // اجتماع بازه‌ها: مرخصی/مأموریت ساعتی تکراری یا هم‌پوشان فقط یک‌بار شمرده شود
+  iv.sort(function (p, q) { return p[0] - q[0]; });
+  let curA = null, curB = null;
+  iv.forEach(function (p) {
+    if (curA == null) { curA = p[0]; curB = p[1]; return; }
+    if (p[0] <= curB) { if (p[1] > curB) curB = p[1]; return; }
+    mins += (curB - curA); curA = p[0]; curB = p[1];
+  });
+  if (curA != null) mins += (curB - curA);
   return mins;
 }
 
+
+/** اجتماع بازه‌های مرخصی/مأموریت ساعتی روز (برای پوشش دقیق غیبت) */
+function hourlyCoverIntervalsOnDay(obj, code, year, month, day) {
+  const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(day).padStart(2, '0');
+  const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+  const iv = [];
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (x.mode !== 'hourly') return;
+    if (x.kind !== 'leave' && x.kind !== 'mission') return;
+    const sk = String(x.startDate || '').replace(/-/g, '/');
+    const k = (typeof dateKey === 'function') ? dateKey(x.startDate) : '';
+    if (k !== dateDash && sk !== dateFa) return;
+    const a = timeToMinutes(x.fromTime);
+    const b = timeToMinutes(x.toTime);
+    if (a == null || b == null || b <= a) return;
+    iv.push([a, b]);
+  });
+  return iv;
+}
 
 /** پاک‌سازی توضیح از متن‌های خودکار پوشش کسر و تکراری‌ها */
 function cleanTimesheetNote(note) {
@@ -2995,15 +3574,17 @@ async function handleEmpTimesheet(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
-  // employee sees only self; if they manage people they can request other codes
-  let code = String(r.body.code || sess.code);
+  let code = String(r.body.code || sess.code).trim() || String(sess.code);
+  const allEmpsTs = gd.obj.employees || [];
   if (code !== String(sess.code)) {
-    // allow if manager of that person OR we could restrict to self only
-    const target = (gd.obj.employees || []).find(e => String(e.code) === code);
-    if (!target || String(target.managerCode) !== String(sess.code)) {
-      code = String(sess.code);
+    const target = allEmpsTs.find(function (e) { return String(e.code) === code; });
+    if (!target || !isManagerOf(sess.code, target, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده تایم‌شیت این فرد برای شما مجاز نیست.' }, 403);
     }
   }
+  var viewableTs = allEmpsTs.filter(function (e) {
+    return String(e.code) === String(sess.code) || isManagerOf(sess.code, e, gd.obj);
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const key = year + '-' + month;
   const row = ((gd.obj.monthlyData || {})[key] || {})[code] || {};
   const reqs = ((gd.obj.attendanceRequests || []).filter(function (x) {
@@ -3052,6 +3633,7 @@ async function handleEmpTimesheet(request, env) {
     const punch = punchStore[dk] || punchStore[dateFa] || {};
     const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
     const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
+    const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
     const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
     const dayMeta = getDayMeta(gd.obj, year, month, d, empCt);
     const calc = computeDayTimesheet(cal, {
@@ -3059,7 +3641,7 @@ async function handleEmpTimesheet(request, env) {
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { year: year, month: month, day: d, isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     dayMap[dk] = {
       day: d,
       date: dateFa,
@@ -3159,10 +3741,13 @@ async function handleEmpTimesheet(request, env) {
     mdE._fromTimesheet = true;
     mdE._timesheetSyncedAt = new Date().toISOString();
   } catch (eMdE) { console.error('emp md sync', eMdE); }
+  const userAccess = normalizeUserAccess((gd.obj.settings || {}).userAccess);
   return jsonResponse({
     ok: true,
     code,
     fullName: emp ? emp.fullName : '',
+    userAccess: userAccess,
+    viewable: (typeof viewableTs !== 'undefined' ? viewableTs : [{ code: String(sess.code), fullName: emp ? emp.fullName : '' }]),
     year, month,
     workDays: workWithAtt,
     leaveDays: reLeaveDays,
@@ -3374,12 +3959,12 @@ function findOfficialAbsenceGaps(cal, punches) {
 /**
  * اعمال جبران شناوری روی شکاف صبح: ماندن بعد از end، از ابتدای شکاف صبح کم می‌کند
  */
-function applyFloatToMorningGaps(gaps, cal, punches) {
+function applyFloatToMorningGaps(gaps, cal, punches, forceCompOpt) {
   const sched = normalizeWorkSchedule(cal);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const floatM = Number(sched.floatMinutes) || 0;
-  const forceComp = !!sched.floatCompensate;
+  const forceComp = forceCompOpt != null ? !!forceCompOpt : !!sched.floatCompensate;
   if (start == null || end == null || !gaps || !gaps.length) return { gaps: gaps || [], compensated: 0 };
 
   let lastOut = null, firstIn = null;
@@ -3459,7 +4044,8 @@ function suggestHourlyCoverRanges(cal, calc, maxCoverMinutes, punches) {
 
   // شکاف واقعی + جبران شناوری (ماندن بعد از پایان روی صبح)
   let gaps = findOfficialAbsenceGaps(cal, punches || {});
-  const applied = applyFloatToMorningGaps(gaps, cal, punches || {});
+  const schedSug = normalizeWorkSchedule(cal);
+  const applied = applyFloatToMorningGaps(gaps, cal, punches || {}, !!schedSug.floatCompensate);
   gaps = applied.gaps;
 
   // بودجه: اگر maxCoverMinutes داده شده از آن استفاده؛ وگرنه همه شکاف‌های باقی‌مانده
@@ -3500,6 +4086,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
   const codes = Array.isArray(r.body.codes) ? r.body.codes.map(function (c) { return String(c).trim(); }).filter(Boolean) : [];
   const onlyDate = String(r.body.date || '').trim(); // optional YYYY/MM/DD
   const dryRun = !!r.body.dryRun;
+  const compFlag = !!r.body.compensate; // جبران تأخیر با ماندن در پایان
   if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12) || !codes.length) {
     return jsonResponse({ ok: false, error: 'bad_request', message: 'سال، ماه و حداقل یک کد پرسنلی لازم است.' }, 400);
   }
@@ -3551,6 +4138,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, ct);
         if (nonWork) continue;
         const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
+        const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
         const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
         if (dlm.fullDayLeaveOrMission && !dlm.unpaidLeave) continue;
         const calc = computeDayTimesheet(cal, {
@@ -3558,11 +4146,15 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           in2: punch.in2 || '', out2: punch.out2 || '',
           in3: punch.in3 || '', out3: punch.out3 || '',
           in4: punch.in4 || '', out4: punch.out4 || ''
-        }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        // تیک «جبران تأخیر با ماندن در پایان»: روزهایی که دیر آمده و بعد از پایان مانده‌اند علامت می‌خورند
+        // تا در تایم‌شیت هم همین جبران اعمال شود
+        if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dk] && !dryRun) punchStore[dk].floatCompensate = true;
+        else if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dateFa] && !dryRun) punchStore[dateFa].floatCompensate = true;
         const sm = Number(calc.hourlyAbsenceMinutes) || 0;
         if (sm > 0) {
           totalShortMin += sm;
-          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc, punch: { in1: punch.in1||'', out1: punch.out1||'', in2: punch.in2||'', out2: punch.out2||'', in3: punch.in3||'', out3: punch.out3||'', in4: punch.in4||'', out4: punch.out4||'' } });
+          dayShorts.push({ d: d, dateFa: dateFa, shortMin: sm, calc: calc, comp: compFlag || !!(punch && punch.floatCompensate), punch: { in1: punch.in1||'', out1: punch.out1||'', in2: punch.in2||'', out2: punch.out2||'', in3: punch.in3||'', out3: punch.out3||'', in4: punch.in4||'', out4: punch.out4||'' } });
         }
       }
 
@@ -3576,7 +4168,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
       for (let i = 0; i < dayShorts.length && leftToCover > 0; i++) {
         const ds = dayShorts[i];
         // شکاف‌های واقعی + جبران شناوری
-        let ranges = suggestHourlyCoverRanges(cal, ds.calc, 0, ds.punch || {});
+        let ranges = suggestHourlyCoverRanges(ds.comp ? Object.assign({}, cal, { floatCompensate: true }) : cal, ds.calc, 0, ds.punch || {});
         if (!ranges.length) continue;
         // اعمال سقف کسر مجاز و leftToCover
         const out = [];
@@ -3734,6 +4326,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
     const punch = punchStore[dk] || punchStore[dateFa] || {};
     const nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
     const coveredMin = hourlyCoverMinutesOnDay(obj, code, year, month, d);
+    const coveredIv = hourlyCoverIntervalsOnDay(obj, code, year, month, d);
     const dlm = dailyLeaveMissionFlags(obj, code, year, month, d);
     const dayMeta = getDayMeta(obj, year, month, d, ct);
     const calc = computeDayTimesheet(cal, {
@@ -3743,7 +4336,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       in4: punch.in4 || '', out4: punch.out4 || ''
     }, {
       isHoliday: nonWork,
-      coveredMinutes: coveredMin,
+      coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
       fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
       unpaidLeave: dlm.unpaidLeave,
       dayMeta: dayMeta,
@@ -3883,6 +4476,7 @@ async function handleAdminTimesheet(request, who, env) {
       fullName: emp.fullName || '',
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
+      childrenEligibleCount: (emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)),
       workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); return Math.round(r) || 0; })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
@@ -3955,6 +4549,7 @@ async function handleAdminTimesheet(request, who, env) {
       const punch = punchStore[dk] || punchStore[dateFa] || {};
       const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const coveredMin = hourlyCoverMinutesOnDay(gd.obj, filterCode, year, month, d);
+      const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, filterCode, year, month, d);
       const dlm = dailyLeaveMissionFlags(gd.obj, filterCode, year, month, d);
       const dayMeta = getDayMeta(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const calc = computeDayTimesheet(cal, {
@@ -3962,7 +4557,7 @@ async function handleAdminTimesheet(request, who, env) {
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { isHoliday: nonWork, coveredMinutes: coveredMin, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
+      }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -4028,11 +4623,21 @@ async function handleAdminTimesheet(request, who, env) {
         const fakeCalc = { hasCompletePair: !!(cell.in1 && cell.out1) || !!(cell.in2 && cell.out2), hourlyAbsenceMinutes: cell.hourlyAbsenceMin };
         const ranges = suggestHourlyCoverRanges(cal, fakeCalc, 0, punch);
         if (!ranges.length) { x._dropBulk = true; continue; }
-        // اگر بازه ذخیره‌شده با اولین شکاف واقعی فرق دارد، اصلاح کن
-        const r0 = ranges[0];
-        if (r0.fromTime !== x.fromTime || r0.toTime !== x.toTime) {
-          x.fromTime = r0.fromTime;
-          x.toTime = r0.toTime;
+        // هم‌تراز کردن با شکاف‌های واقعی: اگر چند شکاف (صبح+عصر) هست، همه پوشش داده شوند
+        // درخواست فعلی با نزدیک‌ترین شکاف هم‌تراز می‌شود؛ شکاف‌های بدون درخواست بعداً در bulk ساخته می‌شوند
+        let best = ranges[0], bestScore = Infinity;
+        const xf = timeToMinutes(x.fromTime), xt = timeToMinutes(x.toTime);
+        ranges.forEach(function (r) {
+          const rf = timeToMinutes(r.fromTime), rt = timeToMinutes(r.toTime);
+          if (rf == null || rt == null) return;
+          let score = 0;
+          if (xf != null) score += Math.abs(rf - xf);
+          if (xt != null) score += Math.abs(rt - xt);
+          if (score < bestScore) { bestScore = score; best = r; }
+        });
+        if (best && (best.fromTime !== x.fromTime || best.toTime !== x.toTime)) {
+          x.fromTime = best.fromTime;
+          x.toTime = best.toTime;
         }
       }
       gd.obj.attendanceRequests = reqsAll.filter(function (x) { return !x._dropBulk; });
@@ -4219,6 +4824,30 @@ function gregorianToJalali(gy, gm, gd) {
   else { jm = 7 + Math.floor((days - 186) / 30); jd = 1 + ((days - 186) % 30); }
   return { y: jy, m: jm, d: jd };
 }
+
+/** ماه مجاز درخواست مرخصی/مأموریت: ماه شمسی واقعی؛ تا N روز اول ماه بعد، ماه قبل هم مجاز */
+function getPortalRequestMonth(settings) {
+  settings = settings || {};
+  const d = new Date();
+  const j = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  let ry = (j && j.y) ? j.y : 1405;
+  let rm = (j && j.m) ? j.m : 1;
+  let rd = (j && j.d) ? j.d : 1;
+  let grace = Number(settings.requestGraceDays);
+  if (!isFinite(grace) || grace < 0) grace = 0;
+  if (grace > 31) grace = 31;
+  let reqY = ry, reqM = rm;
+  if (grace > 0 && rd <= grace) {
+    reqM = rm - 1;
+    if (reqM < 1) { reqM = 12; reqY = ry - 1; }
+  }
+  return {
+    realYear: ry, realMonth: rm, realDay: rd,
+    requestYear: reqY, requestMonth: reqM,
+    graceDays: grace
+  };
+}
+
 function parseImportDateToJalali(raw) {
   raw = String(raw || '').trim();
   if (!raw) return null;
@@ -4590,6 +5219,7 @@ function snapshotEmpExtra(obj, emp) {
   if (!obj || !emp || emp.code == null) return;
   ensureEmployeeExtras(obj);
   var code = String(emp.code);
+  var prevPer = (obj.employeeExtras[code] && obj.employeeExtras[code].personal) || {};
   // عکس فقط در employeePhotos — داخل extras نگذار (حجم همگام‌سازی)
   obj.employeeExtras[code] = {
     family: emp.family || { members: [] },
@@ -4602,6 +5232,13 @@ function snapshotEmpExtra(obj, emp) {
     hasPhoto: !!(obj.employeePhotos && obj.employeePhotos[code]) || !!emp.photo,
     updatedAt: new Date().toISOString()
   };
+  // نام پدر / موبایل / آدرس — با ذخیره فرم اصلی پاک نشوند
+  var per = {};
+  ['fatherName', 'mobile', 'address'].forEach(function (k) {
+    var v = emp[k];
+    per[k] = (v !== undefined && v !== null) ? String(v) : String(prevPer[k] || '');
+  });
+  obj.employeeExtras[code].personal = per;
   // customItems مربوط به بیمه تکمیلی را هم نگه دار
   var suppItems = (emp.customItems || []).filter(function (ci) {
     return ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''));
@@ -4619,6 +5256,11 @@ function applyEmpExtra(obj, emp) {
     if (Array.isArray(ex.systemMessages)) emp.systemMessages = ex.systemMessages;
     if (ex.childrenEligibleCount != null) emp.childrenEligibleCount = ex.childrenEligibleCount;
     if (ex.children != null) emp.children = ex.children;
+    if (ex.personal && typeof ex.personal === 'object') {
+      ['fatherName', 'mobile', 'address'].forEach(function (k) {
+        if (ex.personal[k] !== undefined) emp[k] = ex.personal[k];
+      });
+    }
     emp.suppInsuranceDeduct = !!ex.suppInsuranceDeduct;
     emp.suppInsuranceDeductCount = Number(ex.suppInsuranceDeductCount) || 0;
     if (Array.isArray(ex.suppCustomItems) && ex.suppCustomItems.length) {
@@ -4689,6 +5331,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenCount: Number(emp.children) || 0,
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
+      personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; function g(k){ return emp[k] || ex[k] || ''; } return { fatherName: g('fatherName'), mobile: emp.mobile || emp.phone || ex.mobile || '', address: g('address'), birthDate: g('birthDate'), militaryStatus: g('militaryStatus'), militaryExemptType: g('militaryExemptType'), jobGrade: g('jobGrade'), educationLevel: g('educationLevel'), educationField: g('educationField'), city: g('city') }; })(),
       photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
@@ -4760,6 +5403,30 @@ async function handleAdminEmployeeExtra(request, who, env) {
         const saved = storeEmpPhoto(gd.obj, empCode, ph);
         if (saved) emp.photo = saved;
       }
+    }
+    if (body.personal && typeof body.personal === 'object') {
+      function pstr(k, max, fallback) {
+        if (body.personal[k] != null) return String(body.personal[k]).trim().slice(0, max);
+        return String(fallback || '').trim().slice(0, max);
+      }
+      var pf = pstr('fatherName', 80, emp.fatherName);
+      var pm = pstr('mobile', 20, emp.mobile || emp.phone);
+      var pa = pstr('address', 300, emp.address);
+      emp.fatherName = pf; emp.mobile = pm; emp.phone = pm; emp.address = pa;
+      emp.birthDate = pstr('birthDate', 20, emp.birthDate);
+      emp.militaryStatus = pstr('militaryStatus', 40, emp.militaryStatus);
+      emp.militaryExemptType = pstr('militaryExemptType', 80, emp.militaryExemptType);
+      emp.jobGrade = pstr('jobGrade', 80, emp.jobGrade);
+      emp.educationLevel = pstr('educationLevel', 40, emp.educationLevel);
+      emp.educationField = pstr('educationField', 120, emp.educationField);
+      emp.city = pstr('city', 80, emp.city);
+      if (!gd.obj.employeeExtras || typeof gd.obj.employeeExtras !== 'object') gd.obj.employeeExtras = {};
+      if (!gd.obj.employeeExtras[empCode] || typeof gd.obj.employeeExtras[empCode] !== 'object') gd.obj.employeeExtras[empCode] = {};
+      gd.obj.employeeExtras[empCode].personal = {
+        fatherName: emp.fatherName || '', mobile: emp.mobile || '', address: emp.address || '',
+        birthDate: emp.birthDate || '', militaryStatus: emp.militaryStatus || '', militaryExemptType: emp.militaryExemptType || '',
+        jobGrade: emp.jobGrade || '', educationLevel: emp.educationLevel || '', educationField: emp.educationField || '', city: emp.city || ''
+      };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
@@ -4978,7 +5645,9 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         const p = parseJalaliYMD(dk.replace(/-/g, '/'));
         const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
         const calc = computeDayTimesheet(cal, punch, {
+          year: (p && p.y) || year, month: (p && p.m) || month, day: (p && p.d) || d,
           isHoliday: nonWork,
+          floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
           earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
         });
         if (calc.presentMinutes > 0 || calc.otMinutes > 0 || calc.nightMinutes > 0) {
@@ -5165,6 +5834,15 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
     if (fixedDays === '' || fixedDays == null) fixedDays = null;
     else fixedDays = Number(fixedDays);
     if (fixedDays != null && (!isFinite(fixedDays) || fixedDays < 1)) fixedDays = null;
+    var bl = [];
+    if (Array.isArray(t.blacklistCodes)) {
+      bl = t.blacklistCodes.map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    } else if (t.blacklistCodes != null && String(t.blacklistCodes).trim()) {
+      bl = String(t.blacklistCodes).split(/[,،;]+/).map(function (c) { return String(c || '').trim(); }).filter(Boolean);
+    }
+    // unique
+    var blSeen = {};
+    bl = bl.filter(function (c) { if (blSeen[c]) return false; blSeen[c] = true; return true; });
     return {
       id: String(t.id || ('t_' + i + '_' + Date.now().toString(36))),
       name: String(t.name || '').trim() || ('نوع ' + (i + 1)),
@@ -5174,7 +5852,8 @@ async function handleAdminSaveAttendanceTypes(request, who, env) {
       fixedDays: fixedDays,
       frequency: normalizeFreq(t.frequency),
       requiresAdminGrant: !!t.requiresAdminGrant,
-      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0))
+      unpaid: !!(t.unpaid || t.isUnpaid || (String(t.name||'').indexOf('بدون حقوق') >= 0)),
+      blacklistCodes: bl
     };
   }).filter(function (t) { return t.name; });
 
@@ -5204,7 +5883,7 @@ async function handleEmpAttendanceTypes(request, env) {
   if (!types.length) types = defaultAttendanceTypes();
   const allReqs = (gd.obj && gd.obj.attendanceRequests) || [];
   const grants = ((gd.obj && gd.obj.attendanceGrants) || []).filter(function (g) {
-    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId;
+    return String(g.empCode) === String(sess.code) && !g.consumed && !g.usedRequestId && !g.revoked && !g.revokedAt;
   });
   const settings = (gd.obj && gd.obj.settings) || {};
   const cy = Number(settings.currentYear) || 1405;
@@ -5225,6 +5904,11 @@ async function handleEmpAttendanceTypes(request, env) {
 
   const visible = types.filter(function (t) {
     if (!t) return false;
+    // لیست سیاه: این افراد این نوع را نمی‌بینند
+    if (Array.isArray(t.blacklistCodes) && t.blacklistCodes.length) {
+      const code = String(sess.code);
+      if (t.blacklistCodes.map(String).indexOf(code) >= 0) return false;
+    }
     // admin-grant types: only if open unused grant
     if (t.requiresAdminGrant) {
       return grants.some(function (g) { return String(g.typeId) === String(t.id); });
@@ -5239,7 +5923,14 @@ async function handleEmpAttendanceTypes(request, env) {
     }
     return true;
   });
-  return jsonResponse({ ok: true, types: visible, grants: grants });
+  const pcAtt = getPortalRequestMonth(settings);
+  return jsonResponse({
+    ok: true, types: visible, grants: grants,
+    realJalaliYear: pcAtt.realYear, realJalaliMonth: pcAtt.realMonth, realJalaliDay: pcAtt.realDay,
+    requestYear: pcAtt.requestYear, requestMonth: pcAtt.requestMonth, requestGraceDays: pcAtt.graceDays,
+    currentYear: Number(settings.currentYear) || pcAtt.realYear,
+    currentMonth: Number(settings.currentMonth) || Number(settings.activeMonth) || pcAtt.realMonth
+  });
 }
 
 
@@ -5355,15 +6046,97 @@ async function handleAdminGrantAttendance(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  function grantStatus(g) {
+    if (!g) return 'unknown';
+    if (g.revoked || g.revokedAt) return 'revoked';
+    if (g.consumed || g.usedRequestId) return 'used';
+    // تاریخ پایان گذشته؟
+    try {
+      const to = g.dateTo || g.dateFrom || g.date || '';
+      if (to) {
+        const p = parseJalaliYMD(to);
+        const cy = Number(((arguments[0] && arguments[0].settings) || {}).currentYear);
+        // فقط با مقایسه رشته yyyy-mm-dd
+        const key = dateKey(to);
+        const today = (function () {
+          // از تنظیمات سیستم اگر موجود
+          return null;
+        })();
+        // بدون تقویم میلادی دقیق: فقط اگر dateTo با start درخواست بعدتر باشد در درخواست چک می‌شود
+      }
+    } catch (e0) {}
+    return 'open';
+  }
+
+  // GET: فهرست همه مجوزها
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const list = ((gd.obj && gd.obj.attendanceGrants) || []).map(function (g) {
+      const st = (g.revoked || g.revokedAt) ? 'revoked' : ((g.consumed || g.usedRequestId) ? 'used' : 'open');
+      return {
+        id: g.id,
+        empCode: g.empCode,
+        empName: g.empName || '',
+        typeId: g.typeId,
+        typeName: g.typeName || '',
+        dateFrom: g.dateFrom || g.date || '',
+        dateTo: g.dateTo || g.dateFrom || g.date || '',
+        grantedBy: g.grantedBy || '',
+        grantedAt: g.grantedAt || '',
+        usedRequestId: g.usedRequestId || null,
+        consumed: !!g.consumed,
+        revoked: !!(g.revoked || g.revokedAt),
+        revokedAt: g.revokedAt || null,
+        revokedBy: g.revokedBy || null,
+        status: st
+      };
+    });
+    return jsonResponse({ ok: true, grants: list });
+  }
+
   const r = await readBody(request);
   if (r.error) return r.error;
+  const action = String(r.body.action || 'create').trim();
+
+  // لغو زودهنگام / حذف
+  if (action === 'revoke' || action === 'delete') {
+    const id = String(r.body.id || r.body.grantId || '').trim();
+    if (!id) return jsonResponse({ ok: false, error: 'bad_request', message: 'شناسه مجوز الزامی است.' }, 400);
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const gd = await storeGetData(cfg);
+      if (gd.fail) return storeFailResponse(gd.fail);
+      if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+      if (!Array.isArray(gd.obj.attendanceGrants)) gd.obj.attendanceGrants = [];
+      const idx = gd.obj.attendanceGrants.findIndex(function (g) { return g && String(g.id) === id; });
+      if (idx < 0) return jsonResponse({ ok: false, error: 'not_found', message: 'مجوز یافت نشد.' }, 404);
+      const g = gd.obj.attendanceGrants[idx];
+      if (action === 'delete') {
+        gd.obj.attendanceGrants.splice(idx, 1);
+      } else {
+        g.revoked = true;
+        g.revokedAt = new Date().toISOString();
+        g.revokedBy = who.name;
+        // اگر رزرو شده با درخواست باز، رزرو را آزاد کن (درخواست همچنان باقی است تا ادمین/مدیر رد کند)
+        g.reservedRequestId = null;
+      }
+      const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+      if (put.fail) return storeFailResponse(put.fail);
+      if (put.conflict) continue;
+      return jsonResponse({ ok: true, action: action, grant: g });
+    }
+    return jsonResponse({ ok: false, error: 'conflict' }, 409);
+  }
+
+  // صدور مجوز جدید
   const empCode = String(r.body.empCode || '').trim();
   const typeId = String(r.body.typeId || '').trim();
   const dateFrom = String(r.body.dateFrom || r.body.date || '').trim();
   const dateTo = String(r.body.dateTo || r.body.dateFrom || r.body.date || '').trim();
   if (!empCode || !typeId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد کارمند و نوع الزامی است.' }, 400);
-  const cfg = storeConfig(env);
-  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   for (let attempt = 0; attempt < 4; attempt++) {
     const gd = await storeGetData(cfg);
     if (gd.fail) return storeFailResponse(gd.fail);
@@ -5387,6 +6160,10 @@ async function handleAdminGrantAttendance(request, who, env) {
       grantedBy: who.name,
       grantedAt: new Date().toISOString(),
       usedRequestId: null,
+      consumed: false,
+      revoked: false,
+      revokedAt: null,
+      revokedBy: null,
       allowAdvance: !!(r.body.allowAdvance || tdef.allowAdvance || (tdef.deductFromEntitlement && String(tdef.id || '').indexOf('leave') === 0))
     };
     gd.obj.attendanceGrants.unshift(grant);
@@ -5420,26 +6197,35 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     gd.obj.settings.currentYear = year;
     gd.obj.settings.currentMonth = month;
+    if (r.body.requestGraceDays != null) {
+      var gDays = Number(r.body.requestGraceDays);
+      if (!isFinite(gDays) || gDays < 0) gDays = 0;
+      if (gDays > 31) gDays = 31;
+      gd.obj.settings.requestGraceDays = gDays;
+    }
     ensureContractCalendars(gd.obj);
     const ct = String(r.body.contractType || 'normal').trim() || 'normal';
     if (!gd.obj.settings.contractCalendars[ct]) {
       gd.obj.settings.contractCalendars[ct] = { workWeekDays: [6,0,1,2,3], countNonWorkDaysAsLeave: false, holidaysByYear: {} };
     }
     const cal = gd.obj.settings.contractCalendars[ct];
-    if (Array.isArray(r.body.workWeekDays)) {
-      cal.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
-    }
     if (r.body.countNonWorkDaysAsLeave != null) {
       cal.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
     }
-    const schedFields = ['workStart','workEnd','breakStart','breakEnd','dayEnd'];
-    schedFields.forEach(function (f) {
-      if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
-    });
-    if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
-    if (r.body.hasBreak != null) cal.hasBreak = !!r.body.hasBreak;
-    if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
-    if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
+    // نوع «ساعتی» همیشه کل شبانه‌روز/همه روزها محاسبه می‌شود؛ ساعت و روز کاری آن ذخیره نمی‌شود
+    if (ct !== 'hourly') {
+      if (Array.isArray(r.body.workWeekDays)) {
+        cal.workWeekDays = r.body.workWeekDays.map(Number).filter(function (d) { return d >= 0 && d <= 6; });
+      }
+      const schedFields = ['workStart','workEnd','breakStart','breakEnd','dayEnd'];
+      schedFields.forEach(function (f) {
+        if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
+      });
+      if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
+      if (r.body.hasBreak != null) cal.hasBreak = !!r.body.hasBreak;
+      if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
+      if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
+    }
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
@@ -5539,7 +6325,14 @@ async function handleAdminGetHolidays(request, who, env) {
   const ct = String(urlCt.searchParams.get('contractType') || 'normal').trim() || 'normal';
   const cal = getContractCalendar(gd.obj, ct);
   const by = cal.holidaysByYear || {};
-  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [] });
+  const allDs = cal.daySchedules || {};
+  const yearPrefix = String(year) + '/';
+  const yearPrefix2 = String(year) + '-';
+  const daySchedules = {};
+  Object.keys(allDs).forEach(function (k) {
+    if (k.indexOf(yearPrefix) === 0 || k.indexOf(yearPrefix2) === 0) daySchedules[k.replace(/-/g, '/')] = allDs[k];
+  });
+  return jsonResponse({ ok: true, year: year, contractType: ct, days: by[String(year)] || [], daySchedules: daySchedules, defaultSchedule: normalizeWorkSchedule(cal) });
 }
 
 async function handleAdminSaveHolidays(request, who, env) {
@@ -5587,6 +6380,30 @@ async function handleAdminSaveHolidays(request, who, env) {
     gd.obj.settings.contractCalendars[ct].holidaysByYear[String(year)] = days.slice();
     if (!gd.obj.settings.contractCalendars[ct]._seededYears) gd.obj.settings.contractCalendars[ct]._seededYears = {};
     gd.obj.settings.contractCalendars[ct]._seededYears[String(year)] = true; // حتی اگر خالی — دیگر پیش‌فرض نریز
+    // برنامه موظفی روزانه (اولویت بر ساعت کلی نوع قرارداد)
+    if (r.body.daySchedules != null && typeof r.body.daySchedules === 'object') {
+      if (!gd.obj.settings.contractCalendars[ct].daySchedules) gd.obj.settings.contractCalendars[ct].daySchedules = {};
+      const ds = gd.obj.settings.contractCalendars[ct].daySchedules;
+      const yearPrefix = String(year) + '/';
+      // حذف برنامه‌های همان سال سپس نوشتن جدید
+      Object.keys(ds).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) === 0) delete ds[k];
+      });
+      Object.keys(r.body.daySchedules).forEach(function (k) {
+        const kk = String(k).replace(/-/g, '/');
+        if (kk.indexOf(yearPrefix) !== 0) return;
+        const v = r.body.daySchedules[k];
+        if (!v || typeof v !== 'object') return;
+        if (!v.workStart && !v.workEnd) return;
+        ds[kk] = {
+          workStart: v.workStart ? String(v.workStart).trim() : '',
+          workEnd: v.workEnd ? String(v.workEnd).trim() : '',
+          dayEnd: v.dayEnd ? String(v.dayEnd).trim() : '',
+          floatMinutes: v.floatMinutes != null && v.floatMinutes !== '' ? Number(v.floatMinutes) : null
+        };
+      });
+    }
     if (ct === 'normal') {
       if (!gd.obj.settings.holidaysByYear) gd.obj.settings.holidaysByYear = {};
       gd.obj.settings.holidaysByYear[String(year)] = days.slice();
@@ -5645,12 +6462,17 @@ async function handleAdminListAttendanceRequests(request, who, env) {
   const year = Number(r.body.year);
   const month = Number(r.body.month);
   const code = String(r.body.code || '').trim();
+  const codes = Array.isArray(r.body.codes) ? r.body.codes.map(function (c) { return String(c).trim(); }).filter(Boolean).slice(0, 2000) : [];
+  const jk = function (s) { const p = parseJalaliYMD(s); return p ? (p.y * 10000 + p.m * 100 + p.d) : 0; };
+  const fromKey = jk(r.body.fromDate);
+  const toKey = jk(r.body.toDate);
+  const kindF = String(r.body.kind || '').trim();
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
   let list = (gd.obj && gd.obj.attendanceRequests) || [];
-  if (isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
+  if (!fromKey && !toKey && isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
     list = list.filter(function (x) {
       const p = parseJalaliYMD(x.startDate);
       if (!p) return false;
@@ -5662,7 +6484,33 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   if (code) list = list.filter(function (x) { return String(x.empCode) === code; });
-  return jsonResponse({ ok: true, requests: list.slice(0, 500) });
+  if (codes.length) list = list.filter(function (x) { return codes.indexOf(String(x.empCode)) >= 0; });
+  let attTypes = (gd.obj && gd.obj.attendanceTypes) || [];
+  if (!attTypes.length) attTypes = defaultAttendanceTypes();
+  const typeById = {};
+  attTypes.forEach(function (t) { if (t) typeById[String(t.id)] = t; });
+  if (fromKey || toKey) {
+    list = list.filter(function (x) {
+      const s = jk(x.startDate);
+      if (!s) return false;
+      const e = jk(x.endDate) || s;
+      if (fromKey && e < fromKey) return false;
+      if (toKey && s > toKey) return false;
+      return true;
+    });
+  }
+  if (kindF) {
+    list = list.filter(function (x) {
+      const t = typeById[String(x.typeId)];
+      return ((t && t.kind) || x.kind || '') === kindF;
+    });
+  }
+  const filtered = !!(codes.length || fromKey || toKey || kindF);
+  const out = list.slice(0, filtered ? 5000 : 500).map(function (x) {
+    const t = typeById[String(x.typeId)];
+    return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
+  });
+  return jsonResponse({ ok: true, requests: out });
 }
 
 async function handleAdminUpdateAttendanceRequest(request, who, env) {
@@ -6026,6 +6874,12 @@ async function route(request, env, users, found) {
     if (request.method === 'GET') return handleAdminGetPortalView(request, who, env);
     return handleAdminSavePortalView(request, who, env);
   }
+  if (path === '/api/admin/user-access') {
+    if (request.method === 'GET') return handleAdminGetUserAccess(request, who, env);
+    return handleAdminSaveUserAccess(request, who, env);
+  }
+  if (path === '/api/admin/employee-history') return handleAdminEmployeeHistory(request, who, env);
+  if (path === '/api/admin/contracts-report') return handleAdminContractsReport(request, who, env);
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
@@ -6035,10 +6889,11 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/import-punches') return handleAdminImportPunches(request, who, env);
   if (path === '/api/admin/employee-extra') return handleAdminEmployeeExtra(request, who, env);
   if (path === '/api/admin/system-messages') return handleAdminSystemMessages(request, who, env);
+  if (path === '/api/admin/broadcast') return handleAdminBroadcast(request, who, env);
   if (path === '/api/admin/family-overview') return handleAdminFamilyOverview(request, who, env);
   if (path === '/api/admin/timesheet-days') return handleAdminSaveTimesheetDays(request, who, env);
   if (path === '/api/admin/portal-boot.js') {
-    return new Response(PORTAL_ADMIN_JS, {
+    return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
       status: 200,
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
@@ -6093,49 +6948,106 @@ async function route(request, env, users, found) {
 // ---------- Employee decree & profile (portal view) ----------
 function getPortalViewConfig(obj) {
   const c = (obj && obj.portalViewConfig) || {};
+  var decreeFields = null;
+  var profileFields = null;
+  var configured = !!c.fieldsConfigured;
+  if (configured) {
+    decreeFields = Array.isArray(c.decreeFields) ? c.decreeFields.map(String) : [];
+    profileFields = Array.isArray(c.profileFields) ? c.profileFields.map(String) : [];
+  } else {
+    if (Array.isArray(c.decreeFields)) decreeFields = c.decreeFields.map(String);
+    if (Array.isArray(c.profileFields)) profileFields = c.profileFields.map(String);
+  }
   return {
     showDecree: c.showDecree !== false,
-    decreeMode: c.decreeMode || 'self', // self | self_and_manager | all | selected
+    decreeMode: c.decreeMode || 'self',
     decreeSelectedCodes: Array.isArray(c.decreeSelectedCodes) ? c.decreeSelectedCodes.map(String) : [],
-    decreeFields: Array.isArray(c.decreeFields) ? c.decreeFields : null, // null = all available
+    decreeFields: decreeFields,
     showProfile: c.showProfile !== false,
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
-    profileFields: Array.isArray(c.profileFields) ? c.profileFields : null
+    profileFields: profileFields,
+    fieldsConfigured: configured || Array.isArray(c.decreeFields) || Array.isArray(c.profileFields)
   };
 }
 
-function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees) {
-  const mode = cfg[modeKey] || 'self';
-  const code = String(empCode);
+function resolveEmpManagerCodes(emp, obj) {
+  if (!emp) return { m1: '', m2: '' };
+  let m1 = String(emp.managerCode || emp.mgrCode || '').trim();
+  let m2 = String(emp.managerCode2 || emp.mgrCode2 || '').trim();
+  try {
+    const pack = obj && obj.employeeExtras && (obj.employeeExtras[String(emp.code)] || obj.employeeExtras[emp.code]);
+    if (pack) {
+      if (pack.managerCode) m1 = String(pack.managerCode).trim();
+      if (pack.managerCode2) m2 = String(pack.managerCode2).trim();
+      const per = pack.personal || {};
+      if (per.managerCode) m1 = String(per.managerCode).trim();
+      if (per.managerCode2) m2 = String(per.managerCode2).trim();
+    }
+  } catch (e) {}
+  return { m1: m1, m2: m2 };
+}
+
+function isManagerOf(viewerCode, targetEmp, obj) {
+  const v = String(viewerCode || '').trim();
+  if (!v || !targetEmp) return false;
+  const m = resolveEmpManagerCodes(targetEmp, obj);
+  return (m.m1 && m.m1 === v) || (m.m2 && m.m2 === v);
+}
+
+function canViewerAccessTarget(mode, selectedCodes, viewerCode, targetEmp, obj) {
+  if (!targetEmp) return false;
+  const v = String(viewerCode || '');
+  const t = String(targetEmp.code || '');
+  if (!v || !t) return false;
+  mode = mode || 'self';
   if (mode === 'all') return true;
-  if (mode === 'self') return true; // viewer is always self for emp portal; managers handled separately if needed
-  if (mode === 'self_and_manager') return true; // employee always sees own
-  if (mode === 'selected') {
-    const list = cfg[selectedKey] || [];
-    return list.indexOf(code) >= 0 || list.length === 0; // empty selected = treat as none visible unless self always?
+  if (mode === 'self') return v === t;
+  if (mode === 'selected') return (selectedCodes || []).map(String).indexOf(t) >= 0;
+  if (mode === 'self_and_manager') {
+    if (v === t) return true;
+    return isManagerOf(v, targetEmp, obj);
   }
-  return true;
+  return v === t;
+}
+
+function listViewableEmployees(allEmployees, mode, selectedCodes, viewerCode, obj) {
+  return (allEmployees || []).filter(function (e) {
+    return canViewerAccessTarget(mode, selectedCodes, viewerCode, e, obj);
+  }).map(function (e) {
+    return { code: String(e.code), fullName: e.fullName || '' };
+  });
+}
+
+function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees, obj) {
+  return canViewerAccessTarget(cfg[modeKey] || 'self', cfg[selectedKey] || [], empCode, emp || { code: empCode }, obj);
 }
 
 function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
-  const items = [];
+  let items = [];
   const code = String(emp.code);
   const headers = Array.isArray(obj.decreeHeaders) ? obj.decreeHeaders : [];
   const vals = (obj.decreeValues && (obj.decreeValues[code] || obj.decreeValues[emp.code])) || {};
   const seenNames = {};
 
-  function isAllowed(id, name) {
-    if (!allowedFieldIds || !allowedFieldIds.length) return true;
+    function isAllowed(id, name) {
+    if (allowedFieldIds == null) return true;
+    if (!allowedFieldIds.length) return false;
     if (allowedFieldIds.indexOf('decree_all') >= 0) return true;
-    const idS = String(id || '');
+    const idS = String(id || '').trim();
     const nameS = String(name || '').trim();
+    const norm = function (s) {
+      return String(s || '').replace(/\u200c/g, '').replace(/\s+/g, '').replace(/ي/g, 'ی').replace(/ك/g, 'ک');
+    };
+    const nName = norm(nameS);
+    const nId = norm(idS);
     for (let i = 0; i < allowedFieldIds.length; i++) {
-      const a = String(allowedFieldIds[i]);
+      const a = String(allowedFieldIds[i] || '').trim();
+      if (!a) continue;
       if (a === idS || a === nameS) return true;
       if (a.indexOf('name:') === 0 && a.slice(5) === nameS) return true;
-      // partial name match for flexibility
-      if (nameS && (a === nameS || nameS.indexOf(a) >= 0 || a.indexOf(nameS) >= 0)) return true;
+      const nA = norm(a);
+      if (nA && (nA === nId || nA === nName)) return true;
     }
     return false;
   }
@@ -6240,6 +7152,10 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
     push(d.id, d.name, d.amount);
   });
 
+  
+  if (allowedFieldIds != null) {
+    items = items.filter(function (it) { return isAllowed(it.id, it.name); });
+  }
   return items;
 }
 
@@ -6251,7 +7167,10 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'fullName', label: 'نام و نام خانوادگی', value: emp.fullName || '' },
     { key: 'code', label: 'کد پرسنلی', value: emp.code || '' },
     { key: 'position', label: 'سمت', value: emp.position || '' },
+    { key: 'managementDeputy', label: 'مدیریت / معاونت', value: (function(){ var v = emp.managementDeputy || ''; if (!v && emp.management && emp.deputy) v = String(emp.management) + ' / ' + String(emp.deputy); if (!v) v = emp.management || emp.deputy || ''; return v; })() },
     { key: 'unit', label: 'واحد', value: emp.unit || '' },
+    { key: 'group', label: 'گروه', value: emp.group || '' },
+    { key: 'jobGrade', label: 'رده شغلی', value: emp.jobGrade || '' },
     { key: 'workplace', label: 'محل خدمت', value: emp.workplace || '' },
     { key: 'hireDate', label: 'تاریخ استخدام', value: emp.hireDate || '' },
     { key: 'endDate', label: 'تاریخ پایان', value: emp.endDate || '' },
@@ -6262,7 +7181,7 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'accountNumber', label: 'شماره حساب', value: emp.accountNumber || '' },
     { key: 'insuranceNo', label: 'شماره بیمه', value: emp.insuranceNo || '' },
     { key: 'nationalId', label: 'کد ملی', value: emp.nationalId || emp.nationalCode || '' },
-    { key: 'mobile', label: 'موبایل', value: emp.mobile || emp.phone || '' },
+    { key: 'mobile', label: 'شماره همراه', value: emp.mobile || emp.phone || '' },
     { key: 'status', label: 'وضعیت', value: statusFa[emp.status] || emp.status || 'فعال' },
     { key: 'managerCode', label: 'کد مدیر سطح ۱', value: emp.managerCode || '' },
     { key: 'managerCode2', label: 'کد مدیر سطح ۲', value: emp.managerCode2 || '' },
@@ -6271,6 +7190,13 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'insuranceNo2', label: 'شماره بیمه (ثانویه)', value: emp.insuranceNo2 || '' },
     { key: 'fatherName', label: 'نام پدر', value: emp.fatherName || '' },
     { key: 'birthDate', label: 'تاریخ تولد', value: emp.birthDate || '' },
+    { key: 'educationLevel', label: 'مقطع تحصیلی', value: emp.educationLevel || '' },
+    { key: 'educationField', label: 'رشته تحصیلی', value: emp.educationField || '' },
+    { key: 'militaryStatus', label: 'وضعیت نظام وظیفه', value: emp.militaryStatus || '' },
+    { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه', value: emp.militaryExemptType || '' },
+    { key: 'gender', label: 'جنسیت', value: emp.gender || emp.sex || emp.jens || '' },
+    { key: 'province', label: 'استان محل سکونت', value: emp.province || emp.state || emp.ostan || '' },
+    { key: 'city', label: 'شهر محل سکونت', value: emp.city || '' },
     { key: 'address', label: 'آدرس', value: emp.address || '' },
     { key: 'email', label: 'ایمیل', value: emp.email || '' }
   ];
@@ -6284,7 +7210,8 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     if (typeof v === 'object') return;
     all.push({ key: k, label: k, value: v });
   });
-  if (!allowedKeys || !allowedKeys.length) return all;
+  if (allowedKeys == null) return all;
+  if (!allowedKeys.length) return [];
   return all.filter(function (f) { return allowedKeys.indexOf(f.key) >= 0; });
 }
 
@@ -6299,19 +7226,19 @@ async function handleEmpDecree(request, env) {
   if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
   const pvc = getPortalViewConfig(gd.obj);
   if (!pvc.showDecree) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم توسط ادمین غیرفعال است.' });
-  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  const allEmps = gd.obj.employees || [];
+  const urlD = new URL(request.url);
+  let targetCode = String(urlD.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  // selected mode: must be in list
-  if (pvc.decreeMode === 'selected') {
-    const list = pvc.decreeSelectedCodes || [];
-    if (list.length && list.indexOf(String(sess.code)) < 0) {
-      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم برای شما فعال نیست.' });
-    }
+  if (!canViewerAccessTarget(pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, emp, gd.obj)) {
+    return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم این فرد برای شما مجاز نیست.' });
   }
   const items = buildDecreeItemsForEmp(gd.obj, emp, pvc.decreeFields);
   let total = 0;
   items.forEach(function (it) { total += Number(it.amount) || 0; });
-  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total });
+  const viewable = listViewableEmployees(allEmps, pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, gd.obj);
+  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total, viewable: viewable, mode: pvc.decreeMode, allowedFields: pvc.decreeFields, fieldsConfigured: !!pvc.fieldsConfigured });
 }
 
 async function handleEmpProfile(request, env) {
@@ -6325,16 +7252,192 @@ async function handleEmpProfile(request, env) {
   if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
   const pvc = getPortalViewConfig(gd.obj);
   if (!pvc.showProfile) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات توسط ادمین غیرفعال است.' });
-  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  const allEmps = gd.obj.employees || [];
+  const urlP = new URL(request.url);
+  let targetCode = String(urlP.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  if (pvc.profileMode === 'selected') {
-    const list = pvc.profileSelectedCodes || [];
-    if (list.length && list.indexOf(String(sess.code)) < 0) {
-      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات برای شما فعال نیست.' });
-    }
+  if (!canViewerAccessTarget(pvc.profileMode, pvc.profileSelectedCodes, sess.code, emp, gd.obj)) {
+    return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات این فرد برای شما مجاز نیست.' });
   }
+  try {
+    const ex = gd.obj.employeeExtras && gd.obj.employeeExtras[String(emp.code)];
+    const per = (ex && ex.personal) || {};
+    ['fatherName','mobile','address','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city','province','gender'].forEach(function(k){
+      if ((!emp[k] || String(emp[k]).trim()==='') && per[k]) emp[k] = per[k];
+    });
+  } catch (eM) {}
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
-  return jsonResponse({ ok: true, fields: fields });
+  const viewable = listViewableEmployees(allEmps, pvc.profileMode, pvc.profileSelectedCodes, sess.code, gd.obj);
+  return jsonResponse({ ok: true, fields: fields, code: emp.code, fullName: emp.fullName || '', viewable: viewable, mode: pvc.profileMode, allowedFields: pvc.profileFields, fieldsConfigured: !!pvc.fieldsConfigured });
+}
+
+
+function defaultUserAccess() {
+  return {
+    portalTabs: {
+      work: true,
+      leaveDaily: true,
+      leaveHourly: true,
+      missionDaily: true,
+      missionHourly: true,
+      ot: true,
+      night: true,
+      absenceHourly: true
+    },
+    timesheetCols: {
+      punch: true,
+      work: true,
+      ot: true,
+      night: true,
+      eot: true,
+      abs: true,
+      mis: true,
+      lv: true,
+      note: true
+    },
+    navTabs: {
+      payslip: true,
+      request: true,
+      mine: true,
+      timesheet: true,
+      decree: true,
+      profile: true,
+      contracts: true,
+      balances: true,
+      password: true
+    }
+  };
+}
+
+function normalizeUserAccess(raw) {
+  const d = defaultUserAccess();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const pt = r.portalTabs && typeof r.portalTabs === 'object' ? r.portalTabs : {};
+  const tc = r.timesheetCols && typeof r.timesheetCols === 'object' ? r.timesheetCols : {};
+  const nt = r.navTabs && typeof r.navTabs === 'object' ? r.navTabs : {};
+  Object.keys(d.portalTabs).forEach(function (k) {
+    if (pt[k] != null) d.portalTabs[k] = !!pt[k];
+  });
+  Object.keys(d.timesheetCols).forEach(function (k) {
+    if (tc[k] != null) d.timesheetCols[k] = !!tc[k];
+  });
+  Object.keys(d.navTabs).forEach(function (k) {
+    if (nt[k] != null) d.navTabs[k] = !!nt[k];
+  });
+  return d;
+}
+
+
+async function handleAdminEmployeeHistory(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const url = new URL(request.url);
+  const code = String(url.searchParams.get('code') || url.searchParams.get('empCode') || '').trim();
+  const log = (gd.obj && gd.obj.employeeChangeLog) || {};
+  if (code) {
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === code; });
+    const rows = Array.isArray(log[code]) ? log[code].slice().reverse() : [];
+    return jsonResponse({ ok: true, code: code, fullName: emp ? (emp.fullName || '') : '', rows: rows });
+  }
+  // summary: last change per employee
+  const summary = Object.keys(log).map(function (c) {
+    const rows = log[c] || [];
+    const last = rows.length ? rows[rows.length - 1] : null;
+    const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(c); });
+    return {
+      code: c,
+      fullName: emp ? (emp.fullName || '') : '',
+      count: rows.length,
+      lastAt: last ? last.at : null,
+      lastText: last ? last.text : ''
+    };
+  }).sort(function (a, b) { return String(b.lastAt || '').localeCompare(String(a.lastAt || '')); });
+  return jsonResponse({ ok: true, summary: summary });
+}
+
+async function handleAdminContractsReport(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const contracts = (gd.obj && gd.obj.contracts) || [];
+  const emps = (gd.obj && gd.obj.employees) || [];
+  const empMap = {};
+  emps.forEach(function (e) { if (e) empMap[String(e.code)] = e; });
+  const typeFa = { temporary: 'موقت', fixed: 'دائم', daily: 'روزمزد', hourly: 'ساعتی' };
+  const statusFa = { pending: 'در انتظار تأیید', active: 'فعال', expired: 'منقضی', terminated: 'فسخ‌شده', revoked: 'ابطال‌شده' };
+  const rows = (Array.isArray(contracts) ? contracts : []).map(function (c) {
+    const emp = empMap[String(c.empCode || c.code || '')] || {};
+    const typeKey = String(c.type || c.contractType || '');
+    const statusKey = String(c.status || (c.adminApproved ? 'active' : 'pending'));
+    return {
+      empCode: c.empCode || c.code || '',
+      fullName: emp.fullName || c.empName || c.fullName || '',
+      unit: emp.unit || '',
+      position: emp.position || '',
+      typeKey: typeKey,
+      type: typeFa[typeKey] || typeKey,
+      duration: (c.durationMonths != null && c.durationMonths !== '') ? c.durationMonths : (c.duration || c.months || ''),
+      from: c.startDate || c.from || '',
+      to: c.endDate || c.to || '',
+      statusKey: statusKey,
+      status: statusFa[statusKey] || statusKey,
+      approved: !!c.adminApproved,
+      signed: !!(c.signedFileName || c.signedUploadedAt || c.signed || c.signedFile || c.fileUrl),
+      fileName: c.signedFileName || '',
+      visible: c.visibleToEmployee !== false,
+      note: c.note || c.editNote || c.historyNote || '',
+      createdAt: c.createdAt || '',
+      createdBy: c.createdBy || '',
+      updatedAt: c.updatedAt || c.editedAt || ''
+    };
+  });
+  return jsonResponse({ ok: true, rows: rows, total: rows.length });
+}
+
+async function handleAdminGetUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) gd.obj = {};
+  if (!gd.obj.settings) gd.obj.settings = {};
+  const ua = normalizeUserAccess(gd.obj.settings.userAccess);
+  return jsonResponse({ ok: true, userAccess: ua });
+}
+
+async function handleAdminSaveUserAccess(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) gd.obj = {};
+    if (!gd.obj.settings) gd.obj.settings = {};
+    gd.obj.settings.userAccess = normalizeUserAccess(r.body.userAccess || r.body);
+    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true, userAccess: gd.obj.settings.userAccess });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
 }
 
 async function handleAdminGetPortalView(request, who, env) {
@@ -6353,7 +7456,7 @@ async function handleAdminGetPortalView(request, who, env) {
     if (!h) return;
     const id = String(h.id || h.name || '');
     const name = String(h.name || h.id || '').trim();
-    if (name) decreeOptions.push({ id: id, name: name });
+    if (name && !decreeOptions.some(function (o) { return o.name === name; })) decreeOptions.push({ id: id, name: name });
   });
   (obj.allowances || []).forEach(function (a) {
     if (!a || !a.name) return;
@@ -6382,7 +7485,10 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'fullName', label: 'نام و نام خانوادگی' },
     { key: 'code', label: 'کد پرسنلی' },
     { key: 'position', label: 'سمت' },
+    { key: 'managementDeputy', label: 'مدیریت / معاونت' },
     { key: 'unit', label: 'واحد' },
+    { key: 'group', label: 'گروه' },
+    { key: 'jobGrade', label: 'رده شغلی' },
     { key: 'workplace', label: 'محل خدمت' },
     { key: 'hireDate', label: 'تاریخ استخدام' },
     { key: 'endDate', label: 'تاریخ پایان' },
@@ -6393,7 +7499,7 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'accountNumber', label: 'شماره حساب' },
     { key: 'insuranceNo', label: 'شماره بیمه' },
     { key: 'nationalId', label: 'کد ملی' },
-    { key: 'mobile', label: 'موبایل' },
+    { key: 'mobile', label: 'شماره همراه' },
     { key: 'status', label: 'وضعیت' },
     { key: 'managerCode', label: 'کد مدیر سطح ۱' },
     { key: 'managerCode2', label: 'کد مدیر سطح ۲' },
@@ -6401,6 +7507,13 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'seniorityBase', label: 'پایه سنوات' },
     { key: 'fatherName', label: 'نام پدر' },
     { key: 'birthDate', label: 'تاریخ تولد' },
+    { key: 'educationLevel', label: 'مقطع تحصیلی' },
+    { key: 'educationField', label: 'رشته تحصیلی' },
+    { key: 'militaryStatus', label: 'وضعیت نظام وظیفه' },
+    { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه' },
+    { key: 'gender', label: 'جنسیت' },
+    { key: 'province', label: 'استان محل سکونت' },
+    { key: 'city', label: 'شهر محل سکونت' },
     { key: 'address', label: 'آدرس' },
     { key: 'email', label: 'ایمیل' }
   ];
@@ -6418,25 +7531,186 @@ async function handleAdminSavePortalView(request, who, env) {
   const body = r.body || {};
   const cfgStore = storeConfig(env);
   if (!cfgStore) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  const gd = await storeGetData(cfgStore);
-  if (gd.fail) return storeFailResponse(gd.fail);
-  const obj = gd.obj || {};
-  obj.portalViewConfig = {
-    showDecree: !!body.showDecree,
-    decreeMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.decreeMode) >= 0 ? body.decreeMode : 'self',
-    decreeSelectedCodes: Array.isArray(body.decreeSelectedCodes) ? body.decreeSelectedCodes.map(String).slice(0, 500) : [],
-    decreeFields: Array.isArray(body.decreeFields) ? body.decreeFields.map(String).slice(0, 200) : [],
-    showProfile: !!body.showProfile,
-    profileMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
-    profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
-    profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : []
-  };
-  // persist
-  const put = await storePutData(cfgStore, gd.version || 0, obj, who.name || 'admin');
-  if (put && put.fail) return storeFailResponse(put.fail);
-  return jsonResponse({ ok: true, config: obj.portalViewConfig });
+  const modes = ['self', 'self_and_manager', 'all', 'selected'];
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const gd = await storeGetData(cfgStore);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const obj = gd.obj || {};
+    obj.portalViewConfig = {
+      showDecree: !!body.showDecree,
+      decreeMode: modes.indexOf(body.decreeMode) >= 0 ? body.decreeMode : 'self',
+      decreeSelectedCodes: Array.isArray(body.decreeSelectedCodes) ? body.decreeSelectedCodes.map(String).slice(0, 500) : [],
+      decreeFields: Array.isArray(body.decreeFields) ? body.decreeFields.map(String).slice(0, 400) : [],
+      showProfile: !!body.showProfile,
+      profileMode: modes.indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
+      profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
+      profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 200) : [],
+      fieldsConfigured: true,
+      profileExtraMigrated: true
+    };
+    // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
+    if (body.userAccess && typeof body.userAccess === 'object') {
+      if (!obj.settings) obj.settings = {};
+      obj.settings.userAccess = normalizeUserAccess(body.userAccess);
+    }
+    const put = await storePutData(cfgStore, gd.version || 0, obj, 'portal-view:' + (who.name || 'admin'));
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue; // نسخه عوض شده؛ دوباره بخوان و ذخیره کن
+    return jsonResponse({ ok: true, config: obj.portalViewConfig, userAccess: (obj.settings && obj.settings.userAccess) || undefined });
+  }
+  return jsonResponse({ ok: false, error: 'conflict', message: 'ذخیره به‌دلیل تداخل انجام نشد؛ دوباره تلاش کنید.' }, 409);
 }
 
+
+
+// ---------- Broadcast messages (admin → employees) ----------
+const BCAST_HOURS = { '1': 1, '2': 2, '6': 6, '12': 12, '24': 24, '48': 48, '72': 72, '168': 168 };
+
+function bcastIsExpired(m, nowMs) {
+  return !!(m && m.expiresAt && Date.parse(m.expiresAt) <= nowMs);
+}
+function bcastTargets(m, code) {
+  return !!(m && (m.toAll || (Array.isArray(m.recipients) && m.recipients.indexOf(String(code)) >= 0)));
+}
+function bcastActiveFor(m, code, nowMs) {
+  if (!bcastTargets(m, code)) return false;
+  if (bcastIsExpired(m, nowMs)) return false;
+  if (m.expiry === 'afterRead' && m.reads && m.reads[String(code)]) return false;
+  return true;
+}
+
+async function handleAdminBroadcast(request, who, env) {
+  if (who.role !== 'admin') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const obj = gd.obj || {};
+    const emps = (obj.employees || []).filter(function (e) { return e && e.status !== 'inactive'; });
+    const nameOf = {};
+    (obj.employees || []).forEach(function (e) { if (e) nameOf[String(e.code)] = e.fullName || ''; });
+    const nowMs = Date.now();
+    const messages = (Array.isArray(obj.broadcastMessages) ? obj.broadcastMessages : []).map(function (m) {
+      const reads = m.reads && typeof m.reads === 'object' ? m.reads : {};
+      const recips = m.toAll ? emps.map(function (e) { return String(e.code); }) : (m.recipients || []).map(String);
+      const readCount = recips.filter(function (c) { return !!reads[c]; }).length;
+      let status = 'active';
+      if (bcastIsExpired(m, nowMs)) status = 'expired';
+      else if (m.expiry === 'afterRead' && recips.length && readCount >= recips.length) status = 'completed';
+      return {
+        id: m.id, title: m.title || '', text: m.text || '', createdAt: m.createdAt || '', createdBy: m.createdBy || '',
+        toAll: !!m.toAll, recipientCount: recips.length,
+        recipientNames: m.toAll ? [] : recips.slice(0, 60).map(function (c) { return (nameOf[c] || '') + ' (' + c + ')'; }),
+        expiry: m.expiry || 'hours', hours: m.hours || 0, expiresAt: m.expiresAt || '',
+        readCount: readCount, status: status
+      };
+    });
+    const employees = emps.map(function (e) {
+      return { code: String(e.code), fullName: e.fullName || '', unit: e.unit || '' };
+    }).sort(function (a, b) { return String(a.fullName).localeCompare(String(b.fullName), 'fa'); });
+    return jsonResponse({ ok: true, messages: messages, employees: employees });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const action = String(body.action || 'send');
+  if (action !== 'send' && action !== 'delete') return jsonResponse({ ok: false, message: 'عملیات نامعتبر.' }, 400);
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const obj = gd.obj;
+    if (!Array.isArray(obj.broadcastMessages)) obj.broadcastMessages = [];
+
+    let sentId = '';
+    if (action === 'send') {
+      const text = String(body.text || '').trim().slice(0, 2000);
+      if (!text) return jsonResponse({ ok: false, message: 'متن پیام خالی است.' }, 400);
+      const title = String(body.title || '').trim().slice(0, 120);
+      const toAll = !!body.toAll;
+      const valid = {};
+      (obj.employees || []).forEach(function (e) { if (e) valid[String(e.code)] = true; });
+      const codes = (Array.isArray(body.codes) ? body.codes : []).map(String).filter(function (c, i, a) { return valid[c] && a.indexOf(c) === i; });
+      if (!toAll && !codes.length) return jsonResponse({ ok: false, message: 'هیچ گیرنده‌ای انتخاب نشده است.' }, 400);
+      const dur = String(body.duration || '24');
+      let expiry = 'hours', hours = 0, expiresAt = '';
+      if (dur === 'afterRead') {
+        expiry = 'afterRead';
+      } else if (BCAST_HOURS[dur]) {
+        hours = BCAST_HOURS[dur];
+        expiresAt = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+      } else {
+        return jsonResponse({ ok: false, message: 'مدت نمایش نامعتبر است.' }, 400);
+      }
+      sentId = 'bm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+      obj.broadcastMessages.unshift({
+        id: sentId, title: title, text: text,
+        createdAt: new Date().toISOString(), createdBy: who.name || 'admin',
+        toAll: toAll, recipients: toAll ? [] : codes,
+        expiry: expiry, hours: hours, expiresAt: expiresAt, reads: {}
+      });
+      if (obj.broadcastMessages.length > 300) obj.broadcastMessages.length = 300;
+    } else {
+      const id = String(body.id || '');
+      const before = obj.broadcastMessages.length;
+      obj.broadcastMessages = obj.broadcastMessages.filter(function (m) { return m && m.id !== id; });
+      if (obj.broadcastMessages.length === before) return jsonResponse({ ok: false, message: 'پیام یافت نشد.' }, 404);
+    }
+    const put = await storePutData(cfg, gd.version, obj, 'bcast:' + (who.name || 'admin'));
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true, id: sentId });
+  }
+  return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره؛ دوباره تلاش کنید.' }, 409);
+}
+
+async function handleEmpBroadcast(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const code = String(sess.code);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const nowMs = Date.now();
+    const list = (gd.obj && Array.isArray(gd.obj.broadcastMessages) ? gd.obj.broadcastMessages : [])
+      .filter(function (m) { return bcastActiveFor(m, code, nowMs); })
+      .map(function (m) {
+        return { id: m.id, title: m.title || '', text: m.text || '', createdAt: m.createdAt || '', expiresAt: m.expiresAt || '', expiry: m.expiry || 'hours', read: !!(m.reads && m.reads[code]) };
+      });
+    return jsonResponse({ ok: true, messages: list });
+  }
+
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const ids = (Array.isArray((r.body || {}).ids) ? r.body.ids : []).map(String).slice(0, 50);
+  if (!ids.length) return jsonResponse({ ok: true });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj || !Array.isArray(gd.obj.broadcastMessages)) return jsonResponse({ ok: true });
+    let changed = false;
+    gd.obj.broadcastMessages.forEach(function (m) {
+      if (!m || ids.indexOf(m.id) < 0 || !bcastTargets(m, code)) return;
+      if (!m.reads || typeof m.reads !== 'object') m.reads = {};
+      if (!m.reads[code]) { m.reads[code] = new Date().toISOString(); changed = true; }
+    });
+    if (!changed) return jsonResponse({ ok: true });
+    const put = await storePutData(cfg, gd.version, gd.obj, 'bcast:read:' + code);
+    if (put && put.fail) return storeFailResponse(put.fail);
+    if (put && put.conflict) continue;
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
 
 
 // ---------- Contracts ----------
@@ -6509,13 +7783,25 @@ async function handleAdminContracts(request, who, env) {
       codes.forEach(function (code) {
         const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(code); });
         if (!emp) { missing.push(code); return; }
+        var durM = body.durationMonths != null && body.durationMonths !== '' ? parseInt(body.durationMonths, 10) : null;
+        if (isNaN(durM)) durM = null;
+        var fn = emp.firstName || emp.name || '';
+        var ln = emp.lastName || emp.family || emp.familyName || '';
+        if (!fn && !ln && emp.fullName) {
+          var parts = String(emp.fullName).trim().split(/\s+/);
+          if (parts.length >= 2) { fn = parts[0]; ln = parts.slice(1).join(' '); }
+          else { fn = emp.fullName; }
+        }
         gd.obj.contracts.unshift({
           id: 'ctr_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
           empCode: String(emp.code),
-          empName: emp.fullName || '',
+          empName: emp.fullName || ((fn + ' ' + ln).trim()),
+          empFirstName: fn,
+          empLastName: ln,
           startDate: startDate,
           endDate: endDate,
           type: type,
+          durationMonths: durM,
           note: note,
           status: 'pending',
           adminApproved: false,
@@ -6525,6 +7811,8 @@ async function handleAdminContracts(request, who, env) {
           visibleToEmployee: visibleEmp,
           signedFileName: '',
           signedUploadedAt: '',
+          editLog: [],
+          edited: false,
           createdAt: new Date().toISOString(),
           createdBy: who.name
         });
@@ -6557,6 +7845,45 @@ async function handleAdminContracts(request, who, env) {
       ctr.showDurationToEmployee = !!body.showDurationToEmployee;
     } else if (action === 'set_visible') {
       ctr.visibleToEmployee = !!body.visibleToEmployee;
+    } else if (action === 'edit') {
+      const prevStart = ctr.startDate || '';
+      const prevEnd = ctr.endDate || '';
+      const prevType = ctr.type || '';
+      const prevDur = ctr.durationMonths != null ? ctr.durationMonths : '';
+      if (body.startDate != null) ctr.startDate = String(body.startDate || '').trim();
+      if (body.endDate != null) ctr.endDate = String(body.endDate || '').trim();
+      if (body.type != null) ctr.type = String(body.type || '').trim() || ctr.type;
+      if (body.note != null) ctr.note = String(body.note || '').trim();
+      if (body.durationMonths != null && body.durationMonths !== '') {
+        const dm = parseInt(body.durationMonths, 10);
+        ctr.durationMonths = isNaN(dm) ? null : dm;
+      }
+      if (body.showDurationToEmployee != null) ctr.showDurationToEmployee = !!body.showDurationToEmployee;
+      if (body.visibleToEmployee != null) ctr.visibleToEmployee = !!body.visibleToEmployee;
+      const parts = [];
+      if (prevStart !== (ctr.startDate || '') || prevEnd !== (ctr.endDate || '')) {
+        parts.push('قرارداد از تاریخ ' + (prevStart || '—') + ' تا ' + (prevEnd || '—') + ' به ' + (ctr.startDate || '—') + ' تا ' + (ctr.endDate || '—') + ' تغییر یافت');
+      }
+      if (prevType && prevType !== (ctr.type || '')) {
+        parts.push('نوع از ' + prevType + ' به ' + (ctr.type || '') + ' تغییر یافت');
+      }
+      if (String(prevDur) !== String(ctr.durationMonths != null ? ctr.durationMonths : '')) {
+        parts.push('مدت از ' + (prevDur !== '' ? prevDur + ' ماه' : '—') + ' به ' + (ctr.durationMonths != null ? ctr.durationMonths + ' ماه' : '—') + ' تغییر یافت');
+      }
+      const noteEdit = String(body.editNote || '').trim();
+      if (noteEdit) parts.push(noteEdit);
+      if (!parts.length) parts.push('ویرایش شد');
+      const entry = {
+        at: new Date().toISOString(),
+        by: who.name,
+        text: parts.join('؛ ')
+      };
+      if (!Array.isArray(ctr.editLog)) ctr.editLog = [];
+      ctr.editLog.unshift(entry);
+      if (ctr.editLog.length > 30) ctr.editLog.length = 30;
+      ctr.editedAt = entry.at;
+      ctr.editedBy = who.name;
+      ctr.edited = true;
     } else if (action === 'upload_signed') {
       const fileName = String(body.fileName || '').trim().slice(0, 200);
       const fileData = String(body.fileData || '');
@@ -6603,8 +7930,20 @@ async function handleEmpContracts(request, env) {
     if (months < 1) months = 1;
     return months;
   }
+  const urlC = new URL(request.url);
+  let targetCodeC = String(urlC.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const allEmpsC = (gd.obj && gd.obj.employees) || [];
+  if (targetCodeC !== String(sess.code)) {
+    const tEmp = allEmpsC.find(function (e) { return String(e.code) === targetCodeC; });
+    if (!tEmp || !isManagerOf(sess.code, tEmp, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده قرارداد این فرد برای شما مجاز نیست.' }, 403);
+    }
+  }
+  const viewableC = allEmpsC.filter(function (e) {
+    return String(e.code) === String(sess.code) || isManagerOf(sess.code, e, gd.obj);
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const raw = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
-    return String(c.empCode) === String(sess.code) && c.visibleToEmployee !== false;
+    return String(c.empCode) === targetCodeC && c.visibleToEmployee !== false;
   });
   // sort oldest first for ordinal
   raw.sort(function (a, b) {
@@ -6628,7 +7967,7 @@ async function handleEmpContracts(request, env) {
     }
     return out;
   });
-  return jsonResponse({ ok: true, contracts: list });
+  return jsonResponse({ ok: true, code: targetCodeC, viewable: viewableC, contracts: list });
 }
 
 async function handleAdminPayrollContractCheck(request, who, env) {
@@ -6640,21 +7979,7 @@ async function handleAdminPayrollContractCheck(request, who, env) {
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
-  const emps = (gd.obj && gd.obj.employees) || [];
-  const contracts = (gd.obj && gd.obj.contracts) || [];
-  const unapproved = [];
-  emps.forEach(function (e) {
-    if (e.status === 'inactive') return;
-    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
-    const ok = mine.some(function (c) { return c.adminApproved && c.status !== 'terminated'; });
-    if (!ok) {
-      unapproved.push({
-        code: e.code,
-        fullName: e.fullName || '',
-        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
-      });
-    }
-  });
+  const unapproved = listEmployeesMissingContract(gd.obj || {});
   return jsonResponse({ ok: true, unapproved: unapproved });
 }
 
@@ -6816,9 +8141,11 @@ export default {
     if (url.pathname === '/api/emp/contracts') return handleEmpContracts(request, env);
     if (url.pathname === '/api/emp/decree') return handleEmpDecree(request, env);
     if (url.pathname === '/api/emp/profile') return handleEmpProfile(request, env);
+    if (url.pathname === '/api/emp/broadcast') return handleEmpBroadcast(request, env);
     if (url.pathname === '/api/emp/login') return handleEmpLogin(request, env);
     if (url.pathname === '/api/emp/logout') return handleEmpLogout();
     if (url.pathname === '/api/emp/whoami') return handleEmpWhoami(request, env);
+    if (url.pathname === '/api/emp/features') return handleEmpFeatures(request, env);
     if (url.pathname === '/api/emp/payslip') return handleMyPayslip(request, env);
     if (url.pathname === '/api/emp/change-password') return handleEmpChangePassword(request, env);
     if (url.pathname === '/api/emp/request') return handleEmpCreateRequest(request, env);
@@ -6847,7 +8174,7 @@ export default {
           }
         );
       }
-      return new Response(PORTAL_ADMIN_JS, {
+      return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
         status: 200,
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
@@ -6931,6 +8258,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   .link { color: #0f766e; cursor: pointer; background: none; border: 0; font-family: inherit; font-size: 0.82rem; text-decoration: underline; padding: 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; background: #fff; padding: 6px; border-radius: 10px; }
   .tab { padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; font-size: 0.78rem; font-weight: 600; color: #0f766e; cursor: pointer; font-family: inherit; }
+  .tabs:not(.ua-ready) .tab[data-tab] { opacity: 0; pointer-events: none; }
+  .tabs.ua-ready .tab[data-tab] { opacity: 1; pointer-events: auto; }
   .tab.active { background: #0f766e; color: #fff; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
@@ -6947,6 +8276,31 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   .req-card .meta { color: #64748b; font-size: 0.75rem; margin-top: 4px; }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   @media print { body { background: #fff; padding: 0; } .no-print { display: none !important; } .card { box-shadow: none; } }
+  .ts-sum-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; max-width: 100%; }
+  .ts-sum-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 0.72rem; }
+  .ts-sum-table th, .ts-sum-table td { padding: 6px 4px !important; text-align: center; white-space: nowrap; }
+  .ts-sum-cards { display: none; }
+  .ts-day-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-height: 65vh; max-width: 100%; border: 1px solid #99f6e4; border-radius: 8px; }
+  .ts-day-table { border-collapse: collapse; font-size: 0.62rem; width: max-content; min-width: 100%; table-layout: auto; }
+  .ts-day-table th, .ts-day-table td { padding: 3px 4px !important; text-align: center; vertical-align: middle; white-space: nowrap; line-height: 1.25; }
+  .ts-day-table th { background: #ecfdf5; position: sticky; top: 0; z-index: 2; font-size: 0.58rem; }
+  .ts-day-table th.sticky-date, .ts-day-table td.sticky-date { position: sticky; right: 0; background: #f0fdfa; z-index: 1; font-weight: 600; }
+  .ts-day-table th.sticky-date { z-index: 3; }
+  @media (max-width: 640px) {
+    body { padding: 6px; font-size: 0.82rem; }
+    .card { padding: 12px 10px; border-radius: 12px; }
+    .tabs { gap: 2px; padding: 4px; }
+    .tab { padding: 5px 7px; font-size: 0.7rem; }
+    .ts-sum-table { display: none; }
+    .ts-sum-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .ts-sum-card { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 8px 6px; text-align: center; }
+    .ts-sum-card .lab { display: block; font-size: 0.68rem; color: #0f766e; font-weight: 600; margin-bottom: 2px; }
+    .ts-sum-card .val { display: block; font-size: 0.9rem; font-weight: 700; color: #134e4a; }
+    .ts-day-table { font-size: 0.6rem; }
+    .ts-day-table th { font-size: 0.55rem; padding: 4px 3px !important; }
+    .ts-day-table td { font-size: 0.58rem; padding: 3px 3px !important; }
+    h2 { font-size: 0.9rem; }
+  }
 </style>
 </head>
 <body>
@@ -6960,6 +8314,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   <div class="err" id="loginErr"></div>
 </div>
 <div class="hidden" id="appCard">
+  <div id="bcastBox" class="no-print"></div>
   <div class="card no-print">
     <div class="topbar"><span id="whoLabel" style="font-weight:600;"></span><button class="link" onclick="doLogout()">خروج</button></div>
     <div class="tabs">
@@ -6977,10 +8332,26 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   </div>
   <div class="card panel" id="panel-payslip">
     <h2 class="no-print">فیش حقوقی</h2>
-    <div class="grid2 no-print"><div><label>سال</label><input type="number" id="year" value="1405"></div>
-    <div><label>ماه</label><select id="month"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
-    <button class="primary no-print" onclick="loadPayslip()">نمایش فیش</button>
-    <button class="sm no-print" style="margin-top:8px;width:auto;" onclick="window.print()">چاپ</button>
+    <div id="psFilterRow" class="no-print" style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-bottom:8px;">
+      <div id="psEmpSelHost" style="flex:1 1 140px;min-width:120px;display:none;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">فرد</label>
+        <select id="psEmpSel" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"></select>
+      </div>
+      <div style="flex:0 0 90px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">سال</label>
+        <input type="number" id="year" value="1405" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;box-sizing:border-box;">
+      </div>
+      <div style="flex:0 0 110px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">ماه</label>
+        <select id="month" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select>
+      </div>
+      <div style="flex:1 1 90px;">
+        <button class="primary" onclick="loadPayslip()" style="width:100%;padding:8px 12px;margin:0;">نمایش فیش</button>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="sm" style="padding:8px 12px;margin:0;" onclick="window.print()">چاپ</button>
+      </div>
+    </div>
     <div class="err no-print" id="appErr"></div><div id="payslipBox"></div>
   </div>
   <div class="card panel hidden" id="panel-request">
@@ -6993,8 +8364,8 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <div><label>روزانه / ساعتی</label><select id="rqMode"><option value="daily">روزانه</option><option value="hourly">ساعتی</option></select></div>
     </div>
     <div class="grid2">
-      <div><label id="rqStartLabel">از تاریخ</label><input id="rqStart" placeholder="1405/01/15" dir="ltr" oninput="applyFixedEnd()"></div>
-      <div id="rqEndWrap"><label>تا تاریخ</label><input id="rqEnd" placeholder="1405/01/17" dir="ltr" oninput="this.dataset.manual='1'"></div>
+      <div><label id="rqStartLabel">از تاریخ</label><select id="rqStart" dir="ltr" style="font-family:Consolas,monospace;" onchange="applyFixedEnd()"></select></div>
+      <div id="rqEndWrap"><label>تا تاریخ</label><select id="rqEnd" dir="ltr" style="font-family:Consolas,monospace;" onchange="this.dataset.manual='1'"></select></div>
     </div>
     <div class="grid2 hidden" id="rqTimeWrap">
       <div><label>از ساعت</label><input id="rqFrom" type="time" value="08:00"></div>
@@ -7009,9 +8380,23 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   <div class="card panel hidden" id="panel-approve"><h2>نتیجه درخواست‌ها (تأیید / رد زیرمجموعه)</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="pendingList" style="margin-top:10px;"></div></div>
   <div class="card panel hidden" id="panel-timesheet">
     <h2>تایم‌شیت</h2>
-    <div class="grid2"><div><label>سال</label><input type="number" id="tsYear" value="1405"></div>
-    <div><label>ماه</label><select id="tsMonth"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
-    <button class="primary" onclick="loadTimesheet()">نمایش</button>
+    <div id="tsFilterRow" style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-bottom:8px;">
+      <div id="tsEmpSelHost" style="flex:1 1 140px;min-width:120px;display:none;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">فرد</label>
+        <select id="tsEmpSel" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"></select>
+      </div>
+      <div style="flex:0 0 90px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">سال</label>
+        <input type="number" id="tsYear" value="1405" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;box-sizing:border-box;">
+      </div>
+      <div style="flex:0 0 110px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">ماه</label>
+        <select id="tsMonth" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select>
+      </div>
+      <div style="flex:1 1 100px;">
+        <button class="primary" onclick="loadTimesheet()" style="width:100%;padding:8px 12px;margin:0;">نمایش</button>
+      </div>
+    </div>
     <div class="err" id="tsErr"></div><div id="tsBox"></div>
   </div>
   <div class="card panel hidden" id="panel-decree">
@@ -7043,6 +8428,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <div class="err" id="passErr"></div>
   </div>
 </div>
+<div class="no-print" style="text-align:center;font-size:0.78rem;color:#0f766e;margin:18px 0 10px;">تهیه کننده: محمد مرادی بابرصاد</div>
 </div>
 <script>
 var monthsFa=['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
@@ -7055,6 +8441,7 @@ function showTab(name){
   if(name==='timesheet') loadTimesheet();
   if(name==='decree') loadDecree();
   if(name==='profile') loadProfile();
+  if(name==='request'){ try{ fillRqDateSelects(); }catch(e){} }
   if(name==='contracts') loadContractsEmp();
   if(name==='balances') loadBalancesEmp();
   if(name==='payslip') loadPayslipArchive();
@@ -7124,15 +8511,24 @@ function openArchivedPayslip(y,m){
   if(typeof loadPayslip==='function') loadPayslip();
 }
 
-async function loadContractsEmp(){
+async function loadContractsEmp(optCode){
   var box=document.getElementById('contractsBox'); if(!box) return;
-  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  box.innerHTML=selHtml+'<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/contracts',{credentials:'same-origin'});
+    var q=optCode?('?code='+encodeURIComponent(optCode)):'';
+    var r=await fetch('/api/emp/contracts'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="contractsEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code||'')?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
     var list=j.contracts||[];
-    if(!list.length){ box.innerHTML='<div class="sub">قراردادی برای شما ثبت نشده.</div>'; return; }
+    if(!list.length){ box.innerHTML=selHtml+'<div class="sub">قراردادی ثبت نشده.</div>'; var se0=document.getElementById('contractsEmpSel'); if(se0) se0.onchange=function(){loadContractsEmp(se0.value);}; return; }
     var typeFa={fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'};
     var ordinals=['اول','دوم','سوم','چهارم','پنجم','ششم','هفتم','هشتم','نهم','دهم'];
     function monthsBetween(a,b){
@@ -7186,36 +8582,61 @@ async function loadContractsEmp(){
     });
     html+='</tbody></table></div>';
     box.innerHTML=html;
+  var seC=document.getElementById("contractsEmpSel"); if(seC) seC.onchange=function(){loadContractsEmp(seC.value);};
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
 }
 
-async function loadDecree(){
+async function loadDecree(optCode){
   var box=document.getElementById('decreeBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/decree',{credentials:'same-origin'});
+    var q = optCode ? ('?code='+encodeURIComponent(optCode)) : '';
+    var r=await fetch('/api/emp/decree'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست.')+'</div>'; return; }
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="decreeEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
     var rows=(j.items||[]).map(function(it){return '<tr><td>'+it.name+'</td><td>'+fmt(it.amount)+'</td></tr>'}).join('');
     if(!rows) rows='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     var total=j.total!=null?('<div class="net">جمع حکم: '+fmt(j.total)+' ریال</div>'):'';
-    box.innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
+    box.innerHTML=selHtml+'<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
       '<table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr>'+rows+'</table>'+total+'</div>';
+    var se=document.getElementById('decreeEmpSel');
+    if(se){ se.onchange=function(){ loadDecree(se.value); }; }
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم.</div>'; }
 }
-async function loadProfile(){
+
+async function loadProfile(optCode){
   var box=document.getElementById('profileBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/profile',{credentials:'same-origin'});
+    var q = optCode ? ('?code='+encodeURIComponent(optCode)) : '';
+    var r=await fetch('/api/emp/profile'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش مشخصات برای شما فعال نیست.')+'</div>'; return; }
-    var html='<div class="box"><table>';
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="profileEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
+    var html=selHtml+'<div class="box"><table>';
     (j.fields||[]).forEach(function(f){
       html+='<tr><td style="width:40%"><b>'+(f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
     });
+    if(!(j.fields||[]).length) html+='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     html+='</table></div>';
     box.innerHTML=html;
+    var se=document.getElementById('profileEmpSel');
+    if(se){ se.onchange=function(){ loadProfile(se.value); }; }
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات.</div>'; }
 }
 var attTypes=[];
@@ -7241,6 +8662,41 @@ function addJDays(startStr,nDays){
     else{left-=room+1;d=1;mo++;if(mo>12){mo=1;y++;}}
   }
   return y+'/'+String(mo).padStart(2,'0')+'/'+String(d).padStart(2,'0');
+}
+function jalaliDaysInMonth(y,m){
+  y=Number(y)||1405; m=Number(m)||1;
+  if(m<=6) return 31;
+  if(m<=11) return 30;
+  var cy2=y-1309; var mod=((cy2%33)+33)%33;
+  var breaks=[1,5,9,13,17,22,26,30];
+  return breaks.indexOf(mod)>=0?30:29;
+}
+function pad2(n){ n=Number(n)||0; return (n<10?'0':'')+n; }
+function fillRqDateSelects(){
+  var y=0, m=0;
+  try{ if(window.__pspRequestYm){ y=Number(window.__pspRequestYm.y)||0; m=Number(window.__pspRequestYm.m)||0; } }catch(e){}
+  if(!y||!m){ try{ if(window.__pspYm){ y=Number(window.__pspYm.realY||window.__pspYm.y)||0; m=Number(window.__pspYm.realM||window.__pspYm.m)||0; } }catch(e2){} }
+  if(!y) y=1405; if(!m) m=1;
+  var dim=jalaliDaysInMonth(y,m);
+  var start=document.getElementById('rqStart');
+  var end=document.getElementById('rqEnd');
+  if(!start||!end) return;
+  function fill(sel){
+    var prev=sel.value||'';
+    sel.innerHTML='';
+    for(var d=1; d<=dim; d++){
+      var v=y+'/'+pad2(m)+'/'+pad2(d);
+      var opt=document.createElement('option');
+      opt.value=v; opt.textContent=v;
+      sel.appendChild(opt);
+    }
+    if(prev){ for(var i=0;i<sel.options.length;i++){ if(sel.options[i].value===prev){ sel.selectedIndex=i; return; } } }
+    if(sel.options.length) sel.selectedIndex=0;
+  }
+  fill(start); fill(end);
+  start.style.fontFamily='Consolas,Tahoma,monospace';
+  end.style.fontFamily='Consolas,Tahoma,monospace';
+  start.dir='ltr'; end.dir='ltr';
 }
 function applyFixedEnd(){
   var id=document.getElementById('rqType').value;
@@ -7285,6 +8741,8 @@ async function loadAttTypes(){
     var j=await r.json();
     if(!j.ok) return;
     attTypes=j.types||[];
+    try{ if(j.currentYear||j.currentMonth) applyPortalCalendar(j); }catch(eC){}
+    try{ fillRqDateSelects(); }catch(eF){}
     var sel=document.getElementById('rqType');
     sel.innerHTML=attTypes.map(function(t){return '<option value="'+t.id+'">'+t.name+(t.kind==='mission'?' (مأموریت)':' (مرخصی)')+'</option>'}).join('')||'<option value="">—</option>';
     onTypeChange();
@@ -7302,12 +8760,116 @@ async function doLogin(){
     if(j.mustChangePassword) setTimeout(function(){alert('رمز فعلی همان کد پرسنلی است. از بخش تغییر رمز عوض کنید.');},300);
   }catch(e){err.textContent='خطا در ارتباط با سرور.'}
 }
+function applyUserAccessUI(ua) {
+  window.__pspUserAccess = ua || window.__pspUserAccess || null;
+  ua = window.__pspUserAccess || {};
+  var nt = ua.navTabs || {};
+  var style = document.getElementById('pspUaStyle');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'pspUaStyle';
+    document.head.appendChild(style);
+  }
+  var css = '';
+  var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password'];
+  keys.forEach(function(k) {
+    var on = nt[k] == null ? true : !!nt[k];
+    if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}';
+    var btn = document.querySelector('.tab[data-tab="' + k + '"]');
+    if (btn) {
+      if (on) btn.style.removeProperty('display');
+      else btn.style.setProperty('display', 'none', 'important');
+    }
+  });
+  style.textContent = css;
+  var active = document.querySelector('.tabs .tab.active');
+  if (active && (active.style.display === 'none' || (nt[active.getAttribute('data-tab')] === false))) {
+    var all = document.querySelectorAll('.tabs .tab[data-tab]');
+    for (var i = 0; i < all.length; i++) {
+      var k2 = all[i].getAttribute('data-tab');
+      if (k2 === 'approve') continue;
+      var on2 = nt[k2] == null ? true : !!nt[k2];
+      if (on2) { showTab(k2); break; }
+    }
+  }
+  var tabsEl = document.querySelector('.tabs');
+  if (tabsEl) tabsEl.classList.add('ua-ready');
+}
+function applyPortalViewTabs(pv){
+  if(!pv) return;
+  try{ window.__pspPortalView = pv; }catch(e){}
+  var td=document.getElementById('tabDecree');
+  var tp=document.getElementById('tabProfile');
+  if(td) td.style.display = (pv.showDecree === false) ? 'none' : '';
+  if(tp) tp.style.display = (pv.showProfile === false) ? 'none' : '';
+}
+function applyPortalCalendar(src){
+  if(!src) return;
+  var ry = Number(src.realJalaliYear) || 0;
+  var rm = Number(src.realJalaliMonth) || 0;
+  var qy = Number(src.requestYear) || ry;
+  var qm = Number(src.requestMonth) || rm;
+  if(!ry || !rm){ ry = qy; rm = qm; }
+  if(!ry || !rm) return;
+  try{
+    window.__pspYm = { y: ry, m: rm, realY: ry, realM: rm };
+    window.__pspRequestYm = { y: qy, m: qm, grace: Number(src.requestGraceDays)||0 };
+  }catch(e){}
+  function setVal(id, val){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.value = String(val);
+  }
+  setVal('tsYear', ry); setVal('tsMonth', rm);
+  setVal('psYear', ry); setVal('psMonth', rm);
+  setVal('year', ry); setVal('month', rm);
+  try{ fillRqDateSelects(); }catch(e2){}
+  try{ if(src.portalView) applyPortalViewTabs(src.portalView); }catch(e3){}
+}
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  try { if (j && j.portalView) applyPortalViewTabs(j.portalView); } catch (ePv) {}
+  try {
+    var oldBar = document.getElementById('pspEmpProfile');
+    if (oldBar && oldBar.parentNode) oldBar.parentNode.removeChild(oldBar);
+  } catch (eProf) {}
+  if (j.userAccess) applyUserAccessUI(j.userAccess);
+  try{ applyPortalCalendar(j); }catch(eC){}
+  // همیشه از سرور هم بخوان (برای اطمینان از آخرین تنظیمات)
+  fetch('/api/emp/features?_=' + Date.now(), { credentials: 'same-origin', cache: 'no-store' })
+    .then(function(r){ return r.json(); })
+    .then(function(f){
+      if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {});
+      if (f && f.ok) try{ applyPortalCalendar(f); }catch(e3){}
+    })
+    .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
   loadAttTypes();
+  try{ loadBroadcast(); }catch(eBc){}
+}
+function bcEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadBroadcast(){
+  var box=document.getElementById('bcastBox'); if(!box) return;
+  try{
+    var r=await fetch('/api/emp/broadcast?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+    var j=await r.json();
+    if(!j||!j.ok||!(j.messages||[]).length){ box.innerHTML=''; return; }
+    var html='';
+    j.messages.forEach(function(m){
+      var when=''; try{ when=new Date(m.createdAt).toLocaleString('fa-IR'); }catch(e){}
+      html+='<div class="bcast-item" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-bottom:10px;color:#78350f;font-size:0.85rem;">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
+        +'<b>📢 '+bcEsc(m.title||'پیام مدیریت')+'</b>'
+        +'<button type="button" class="link" style="font-size:0.75rem;" onclick="this.parentNode.parentNode.remove()">بستن</button></div>'
+        +'<div style="white-space:pre-wrap;margin-top:6px;line-height:1.8;">'+bcEsc(m.text)+'</div>'
+        +'<div style="margin-top:6px;font-size:0.7rem;color:#92400e;">'+bcEsc(when)+'</div></div>';
+    });
+    box.innerHTML=html;
+    var ids=j.messages.filter(function(m){return !m.read;}).map(function(m){return m.id;});
+    if(ids.length) fetch('/api/emp/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:ids}),credentials:'same-origin'}).catch(function(){});
+  }catch(e){}
 }
 async function checkSession(){try{var r=await fetch('/api/emp/whoami',{credentials:'same-origin'});var j=await r.json();if(j.ok)showApp(j)}catch(e){}}
 async function doLogout(){try{await fetch('/api/emp/logout',{method:'POST',credentials:'same-origin'})}catch(e){}location.reload()}
@@ -7315,9 +8877,12 @@ async function loadPayslip(){
   var err=document.getElementById('appErr'); err.textContent=''; document.getElementById('payslipBox').innerHTML='';
   var year=Number(document.getElementById('year').value), month=Number(document.getElementById('month').value);
   try{
-    var r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
+    var r=await fetch('/api/emp/payslip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify((function(){var b={year:year,month:month};var el=document.getElementById('psEmpSel');if(el&&el.value)b.code=el.value;return b;})()),credentials:'same-origin'});
     var j=await r.json();
-    if(!j.ok){err.textContent=j.message||'فیشی یافت نشد.';return}
+    if(!j.ok){err.textContent=j.message||'فیشی یافت نشد.';
+      try{if(j.viewable&&j.viewable.length>1){var host=document.getElementById('psEmpSelHost');var se=document.getElementById('psEmpSel');if(host)host.style.display='';if(se){var cur=se.value||j.code||'';se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(cur)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');if(!se.__wired){se.__wired=true;se.addEventListener('change',function(){loadPayslip();});}}} }catch(eV){}
+      return;}
+    try{if(j.viewable&&j.viewable.length>1){var host=document.getElementById('psEmpSelHost');var se=document.getElementById('psEmpSel');if(host)host.style.display='';if(se){var cur=se.value||j.code||'';se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(cur)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');if(!se.__wired){se.__wired=true;se.addEventListener('change',function(){loadPayslip();});}}}else{var host2=document.getElementById('psEmpSelHost');if(host2)host2.style.display='none';}}catch(eV2){}
     var p=j.payslip, items='';
     (p.itemDetails||[]).forEach(function(it){items+='<tr><td>'+it.name+(it.qty!=null&&it.qty!==''?' ('+it.qty+')':'')+'</td><td>'+fmt(it.amount)+'</td></tr>'});
     var companyName=(j.company&&j.company.name)?j.company.name:'فیش حقوقی';
@@ -7379,44 +8944,111 @@ async function loadTimesheet(){
   var err=document.getElementById('tsErr'); err.textContent='';
   var year=Number(document.getElementById('tsYear').value), month=Number(document.getElementById('tsMonth').value);
   try{
-    var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
-    var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    var tsCodeEl=document.getElementById('tsEmpSel');
+    var tsCode=tsCodeEl?tsCodeEl.value:'';
+    var bodyTs={year:year,month:month};
+    if(tsCode) bodyTs.code=tsCode;
+    var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bodyTs),credentials:'same-origin'});
+        var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    try{
+      if(j.viewable && j.viewable.length>1){
+        var host=document.getElementById('tsEmpSelHost');
+        var se=document.getElementById('tsEmpSel');
+        if(host) host.style.display='';
+        if(se){
+          var curVal=se.value||(j.code||'');
+          se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(curVal||j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');
+          if(!se.__wired){ se.__wired=true; se.addEventListener('change', function(){ loadTimesheet(); }); }
+        }
+      }else{
+        var host2=document.getElementById('tsEmpSelHost');
+        if(host2) host2.style.display='none';
+      }
+    }catch(eSel){}
+
+    if(!j.userAccess){
+      try{
+        var fr=await fetch('/api/emp/features?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+        var fj=await fr.json();
+        if(fj&&fj.ok&&fj.userAccess) j.userAccess=fj.userAccess;
+      }catch(eF){}
+    }
+    if(j.userAccess){ try{ applyUserAccessUI(j.userAccess); }catch(eA){} }
     var sumAbs=0,sumWork=0,sumDelay=0,sumOt=0;
     if(j.daily&&j.daily.days){ j.daily.days.forEach(function(d){ sumAbs+=Number(d.hourlyAbsenceMin)||0; sumWork+=Number(d.workHours)||0; sumDelay+=Number(d.delayMin)||0; sumOt+=Number(d.otHours)||0; }); } sumAbs=sumAbs/60; if(j.otHoursTotal!=null) sumOt=Number(j.otHoursTotal)||sumOt; if(j.otHours!=null&&j.otHoursTotal==null) sumOt=Number(j.otHours)||sumOt;
     var html='<div class="box"><b>'+(j.fullName||'')+'</b> — '+monthsFa[month]+' '+year;
-    html+='<table style="margin-top:8px"><tr><th>کارکرد</th><th>مرخصی روزانه</th><th>مرخصی ساعتی</th><th>مأموریت روزانه</th><th>مأموریت ساعتی</th><th>اضافه‌کار</th><th>شب‌کاری</th><th>غیبت ساعتی</th></tr>';
+
+    var ua=j.userAccess||window.__pspUserAccess||{}; var pt=ua.portalTabs||{}; var tc=ua.timesheetCols||{};
+    function _showTab(k){ return pt[k]==null?true:!!pt[k]; }
+    function _showCol(k){ return tc[k]==null?true:!!tc[k]; }
     function _hm(h){var m=Math.round((Number(h)||0)*60);var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<tr><td>'+(j.workDays!=null?j.workDays:0)+'</td><td>'+(j.leaveDays!=null?j.leaveDays:0)+'</td><td>'+_hm(j.hourlyLeave)+'</td><td>'+(j.missionDays!=null?j.missionDays:0)+'</td><td>'+_hm(j.missionHours)+'</td><td>'+(j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأیید نشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')+'</td><td>'+(j.nightHoursHM||_hm(j.nightHours))+'</td><td>'+(j.hourlyAbsenceHM||_hm(sumAbs))+'</td></tr></table>';
+    var _sumItems=[];
+    if(_showTab('work')) _sumItems.push(['کارکرد', (j.workDays!=null?j.workDays:0)]);
+    if(_showTab('leaveDaily')) _sumItems.push(['مرخصی روزانه', (j.leaveDays!=null?j.leaveDays:0)]);
+    if(_showTab('leaveHourly')) _sumItems.push(['مرخصی ساعتی', _hm(j.hourlyLeave)]);
+    if(_showTab('missionDaily')) _sumItems.push(['مأموریت روزانه', (j.missionDays!=null?j.missionDays:0)]);
+    if(_showTab('missionHourly')) _sumItems.push(['مأموریت ساعتی', _hm(j.missionHours)]);
+    if(_showTab('ot')) _sumItems.push(['اضافه‌کار', (j.otHoursHM||_hm(j.otHours))+(j.otHoursUnapproved?(' / تأییدنشده '+(j.otHoursUnapprovedHM||_hm(j.otHoursUnapproved))):'')]);
+    if(_showTab('night')) _sumItems.push(['شب‌کاری', (j.nightHoursHM||_hm(j.nightHours))]);
+    if(_showTab('absenceHourly')) _sumItems.push(['غیبت ساعتی', (j.hourlyAbsenceHM||_hm(sumAbs))]);
+    html+='<div class="ts-sum-wrap"><table class="ts-sum-table"><tr>';
+    _sumItems.forEach(function(it){ html+='<th>'+it[0]+'</th>'; });
+    html+='</tr><tr>';
+    _sumItems.forEach(function(it){ html+='<td>'+it[1]+'</td>'; });
+    html+='</tr></table></div>';
+    html+='<div class="ts-sum-cards">';
+    _sumItems.forEach(function(it){ html+='<div class="ts-sum-card"><span class="lab">'+it[0]+'</span><span class="val">'+it[1]+'</span></div>'; });
+    html+='</div>';
     function _hm2(h){var m=Math.round((Number(h)||0)*60);if(m<=0)return '';var hh=Math.floor(m/60),mm=m%60;return (hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm;}
-    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> | اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> | شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> | غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b></p>';
+    html+='<p style="font-size:0.78rem;color:#0f766e;margin-top:6px;">';
+    if(_showTab('work')||_showCol('work')) html+='ساعت کار: <b>'+(j.otHoursTotalHM||_hm2(sumWork)||'')+'</b> ';
+    if(_showTab('ot')||_showCol('ot')) html+='| اضافه‌کار تأیید: <b>'+(j.otHoursHM||_hm2(j.otHours)||_hm2(sumOt)||'')+'</b> | تأییدنشده: <b>'+(j.otHoursUnapprovedHM&&j.otHoursUnapprovedHM!=='00:00'?j.otHoursUnapprovedHM:'')+'</b> ';
+    if(_showTab('night')||_showCol('night')) html+='| شب‌کاری: <b>'+(j.nightHoursHM&&j.nightHoursHM!=='00:00'?j.nightHoursHM:_hm2(j.nightHours))+'</b> ';
+    if(_showTab('absenceHourly')||_showCol('abs')) html+='| غیبت: <b>'+(j.hourlyAbsenceHM&&j.hourlyAbsenceHM!=='00:00'?j.hourlyAbsenceHM:_hm2(sumAbs))+'</b>';
+    html+='</p>';
     if(j.daily&&j.daily.days&&j.daily.days.length){
       html+='<h2 style="margin-top:14px">تایم‌شیت روزبه‌روز</h2>';
-      var thE='background:#ecfdf5;border:1px solid #99f6e4;padding:1px 0;text-align:center;vertical-align:middle;font-size:0.55rem;white-space:nowrap;line-height:1.1;';
-      var tdE='border:1px solid #e2e8f0;padding:0 1px;text-align:center;vertical-align:middle;font-size:0.52rem;line-height:1.1;';
-      html+='<div style="overflow:auto;max-height:65vh"><table style="font-size:0.55rem;width:100%;border-collapse:collapse;table-layout:fixed"><thead style="position:sticky;top:0;z-index:2"><tr>';
-      html+='<th style="'+thE+'width:58px">تاریخ</th>';
-      for(var hi=1;hi<=4;hi++){html+='<th style="'+thE+'width:28px">و'+hi+'</th><th style="'+thE+'width:28px">خ'+hi+'</th>';}
-      html+='<th style="'+thE+'width:32px">کارکرد</th><th style="'+thE+'width:30px">اضافه‌کار</th><th style="'+thE+'width:28px">شب‌کاری</th><th style="'+thE+'width:28px">اض.قبل</th><th style="'+thE+'width:32px">غیبت‌س</th>';
-      html+='<th style="'+thE+'width:50px">مأموریت</th><th style="'+thE+'width:50px">مرخصی</th><th style="'+thE+'width:48px">توضیح</th>';
+      var thE='border:1px solid #99f6e4;';
+      var tdE='border:1px solid #e2e8f0;direction:ltr;';
+      var isMobile = (typeof window!=='undefined' && window.innerWidth<=640);
+      html+='<div class="ts-day-wrap"><table class="ts-day-table"><thead><tr>';
+      html+='<th class="sticky-date" style="'+thE+'">تاریخ</th>';
+      if(_showCol('punch')){
+        for(var hi=1;hi<=4;hi++){
+          var hIn=isMobile?('و'+hi):('ورود '+hi);
+          var hOut=isMobile?('خ'+hi):('خروج '+hi);
+          html+='<th style="'+thE+'" title="ورود '+hi+'">'+hIn+'</th><th style="'+thE+'" title="خروج '+hi+'">'+hOut+'</th>';
+        }
+      }
+      if(_showCol('work')) html+='<th style="'+thE+'">'+(isMobile?'کار':'کارکرد')+'</th>';
+      if(_showCol('ot')) html+='<th style="'+thE+'">'+(isMobile?'اضافه':'اضافه‌کار')+'</th>';
+      if(_showCol('night')) html+='<th style="'+thE+'">'+(isMobile?'شب':'شب‌کاری')+'</th>';
+      if(_showCol('eot')) html+='<th style="'+thE+'">'+(isMobile?'ق.اضافه':'اض.قبل')+'</th>';
+      if(_showCol('abs')) html+='<th style="'+thE+'">'+(isMobile?'غیبت':'غیبت‌س')+'</th>';
+      if(_showCol('mis')) html+='<th style="'+thE+'">مأموریت</th>';
+      if(_showCol('lv')) html+='<th style="'+thE+'">مرخصی</th>';
+      if(_showCol('note')) html+='<th style="'+thE+'">توضیح</th>';
       html+='</tr></thead><tbody>';
       j.daily.days.forEach(function(d){
         var bg=d.isNonWork?'background:#fef2f2;':(d.leaveConflict||d.missionConflict?'background:#fff7ed;':'');
         var ic=d.incomplete||{};
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
-        function cell(v,bad){ return '<td style="'+tdE+'direction:ltr;'+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td style="'+tdE+'white-space:nowrap;font-size:0.5rem">'+d.date+'</td>';
-        for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);}
-        html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
-        html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
-        html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
-        html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
-        html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:48px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td></tr>';
+        function cell(v,bad){ return '<td style="'+tdE+(bad?red:'')+'">'+(v||'')+'</td>'; }
+        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;">'+d.date+'</td>';
+        if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
+        if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
+        if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
+        if(_showCol('night')) html+='<td style="'+tdE+'color:#1d4ed8">'+(d.nightHoursHM&&d.nightHoursHM!=='00:00'?d.nightHoursHM:'')+'</td>';
+        if(_showCol('eot')) html+='<td style="'+tdE+'color:#7c3aed">'+(d.earlyOtHoursHM&&d.earlyOtHoursHM!=='00:00'?d.earlyOtHoursHM:'')+'</td>';
+        if(_showCol('abs')) html+='<td style="'+tdE+(abs?red:'')+'">'+abs+'</td>';
+        if(_showCol('mis')) html+='<td style="'+tdE+(d.missionConflict?red:'')+'">'+[d.missionDaily,d.missionHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('lv')) html+='<td style="'+tdE+(d.leaveConflict?red:'')+'">'+[d.leaveDaily,d.leaveHourly].filter(Boolean).join(' / ')+'</td>';
+        if(_showCol('note')) html+='<td style="'+tdE+'overflow:hidden;text-overflow:ellipsis;max-width:90px" title="'+(d.note||'').replace(/"/g,'&quot;')+'">'+(d.note||'')+'</td>';
+        html+='</tr>';
       });
       html+='</tbody></table></div>';
+
     }
     document.getElementById('tsBox').innerHTML=html+'</div>';
   }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
