@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v92" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v95" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -200,6 +200,8 @@ function employeeFieldLabels() {
     jobGrade: 'رده شغلی',
     workplace: 'محل کار',
     city: 'شهر محل سکونت',
+    province: 'استان محل سکونت',
+    gender: 'جنسیت',
     militaryStatus: 'وضعیت نظام وظیفه',
     militaryExemptType: 'نوع معافیت نظام وظیفه',
     educationLevel: 'مقطع تحصیلی',
@@ -1028,6 +1030,8 @@ async function handleEmpWhoami(request, env) {
           personal.educationLevel = emp.educationLevel || per.educationLevel || '';
           personal.educationField = emp.educationField || per.educationField || '';
           personal.city = emp.city || per.city || '';
+          personal.province = emp.province || emp.state || per.province || '';
+          personal.gender = emp.gender || emp.sex || per.gender || '';
           personal.management = emp.management || '';
           personal.deputy = emp.deputy || '';
           personal.group = emp.group || '';
@@ -1059,12 +1063,29 @@ async function handleEmpWhoami(request, env) {
     }
   } catch (eS) {}
   if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
-  const body = Object.assign({
+    let portalView = { showDecree: true, showProfile: true, decreeMode: 'self', profileMode: 'self' };
+  try {
+    const cfgPv2 = storeConfig(env);
+    if (cfgPv2) {
+      const gdPv2 = await storeGetData(cfgPv2);
+      if (gdPv2 && gdPv2.obj) {
+        const pvc2 = getPortalViewConfig(gdPv2.obj);
+        portalView = {
+          showDecree: !!pvc2.showDecree,
+          showProfile: !!pvc2.showProfile,
+          decreeMode: pvc2.decreeMode || 'self',
+          profileMode: pvc2.profileMode || 'self'
+        };
+      }
+    }
+  } catch (ePv2) {}
+const body = Object.assign({
     ok: true, code: sess.code, fullName: sess.fullName, userAccess: userAccess,
     realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
     requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
-    currentYear: adminYear, currentMonth: adminMonth
-  }, personal);
+    currentYear: adminYear, currentMonth: adminMonth,
+    portalView: portalView
+    }, personal);
   if (renew) {
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -6878,28 +6899,36 @@ function getPortalViewConfig(obj) {
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
     // نام پدر/موبایل/آدرس برای تنظیمات قدیمی هم در مشخصات پرسنلی پرتال نمایش داده شوند
-    profileFields: (function(){
-      var extra = ['fatherName', 'mobile', 'address', 'birthDate', 'managementDeputy', 'group', 'jobGrade', 'educationLevel', 'educationField', 'militaryStatus', 'militaryExemptType', 'city'];
-      if (!Array.isArray(c.profileFields)) return null;
-      if (!c.profileFields.length) return c.profileFields; // empty = all
-      var out = c.profileFields.slice();
-      extra.forEach(function(k){ if (out.indexOf(k) < 0) out.push(k); });
-      return out;
-    })()
+    profileFields: Array.isArray(c.profileFields) ? c.profileFields : null
   };
 }
 
-function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees) {
-  const mode = cfg[modeKey] || 'self';
-  const code = String(empCode);
+function canViewerAccessTarget(mode, selectedCodes, viewerCode, targetEmp) {
+  if (!targetEmp) return false;
+  const v = String(viewerCode || '');
+  const t = String(targetEmp.code || '');
+  if (!v || !t) return false;
+  mode = mode || 'self';
   if (mode === 'all') return true;
-  if (mode === 'self') return true; // viewer is always self for emp portal; managers handled separately if needed
-  if (mode === 'self_and_manager') return true; // employee always sees own
-  if (mode === 'selected') {
-    const list = cfg[selectedKey] || [];
-    return list.indexOf(code) >= 0 || list.length === 0; // empty selected = treat as none visible unless self always?
+  if (mode === 'self') return v === t;
+  if (mode === 'selected') return (selectedCodes || []).indexOf(t) >= 0;
+  if (mode === 'self_and_manager') {
+    if (v === t) return true;
+    if (String(targetEmp.managerCode || '') === v) return true;
+    if (String(targetEmp.managerCode2 || '') === v) return true;
+    return false;
   }
-  return true;
+  return v === t;
+}
+function listViewableEmployees(allEmployees, mode, selectedCodes, viewerCode) {
+  return (allEmployees || []).filter(function (e) {
+    return canViewerAccessTarget(mode, selectedCodes, viewerCode, e);
+  }).map(function (e) {
+    return { code: String(e.code), fullName: e.fullName || '' };
+  });
+}
+function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees) {
+  return canViewerAccessTarget(cfg[modeKey] || 'self', cfg[selectedKey] || [], empCode, emp || { code: empCode });
 }
 
 function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
@@ -6910,7 +6939,7 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
   const seenNames = {};
 
   function isAllowed(id, name) {
-    if (!allowedFieldIds || !allowedFieldIds.length) return true;
+    if (allowedFieldIds == null) return true; if (!allowedFieldIds.length) return false;
     if (allowedFieldIds.indexOf('decree_all') >= 0) return true;
     const idS = String(id || '');
     const nameS = String(name || '').trim();
@@ -7062,6 +7091,8 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     { key: 'educationField', label: 'رشته تحصیلی', value: emp.educationField || '' },
     { key: 'militaryStatus', label: 'وضعیت نظام وظیفه', value: emp.militaryStatus || '' },
     { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه', value: emp.militaryExemptType || '' },
+    { key: 'gender', label: 'جنسیت', value: emp.gender || emp.sex || emp.jens || '' },
+    { key: 'province', label: 'استان محل سکونت', value: emp.province || emp.state || emp.ostan || '' },
     { key: 'city', label: 'شهر محل سکونت', value: emp.city || '' },
     { key: 'address', label: 'آدرس', value: emp.address || '' },
     { key: 'email', label: 'ایمیل', value: emp.email || '' }
@@ -7076,7 +7107,8 @@ function buildProfileFieldsForEmp(emp, allowedKeys) {
     if (typeof v === 'object') return;
     all.push({ key: k, label: k, value: v });
   });
-  if (!allowedKeys || !allowedKeys.length) return all;
+  if (allowedKeys == null) return all;
+  if (!allowedKeys.length) return [];
   return all.filter(function (f) { return allowedKeys.indexOf(f.key) >= 0; });
 }
 
@@ -7091,19 +7123,19 @@ async function handleEmpDecree(request, env) {
   if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
   const pvc = getPortalViewConfig(gd.obj);
   if (!pvc.showDecree) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم توسط ادمین غیرفعال است.' });
-  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  const allEmps = gd.obj.employees || [];
+  const urlD = new URL(request.url);
+  let targetCode = String(urlD.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  // selected mode: must be in list
-  if (pvc.decreeMode === 'selected') {
-    const list = pvc.decreeSelectedCodes || [];
-    if (list.length && list.indexOf(String(sess.code)) < 0) {
-      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم برای شما فعال نیست.' });
-    }
+  if (!canViewerAccessTarget(pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, emp)) {
+    return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم این فرد برای شما مجاز نیست.' });
   }
   const items = buildDecreeItemsForEmp(gd.obj, emp, pvc.decreeFields);
   let total = 0;
   items.forEach(function (it) { total += Number(it.amount) || 0; });
-  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total });
+  const viewable = listViewableEmployees(allEmps, pvc.decreeMode, pvc.decreeSelectedCodes, sess.code);
+  return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total, viewable: viewable, mode: pvc.decreeMode });
 }
 
 async function handleEmpProfile(request, env) {
@@ -7117,23 +7149,24 @@ async function handleEmpProfile(request, env) {
   if (!gd.obj) return jsonResponse({ ok: false, message: 'داده‌ای یافت نشد.' }, 404);
   const pvc = getPortalViewConfig(gd.obj);
   if (!pvc.showProfile) return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات توسط ادمین غیرفعال است.' });
-  const emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(sess.code); });
+  const allEmps = gd.obj.employees || [];
+  const urlP = new URL(request.url);
+  let targetCode = String(urlP.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  if (pvc.profileMode === 'selected') {
-    const list = pvc.profileSelectedCodes || [];
-    if (list.length && list.indexOf(String(sess.code)) < 0) {
-      return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات برای شما فعال نیست.' });
-    }
+  if (!canViewerAccessTarget(pvc.profileMode, pvc.profileSelectedCodes, sess.code, emp)) {
+    return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات این فرد برای شما مجاز نیست.' });
   }
   try {
     const ex = gd.obj.employeeExtras && gd.obj.employeeExtras[String(emp.code)];
     const per = (ex && ex.personal) || {};
-    ['fatherName','mobile','address','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function(k){
+    ['fatherName','mobile','address','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city','province','gender'].forEach(function(k){
       if ((!emp[k] || String(emp[k]).trim()==='') && per[k]) emp[k] = per[k];
     });
   } catch (eM) {}
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
-  return jsonResponse({ ok: true, fields: fields });
+  const viewable = listViewableEmployees(allEmps, pvc.profileMode, pvc.profileSelectedCodes, sess.code);
+  return jsonResponse({ ok: true, fields: fields, code: emp.code, fullName: emp.fullName || '', viewable: viewable, mode: pvc.profileMode });
 }
 
 
@@ -7362,6 +7395,8 @@ async function handleAdminGetPortalView(request, who, env) {
     { key: 'educationField', label: 'رشته تحصیلی' },
     { key: 'militaryStatus', label: 'وضعیت نظام وظیفه' },
     { key: 'militaryExemptType', label: 'نوع معافیت نظام وظیفه' },
+    { key: 'gender', label: 'جنسیت' },
+    { key: 'province', label: 'استان محل سکونت' },
     { key: 'city', label: 'شهر محل سکونت' },
     { key: 'address', label: 'آدرس' },
     { key: 'email', label: 'ایمیل' }
@@ -8225,33 +8260,57 @@ async function loadContractsEmp(){
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
 }
 
-async function loadDecree(){
+async function loadDecree(optCode){
   var box=document.getElementById('decreeBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/decree',{credentials:'same-origin'});
+    var q = optCode ? ('?code='+encodeURIComponent(optCode)) : '';
+    var r=await fetch('/api/emp/decree'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش حکم برای شما فعال نیست.')+'</div>'; return; }
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="decreeEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
     var rows=(j.items||[]).map(function(it){return '<tr><td>'+it.name+'</td><td>'+fmt(it.amount)+'</td></tr>'}).join('');
     if(!rows) rows='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     var total=j.total!=null?('<div class="net">جمع حکم: '+fmt(j.total)+' ریال</div>'):'';
-    box.innerHTML='<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
+    box.innerHTML=selHtml+'<div class="box"><b>'+(j.fullName||'')+'</b>'+(j.position?' — '+j.position:'')+
       '<table style="margin-top:8px"><tr><th>شرح</th><th>مبلغ</th></tr>'+rows+'</table>'+total+'</div>';
+    var se=document.getElementById('decreeEmpSel');
+    if(se){ se.onchange=function(){ loadDecree(se.value); }; }
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت حکم.</div>'; }
 }
-async function loadProfile(){
+
+async function loadProfile(optCode){
   var box=document.getElementById('profileBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/profile',{credentials:'same-origin'});
+    var q = optCode ? ('?code='+encodeURIComponent(optCode)) : '';
+    var r=await fetch('/api/emp/profile'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'نمایش مشخصات برای شما فعال نیست.')+'</div>'; return; }
-    var html='<div class="box"><table>';
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="profileEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
+    var html=selHtml+'<div class="box"><table>';
     (j.fields||[]).forEach(function(f){
       html+='<tr><td style="width:40%"><b>'+(f.label||f.key)+'</b></td><td>'+(f.value!=null&&f.value!==''?f.value:'—')+'</td></tr>';
     });
+    if(!(j.fields||[]).length) html+='<tr><td colspan="2">موردی برای نمایش نیست</td></tr>';
     html+='</table></div>';
     box.innerHTML=html;
+    var se=document.getElementById('profileEmpSel');
+    if(se){ se.onchange=function(){ loadProfile(se.value); }; }
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت مشخصات.</div>'; }
 }
 var attTypes=[];
@@ -8410,6 +8469,14 @@ function applyUserAccessUI(ua) {
   var tabsEl = document.querySelector('.tabs');
   if (tabsEl) tabsEl.classList.add('ua-ready');
 }
+function applyPortalViewTabs(pv){
+  if(!pv) return;
+  try{ window.__pspPortalView = pv; }catch(e){}
+  var td=document.getElementById('tabDecree');
+  var tp=document.getElementById('tabProfile');
+  if(td) td.style.display = (pv.showDecree === false) ? 'none' : '';
+  if(tp) tp.style.display = (pv.showProfile === false) ? 'none' : '';
+}
 function applyPortalCalendar(src){
   if(!src) return;
   var ry = Number(src.realJalaliYear) || 0;
@@ -8431,11 +8498,13 @@ function applyPortalCalendar(src){
   setVal('psYear', ry); setVal('psMonth', rm);
   setVal('year', ry); setVal('month', rm);
   try{ fillRqDateSelects(); }catch(e2){}
+  try{ if(src.portalView) applyPortalViewTabs(src.portalView); }catch(e3){}
 }
 function showApp(j){
   document.getElementById('loginCard').classList.add('hidden');
   document.getElementById('appCard').classList.remove('hidden');
   document.getElementById('whoLabel').textContent=(j.fullName||'')+' — کد '+j.code;
+  try { if (j && j.portalView) applyPortalViewTabs(j.portalView); } catch (ePv) {}
   try {
     var oldBar = document.getElementById('pspEmpProfile');
     if (oldBar && oldBar.parentNode) oldBar.parentNode.removeChild(oldBar);
