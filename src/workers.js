@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v96" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v97" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -431,7 +431,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
         if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
         if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
-        if (obj.portalViewConfig === undefined && prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
           obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
@@ -6893,18 +6893,28 @@ async function route(request, env, users, found) {
 // ---------- Employee decree & profile (portal view) ----------
 function getPortalViewConfig(obj) {
   const c = (obj && obj.portalViewConfig) || {};
+  var decreeFields = null;
+  var profileFields = null;
+  if (c.fieldsConfigured) {
+    decreeFields = Array.isArray(c.decreeFields) ? c.decreeFields.map(String) : [];
+    profileFields = Array.isArray(c.profileFields) ? c.profileFields.map(String) : [];
+  } else {
+    if (Array.isArray(c.decreeFields) && c.decreeFields.length) decreeFields = c.decreeFields.map(String);
+    if (Array.isArray(c.profileFields) && c.profileFields.length) profileFields = c.profileFields.map(String);
+  }
   return {
     showDecree: c.showDecree !== false,
-    decreeMode: c.decreeMode || 'self', // self | self_and_manager | all | selected
+    decreeMode: c.decreeMode || 'self',
     decreeSelectedCodes: Array.isArray(c.decreeSelectedCodes) ? c.decreeSelectedCodes.map(String) : [],
-    decreeFields: Array.isArray(c.decreeFields) ? c.decreeFields : null, // null = all available
+    decreeFields: decreeFields,
     showProfile: c.showProfile !== false,
     profileMode: c.profileMode || 'self',
     profileSelectedCodes: Array.isArray(c.profileSelectedCodes) ? c.profileSelectedCodes.map(String) : [],
-    // نام پدر/موبایل/آدرس برای تنظیمات قدیمی هم در مشخصات پرسنلی پرتال نمایش داده شوند
-    profileFields: Array.isArray(c.profileFields) ? c.profileFields : null
+    profileFields: profileFields,
+    fieldsConfigured: !!c.fieldsConfigured
   };
 }
+
 
 function resolveEmpManagerCodes(emp, obj) {
   if (!emp) return { m1: '', m2: '' };
@@ -7462,6 +7472,7 @@ async function handleAdminSavePortalView(request, who, env) {
     profileMode: ['self', 'self_and_manager', 'all', 'selected'].indexOf(body.profileMode) >= 0 ? body.profileMode : 'self',
     profileSelectedCodes: Array.isArray(body.profileSelectedCodes) ? body.profileSelectedCodes.map(String).slice(0, 500) : [],
     profileFields: Array.isArray(body.profileFields) ? body.profileFields.map(String).slice(0, 100) : [],
+    fieldsConfigured: true,
     profileExtraMigrated: true
   };
   // دسترسی کاربر (تب‌ها/ستون‌ها) — اگر همراه ذخیره تنظیمات ارسال شده باشد
@@ -8126,9 +8137,23 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
   <div class="card panel hidden" id="panel-approve"><h2>نتیجه درخواست‌ها (تأیید / رد زیرمجموعه)</h2><button class="sm" onclick="loadRequests()">بروزرسانی</button><div id="pendingList" style="margin-top:10px;"></div></div>
   <div class="card panel hidden" id="panel-timesheet">
     <h2>تایم‌شیت</h2>
-    <div class="grid2"><div><label>سال</label><input type="number" id="tsYear" value="1405"></div>
-    <div><label>ماه</label><select id="tsMonth"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select></div></div>
-    <button class="primary" onclick="loadTimesheet()">نمایش</button>
+    <div id="tsFilterRow" style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-bottom:8px;">
+      <div id="tsEmpSelHost" style="flex:1 1 140px;min-width:120px;display:none;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">فرد</label>
+        <select id="tsEmpSel" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"></select>
+      </div>
+      <div style="flex:0 0 90px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">سال</label>
+        <input type="number" id="tsYear" value="1405" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;box-sizing:border-box;">
+      </div>
+      <div style="flex:0 0 110px;">
+        <label style="font-size:12px;display:block;margin-bottom:2px;">ماه</label>
+        <select id="tsMonth" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid #99f6e4;border-radius:8px;"><option value="1">فروردین</option><option value="2">اردیبهشت</option><option value="3">خرداد</option><option value="4">تیر</option><option value="5">مرداد</option><option value="6">شهریور</option><option value="7">مهر</option><option value="8">آبان</option><option value="9">آذر</option><option value="10">دی</option><option value="11">بهمن</option><option value="12">اسفند</option></select>
+      </div>
+      <div style="flex:1 1 100px;">
+        <button class="primary" onclick="loadTimesheet()" style="width:100%;padding:8px 12px;margin:0;">نمایش</button>
+      </div>
+    </div>
     <div class="err" id="tsErr"></div><div id="tsBox"></div>
   </div>
   <div class="card panel hidden" id="panel-decree">
@@ -8658,17 +8683,16 @@ async function loadTimesheet(){
     try{
       if(j.viewable && j.viewable.length>1){
         var host=document.getElementById('tsEmpSelHost');
-        if(!host){
-          var yr=document.getElementById('tsYear');
-          host=document.createElement('div'); host.id='tsEmpSelHost'; host.style.cssText='margin:6px 0';
-          if(yr && yr.parentNode && yr.parentNode.parentNode) yr.parentNode.parentNode.insertBefore(host, yr.parentNode);
-          else { var tb=document.getElementById('tsBox')||document.getElementById('pane-timesheet'); if(tb) tb.insertBefore(host, tb.firstChild); }
-        }
-        var cur=document.getElementById('tsEmpSel'); var curVal=cur?cur.value:(j.code||'');
-        var opts=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(curVal||j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');
-        host.innerHTML='<label style="font-size:12px">فرد: </label><select id="tsEmpSel" style="font-size:12px">'+opts+'</select>';
         var se=document.getElementById('tsEmpSel');
-        if(se && !se.__wired){ se.__wired=true; se.addEventListener('change', function(){ loadTimesheet(); }); }
+        if(host) host.style.display='';
+        if(se){
+          var curVal=se.value||(j.code||'');
+          se.innerHTML=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(curVal||j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');
+          if(!se.__wired){ se.__wired=true; se.addEventListener('change', function(){ loadTimesheet(); }); }
+        }
+      }else{
+        var host2=document.getElementById('tsEmpSelHost');
+        if(host2) host2.style.display='none';
       }
     }catch(eSel){}
 
