@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v95" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v96" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -3551,15 +3551,17 @@ async function handleEmpTimesheet(request, env) {
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
 
-  // employee sees only self; if they manage people they can request other codes
-  let code = String(r.body.code || sess.code);
+  let code = String(r.body.code || sess.code).trim() || String(sess.code);
+  const allEmpsTs = gd.obj.employees || [];
   if (code !== String(sess.code)) {
-    // allow if manager of that person OR we could restrict to self only
-    const target = (gd.obj.employees || []).find(e => String(e.code) === code);
-    if (!target || String(target.managerCode) !== String(sess.code)) {
-      code = String(sess.code);
+    const target = allEmpsTs.find(function (e) { return String(e.code) === code; });
+    if (!target || !isManagerOf(sess.code, target, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده تایم‌شیت این فرد برای شما مجاز نیست.' }, 403);
     }
   }
+  var viewableTs = allEmpsTs.filter(function (e) {
+    return String(e.code) === String(sess.code) || isManagerOf(sess.code, e, gd.obj);
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const key = year + '-' + month;
   const row = ((gd.obj.monthlyData || {})[key] || {})[code] || {};
   const reqs = ((gd.obj.attendanceRequests || []).filter(function (x) {
@@ -3722,6 +3724,7 @@ async function handleEmpTimesheet(request, env) {
     code,
     fullName: emp ? emp.fullName : '',
     userAccess: userAccess,
+    viewable: (typeof viewableTs !== 'undefined' ? viewableTs : [{ code: String(sess.code), fullName: emp ? emp.fullName : '' }]),
     year, month,
     workDays: workWithAtt,
     leaveDays: reLeaveDays,
@@ -6903,7 +6906,31 @@ function getPortalViewConfig(obj) {
   };
 }
 
-function canViewerAccessTarget(mode, selectedCodes, viewerCode, targetEmp) {
+function resolveEmpManagerCodes(emp, obj) {
+  if (!emp) return { m1: '', m2: '' };
+  let m1 = String(emp.managerCode || emp.mgrCode || '').trim();
+  let m2 = String(emp.managerCode2 || emp.mgrCode2 || '').trim();
+  try {
+    const pack = obj && obj.employeeExtras && (obj.employeeExtras[String(emp.code)] || obj.employeeExtras[emp.code]);
+    if (pack) {
+      if (pack.managerCode) m1 = String(pack.managerCode).trim();
+      if (pack.managerCode2) m2 = String(pack.managerCode2).trim();
+      const per = pack.personal || {};
+      if (per.managerCode) m1 = String(per.managerCode).trim();
+      if (per.managerCode2) m2 = String(per.managerCode2).trim();
+    }
+  } catch (e) {}
+  return { m1: m1, m2: m2 };
+}
+
+function isManagerOf(viewerCode, targetEmp, obj) {
+  const v = String(viewerCode || '').trim();
+  if (!v || !targetEmp) return false;
+  const m = resolveEmpManagerCodes(targetEmp, obj);
+  return (m.m1 && m.m1 === v) || (m.m2 && m.m2 === v);
+}
+
+function canViewerAccessTarget(mode, selectedCodes, viewerCode, targetEmp, obj) {
   if (!targetEmp) return false;
   const v = String(viewerCode || '');
   const t = String(targetEmp.code || '');
@@ -6911,24 +6938,24 @@ function canViewerAccessTarget(mode, selectedCodes, viewerCode, targetEmp) {
   mode = mode || 'self';
   if (mode === 'all') return true;
   if (mode === 'self') return v === t;
-  if (mode === 'selected') return (selectedCodes || []).indexOf(t) >= 0;
+  if (mode === 'selected') return (selectedCodes || []).map(String).indexOf(t) >= 0;
   if (mode === 'self_and_manager') {
     if (v === t) return true;
-    if (String(targetEmp.managerCode || '') === v) return true;
-    if (String(targetEmp.managerCode2 || '') === v) return true;
-    return false;
+    return isManagerOf(v, targetEmp, obj);
   }
   return v === t;
 }
-function listViewableEmployees(allEmployees, mode, selectedCodes, viewerCode) {
+
+function listViewableEmployees(allEmployees, mode, selectedCodes, viewerCode, obj) {
   return (allEmployees || []).filter(function (e) {
-    return canViewerAccessTarget(mode, selectedCodes, viewerCode, e);
+    return canViewerAccessTarget(mode, selectedCodes, viewerCode, e, obj);
   }).map(function (e) {
     return { code: String(e.code), fullName: e.fullName || '' };
   });
 }
-function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees) {
-  return canViewerAccessTarget(cfg[modeKey] || 'self', cfg[selectedKey] || [], empCode, emp || { code: empCode });
+
+function canViewPortalSection(cfg, modeKey, selectedKey, empCode, emp, allEmployees, obj) {
+  return canViewerAccessTarget(cfg[modeKey] || 'self', cfg[selectedKey] || [], empCode, emp || { code: empCode }, obj);
 }
 
 function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
@@ -6938,22 +6965,30 @@ function buildDecreeItemsForEmp(obj, emp, allowedFieldIds) {
   const vals = (obj.decreeValues && (obj.decreeValues[code] || obj.decreeValues[emp.code])) || {};
   const seenNames = {};
 
-  function isAllowed(id, name) {
-    if (allowedFieldIds == null) return true; if (!allowedFieldIds.length) return false;
+    function isAllowed(id, name) {
+    if (allowedFieldIds == null) return true;
+    if (!allowedFieldIds.length) return false;
     if (allowedFieldIds.indexOf('decree_all') >= 0) return true;
-    const idS = String(id || '');
+    const idS = String(id || '').trim();
     const nameS = String(name || '').trim();
+    const norm = function (s) {
+      return String(s || '').replace(/\u200c/g, '').replace(/\s+/g, '').replace(/ي/g, 'ی').replace(/ك/g, 'ک');
+    };
+    const nName = norm(nameS);
+    const nId = norm(idS);
     for (let i = 0; i < allowedFieldIds.length; i++) {
-      const a = String(allowedFieldIds[i]);
+      const a = String(allowedFieldIds[i] || '').trim();
+      if (!a) continue;
       if (a === idS || a === nameS) return true;
-      if (a.indexOf('name:') === 0 && a.slice(5) === nameS) return true;
-      // partial name match for flexibility
-      if (nameS && (a === nameS || nameS.indexOf(a) >= 0 || a.indexOf(nameS) >= 0)) return true;
+      if (a.indexOf('name:') === 0 && (a.slice(5) === nameS || norm(a.slice(5)) === nName)) return true;
+      const nA = norm(a);
+      if (nA && (nA === nId || nA === nName)) return true;
+      if (nName && nA && (nName.indexOf(nA) >= 0 || nA.indexOf(nName) >= 0)) return true;
     }
     return false;
   }
 
-  function push(id, name, amount) {
+function push(id, name, amount) {
     const n = String(name || '').trim();
     if (!n) return;
     if (!isAllowed(id, n)) return;
@@ -7128,13 +7163,13 @@ async function handleEmpDecree(request, env) {
   let targetCode = String(urlD.searchParams.get('code') || sess.code).trim() || String(sess.code);
   const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  if (!canViewerAccessTarget(pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, emp)) {
+  if (!canViewerAccessTarget(pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, emp, gd.obj)) {
     return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش حکم این فرد برای شما مجاز نیست.' });
   }
   const items = buildDecreeItemsForEmp(gd.obj, emp, pvc.decreeFields);
   let total = 0;
   items.forEach(function (it) { total += Number(it.amount) || 0; });
-  const viewable = listViewableEmployees(allEmps, pvc.decreeMode, pvc.decreeSelectedCodes, sess.code);
+  const viewable = listViewableEmployees(allEmps, pvc.decreeMode, pvc.decreeSelectedCodes, sess.code, gd.obj);
   return jsonResponse({ ok: true, fullName: emp.fullName || '', position: emp.position || '', code: emp.code, items: items, total: total, viewable: viewable, mode: pvc.decreeMode });
 }
 
@@ -7154,7 +7189,7 @@ async function handleEmpProfile(request, env) {
   let targetCode = String(urlP.searchParams.get('code') || sess.code).trim() || String(sess.code);
   const emp = allEmps.find(function (e) { return String(e.code) === targetCode; });
   if (!emp) return jsonResponse({ ok: false, message: 'کارمند یافت نشد.' }, 404);
-  if (!canViewerAccessTarget(pvc.profileMode, pvc.profileSelectedCodes, sess.code, emp)) {
+  if (!canViewerAccessTarget(pvc.profileMode, pvc.profileSelectedCodes, sess.code, emp, gd.obj)) {
     return jsonResponse({ ok: false, error: 'disabled', message: 'نمایش مشخصات این فرد برای شما مجاز نیست.' });
   }
   try {
@@ -7165,7 +7200,7 @@ async function handleEmpProfile(request, env) {
     });
   } catch (eM) {}
   const fields = buildProfileFieldsForEmp(emp, pvc.profileFields);
-  const viewable = listViewableEmployees(allEmps, pvc.profileMode, pvc.profileSelectedCodes, sess.code);
+  const viewable = listViewableEmployees(allEmps, pvc.profileMode, pvc.profileSelectedCodes, sess.code, gd.obj);
   return jsonResponse({ ok: true, fields: fields, code: emp.code, fullName: emp.fullName || '', viewable: viewable, mode: pvc.profileMode });
 }
 
@@ -7659,8 +7694,20 @@ async function handleEmpContracts(request, env) {
     if (months < 1) months = 1;
     return months;
   }
+  const urlC = new URL(request.url);
+  let targetCodeC = String(urlC.searchParams.get('code') || sess.code).trim() || String(sess.code);
+  const allEmpsC = (gd.obj && gd.obj.employees) || [];
+  if (targetCodeC !== String(sess.code)) {
+    const tEmp = allEmpsC.find(function (e) { return String(e.code) === targetCodeC; });
+    if (!tEmp || !isManagerOf(sess.code, tEmp, gd.obj)) {
+      return jsonResponse({ ok: false, error: 'forbidden', message: 'مشاهده قرارداد این فرد برای شما مجاز نیست.' }, 403);
+    }
+  }
+  const viewableC = allEmpsC.filter(function (e) {
+    return String(e.code) === String(sess.code) || isManagerOf(sess.code, e, gd.obj);
+  }).map(function (e) { return { code: String(e.code), fullName: e.fullName || '' }; });
   const raw = ((gd.obj && gd.obj.contracts) || []).filter(function (c) {
-    return String(c.empCode) === String(sess.code) && c.visibleToEmployee !== false;
+    return String(c.empCode) === targetCodeC && c.visibleToEmployee !== false;
   });
   // sort oldest first for ordinal
   raw.sort(function (a, b) {
@@ -7684,7 +7731,7 @@ async function handleEmpContracts(request, env) {
     }
     return out;
   });
-  return jsonResponse({ ok: true, contracts: list });
+  return jsonResponse({ ok: true, code: targetCodeC, viewable: viewableC, contracts: list });
 }
 
 async function handleAdminPayrollContractCheck(request, who, env) {
@@ -8195,15 +8242,24 @@ function openArchivedPayslip(y,m){
   if(typeof loadPayslip==='function') loadPayslip();
 }
 
-async function loadContractsEmp(){
+async function loadContractsEmp(optCode){
   var box=document.getElementById('contractsBox'); if(!box) return;
-  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  box.innerHTML=selHtml+'<div class="sub">در حال بارگذاری…</div>';
   try{
-    var r=await fetch('/api/emp/contracts',{credentials:'same-origin'});
+    var q=optCode?('?code='+encodeURIComponent(optCode)):'';
+    var r=await fetch('/api/emp/contracts'+q,{credentials:'same-origin'});
     var j=await r.json();
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
+    var selHtml='';
+    if(j.viewable && j.viewable.length>1){
+      selHtml='<div style="margin-bottom:8px"><label style="font-size:12px">انتخاب فرد: </label><select id="contractsEmpSel" style="font-size:12px;max-width:100%">';
+      j.viewable.forEach(function(v){
+        selHtml+='<option value="'+v.code+'"'+(String(v.code)===String(j.code||'')?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';
+      });
+      selHtml+='</select></div>';
+    }
     var list=j.contracts||[];
-    if(!list.length){ box.innerHTML='<div class="sub">قراردادی برای شما ثبت نشده.</div>'; return; }
+    if(!list.length){ box.innerHTML=selHtml+'<div class="sub">قراردادی ثبت نشده.</div>'; var se0=document.getElementById('contractsEmpSel'); if(se0) se0.onchange=function(){loadContractsEmp(se0.value);}; return; }
     var typeFa={fixed:'مدت‌موقت',permanent:'دائم',hourly:'ساعتی',daily:'روزمزد',other:'سایر'};
     var ordinals=['اول','دوم','سوم','چهارم','پنجم','ششم','هفتم','هشتم','نهم','دهم'];
     function monthsBetween(a,b){
@@ -8257,6 +8313,7 @@ async function loadContractsEmp(){
     });
     html+='</tbody></table></div>';
     box.innerHTML=html;
+  var seC=document.getElementById("contractsEmpSel"); if(seC) seC.onchange=function(){loadContractsEmp(seC.value);};
   }catch(e){ box.innerHTML='<div class="sub">خطا در دریافت قراردادها.</div>'; }
 }
 
@@ -8592,8 +8649,29 @@ async function loadTimesheet(){
   var err=document.getElementById('tsErr'); err.textContent='';
   var year=Number(document.getElementById('tsYear').value), month=Number(document.getElementById('tsMonth').value);
   try{
-    var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({year:year,month:month}),credentials:'same-origin'});
+    var tsCodeEl=document.getElementById('tsEmpSel');
+    var tsCode=tsCodeEl?tsCodeEl.value:'';
+    var bodyTs={year:year,month:month};
+    if(tsCode) bodyTs.code=tsCode;
+    var r=await fetch('/api/emp/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bodyTs),credentials:'same-origin'});
         var j=await r.json(); if(!j.ok){err.textContent=j.message||'خطا';return}
+    try{
+      if(j.viewable && j.viewable.length>1){
+        var host=document.getElementById('tsEmpSelHost');
+        if(!host){
+          var yr=document.getElementById('tsYear');
+          host=document.createElement('div'); host.id='tsEmpSelHost'; host.style.cssText='margin:6px 0';
+          if(yr && yr.parentNode && yr.parentNode.parentNode) yr.parentNode.parentNode.insertBefore(host, yr.parentNode);
+          else { var tb=document.getElementById('tsBox')||document.getElementById('pane-timesheet'); if(tb) tb.insertBefore(host, tb.firstChild); }
+        }
+        var cur=document.getElementById('tsEmpSel'); var curVal=cur?cur.value:(j.code||'');
+        var opts=j.viewable.map(function(v){return '<option value="'+v.code+'"'+(String(v.code)===String(curVal||j.code)?' selected':'')+'>'+(v.fullName||v.code)+' ('+v.code+')</option>';}).join('');
+        host.innerHTML='<label style="font-size:12px">فرد: </label><select id="tsEmpSel" style="font-size:12px">'+opts+'</select>';
+        var se=document.getElementById('tsEmpSel');
+        if(se && !se.__wired){ se.__wired=true; se.addEventListener('change', function(){ loadTimesheet(); }); }
+      }
+    }catch(eSel){}
+
     if(!j.userAccess){
       try{
         var fr=await fetch('/api/emp/features?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
