@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261014v100" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261015v101" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -1675,7 +1675,8 @@ async function handleEmpCreateRequest(request, env) {
     if (kind === 'leave' && mode === 'daily' && startDate && !fixedDays) {
       const empCt = emp.contractType || 'normal';
       const ws = getWorkWeekSettings(gd.obj, empCt);
-      if (!ws.countNonWorkDaysAsLeave) {
+      const typeAllowedNw = isLeaveTypeAllowedOnNonWork(gd.obj, empCt, typeId, typeName);
+      if (!ws.countNonWorkDaysAsLeave && !typeAllowedNw) {
         const endD = endDate || startDate;
         const sp = parseJalaliYMD(startDate);
         const ep = parseJalaliYMD(endD);
@@ -1683,7 +1684,7 @@ async function handleEmpCreateRequest(request, env) {
           return jsonResponse({
             ok: false,
             error: 'holiday_not_leave',
-            message: 'روز شروع (' + startDate + ') تعطیل/غیرکاری است و به‌عنوان مرخصی محسوب نمی‌شود. تاریخ شروع را روی یک روز کاری بگذارید.'
+            message: 'روز شروع (' + startDate + ') تعطیل/غیرکاری است و به‌عنوان مرخصی محسوب نمی‌شود. تاریخ شروع را روی یک روز کاری بگذارید (یا این نوع مرخصی را در تنظیمات تایم‌شیت برای غیرکاری مجاز کنید).'
           }, 400);
         }
         if (ep && isHolidayOrNonWork(gd.obj, ep.y, ep.m, ep.d, empCt)) {
@@ -1693,7 +1694,7 @@ async function handleEmpCreateRequest(request, env) {
             message: 'روز پایان (' + endD + ') تعطیل/غیرکاری است و به‌عنوان مرخصی محسوب نمی‌شود. تاریخ پایان را روی یک روز کاری بگذارید.'
           }, 400);
         }
-        const daysNeeded0 = countLeaveDays({ mode: 'daily', startDate: startDate, endDate: endD }, gd.obj, empCt);
+        const daysNeeded0 = countLeaveDays({ mode: 'daily', startDate: startDate, endDate: endD, typeId: typeId, typeName: typeName }, gd.obj, empCt);
         if (daysNeeded0 <= 0) {
           return jsonResponse({
             ok: false,
@@ -1701,14 +1702,13 @@ async function handleEmpCreateRequest(request, env) {
             message: 'در بازه انتخاب‌شده هیچ روز کاری وجود ندارد؛ مرخصی فقط روی روزهای کاری ثبت می‌شود.'
           }, 400);
         }
-        // تعطیلات میانی فقط از شمارش کسر می‌شوند (در countLeaveDays) — درخواست پذیرفته می‌شود
       }
     }
 
     // بررسی مانده مرخصی استحقاقی (سال جاری / ذخیره سال‌های قبل)
     let usePriorYears = !!b.usePriorYears;
     if (kind === 'leave' && deductFromEntitlement) {
-      const fakeReq = { mode: mode, startDate: startDate, endDate: endDate, fromTime: fromTime, toTime: toTime, fixedDays: fixedDays };
+      const fakeReq = { mode: mode, startDate: startDate, endDate: endDate, fromTime: fromTime, toTime: toTime, fixedDays: fixedDays, typeId: typeId, typeName: typeName };
       const daysNeeded = countLeaveDays(fakeReq, gd.obj, emp.contractType);
       const avail = leaveAvailabilityForEmp(gd.obj, emp, daysNeeded);
       const tAllowAdv = !!(tdef && tdef.allowAdvance);
@@ -2168,6 +2168,7 @@ function getContractCalendar(obj, contractType) {
       ? [0, 1, 2, 3, 4, 5, 6]
       : (Array.isArray(cal.workWeekDays) ? cal.workWeekDays.map(Number) : [6, 0, 1, 2, 3]),
     countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
+    nonWorkLeaveTypeIds: Array.isArray(cal.nonWorkLeaveTypeIds) ? cal.nonWorkLeaveTypeIds.map(String) : [],
     holidaysByYear: (cal.holidaysByYear && typeof cal.holidaysByYear === 'object') ? cal.holidaysByYear : {},
     workStart: hourlyAllDay ? '00:00' : sched.workStart,
     workEnd: hourlyAllDay ? '23:59' : sched.workEnd,
@@ -2834,8 +2835,23 @@ function getWorkWeekSettings(obj, contractType) {
   const cal = getContractCalendar(obj, contractType);
   return {
     workWeekDays: cal.workWeekDays,
-    countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave
+    countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave,
+    nonWorkLeaveTypeIds: Array.isArray(cal.nonWorkLeaveTypeIds) ? cal.nonWorkLeaveTypeIds.map(String) : []
   };
+}
+function isLeaveTypeAllowedOnNonWork(obj, contractType, typeId, typeName) {
+  const ws = getWorkWeekSettings(obj, contractType);
+  if (ws.countNonWorkDaysAsLeave) return true;
+  const ids = ws.nonWorkLeaveTypeIds || [];
+  if (!ids.length) return false;
+  const id = String(typeId || '').trim();
+  const nm = String(typeName || '').trim();
+  for (let i = 0; i < ids.length; i++) {
+    const a = String(ids[i] || '').trim();
+    if (!a) continue;
+    if (a === id || (nm && a === nm)) return true;
+  }
+  return false;
 }
 
 function listNonWorkDaysInRange(obj, startStr, endStr, contractType) {
@@ -3250,7 +3266,7 @@ function countLeaveDays(req, obj, contractType) {
     try {
       const keys = listDayKeys(req.startDate, req.endDate || req.startDate);
       const ws = getWorkWeekSettings(obj || {}, ct);
-      if (ws.countNonWorkDaysAsLeave) return keys.length || 1;
+      if (ws.countNonWorkDaysAsLeave || req.allowNonWorkLeave || isLeaveTypeAllowedOnNonWork(obj || {}, ct, req.typeId, req.typeName)) return keys.length || 1;
       let n = 0;
       keys.forEach(function (k) {
         const parts = String(k).split(/[-\/]/);
@@ -6215,6 +6231,9 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (r.body.countNonWorkDaysAsLeave != null) {
       cal.countNonWorkDaysAsLeave = !!r.body.countNonWorkDaysAsLeave;
     }
+    if (Array.isArray(r.body.nonWorkLeaveTypeIds)) {
+      cal.nonWorkLeaveTypeIds = r.body.nonWorkLeaveTypeIds.map(String).filter(Boolean).slice(0, 100);
+    }
     // نوع «ساعتی» همیشه کل شبانه‌روز/همه روزها محاسبه می‌شود؛ ساعت و روز کاری آن ذخیره نمی‌شود
     if (ct !== 'hourly') {
       if (Array.isArray(r.body.workWeekDays)) {
@@ -6246,6 +6265,12 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       contractTypeName: tdef ? tdef.name : ct,
       workWeekDays: cal.workWeekDays,
       countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
+      nonWorkLeaveTypeIds: Array.isArray(cal.nonWorkLeaveTypeIds) ? cal.nonWorkLeaveTypeIds.map(String) : [],
+      leaveTypesForNonWork: (function () {
+        var t = (gd.obj && gd.obj.attendanceTypes) || [];
+        if (!t.length && typeof defaultAttendanceTypes === 'function') t = defaultAttendanceTypes();
+        return t.filter(function (x) { return x && x.kind === 'leave'; }).map(function (x) { return { id: String(x.id || ''), name: String(x.name || '') }; });
+      })(),
       workStart: cal.workStart,
       workEnd: cal.workEnd,
       breakStart: cal.breakStart,
@@ -6442,6 +6467,12 @@ async function handleAdminGetCurrentMonth(request, who, env) {
     contractTypeName: tdef ? tdef.name : ct,
     workWeekDays: cal.workWeekDays,
     countNonWorkDaysAsLeave: cal.countNonWorkDaysAsLeave,
+    nonWorkLeaveTypeIds: Array.isArray(cal.nonWorkLeaveTypeIds) ? cal.nonWorkLeaveTypeIds.map(String) : [],
+    leaveTypesForNonWork: (function () {
+      var t = (gd.obj && gd.obj.attendanceTypes) || [];
+      if (!t.length && typeof defaultAttendanceTypes === 'function') t = defaultAttendanceTypes();
+      return t.filter(function (x) { return x && x.kind === 'leave'; }).map(function (x) { return { id: String(x.id || ''), name: String(x.name || '') }; });
+    })(),
     workStart: cal.workStart,
     workEnd: cal.workEnd,
     hasBreak: !!cal.hasBreak,
