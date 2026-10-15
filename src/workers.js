@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v102" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v103" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -4434,6 +4434,151 @@ function fillAllEmployeesMonthFromAttendance(obj, year, month) {
 }
 
 
+
+async function handleAdminAbsenceReport(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const year = Number(r.body.year);
+  const month = Number(r.body.month);
+  const mode = String(r.body.mode || 'summary');
+  if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12)) {
+    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+
+  const key = year + '-' + month;
+  const md = (gd.obj.monthlyData || {})[key] || {};
+  const reqs = gd.obj.attendanceRequests || [];
+  const summary = [];
+  const daily = [];
+
+  (gd.obj.employees || []).forEach(function (emp) {
+    if (!emp || emp.status === 'inactive') return;
+    let filled = null;
+    try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
+    const row = filled || md[emp.code] || {};
+    const empReqs = reqs.filter(function (x) {
+      if (String(x.empCode) !== String(emp.code) || x.status !== 'approved') return false;
+      const p = parseJalaliYMD(x.startDate);
+      if (!p) return false;
+      if (p.y === year && p.m === month) return true;
+      if (x.mode === 'daily' && x.endDate) {
+        return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
+      }
+      return false;
+    });
+    const ct = emp.contractType || 'normal';
+    let aLeave = 0, aHourly = 0, aMission = 0, aMissionH = 0;
+    empReqs.forEach(function (x) {
+      if (x.kind === 'leave' && x.mode === 'daily') aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      else if (x.kind === 'leave' && x.mode === 'hourly') {
+        const p = parseJalaliYMD(x.startDate);
+        if (p && p.y === year && p.m === month) aHourly += hoursBetween(x.fromTime, x.toTime);
+      } else if (x.kind === 'mission' && x.mode === 'daily') aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
+      else if (x.kind === 'mission' && x.mode === 'hourly') {
+        const p = parseJalaliYMD(x.startDate);
+        if (p && p.y === year && p.m === month) aMissionH += hoursBetween(x.fromTime, x.toTime);
+      }
+    });
+    let workDays = 0;
+    try { workDays = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, emp.code)) || 0; } catch (eW) { workDays = Number(row.workDays) || 0; }
+    const absH = Number(row.hourlyAbsenceHours) || 0;
+    const excessH = Number(row.excessAbsenceHours) || 0;
+    function fmtHM(h) {
+      const m = Math.round((Number(h) || 0) * 60);
+      const hh = Math.floor(m / 60), mm = m % 60;
+      return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+    }
+    summary.push({
+      code: emp.code,
+      fullName: emp.fullName || '',
+      unit: emp.unit || '',
+      workDays: workDays,
+      hourlyAbsenceHours: absH,
+      hourlyAbsenceHM: row.hourlyAbsenceHM || fmtHM(absH),
+      excessAbsenceHours: excessH,
+      leaveDays: Math.round(aLeave * 100) / 100,
+      hourlyLeave: Number(row.hourlyLeave) != null ? Number(row.hourlyLeave) : Math.round(aHourly * 100) / 100,
+      missionDays: Math.round(aMission * 100) / 100,
+      missionHours: Number(row.missionHours) != null ? Number(row.missionHours) : Math.round(aMissionH * 100) / 100
+    });
+
+    if (mode === 'daily') {
+      try {
+        const code = String(emp.code);
+        const ct = emp.contractType || 'normal';
+        const cal = getContractCalendar(gd.obj, ct);
+        const dim = daysInJalaliMonth(year, month);
+        const punchStore = ((gd.obj.dailyAttendance || {})[code]) || {};
+        for (let d = 1; d <= dim; d++) {
+          const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+          const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+          const punch = punchStore[dk] || punchStore[dateFa] || {};
+          const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+          const hasPunch = !!(punch.in1 || punch.out1 || punch.in2 || punch.out2 || punch.in3 || punch.out3 || punch.in4 || punch.out4);
+          if (nonWork && !hasPunch) continue;
+          const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
+          const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
+          const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
+          const dayMeta = getDayMeta(gd.obj, year, month, d, ct);
+          const calc = computeDayTimesheet(cal, {
+            in1: punch.in1 || '', out1: punch.out1 || '',
+            in2: punch.in2 || '', out2: punch.out2 || '',
+            in3: punch.in3 || '', out3: punch.out3 || '',
+            in4: punch.in4 || '', out4: punch.out4 || ''
+          }, {
+            year: year, month: month, day: d, isHoliday: nonWork,
+            isHourly: String(ct) === 'hourly', contractType: ct,
+            coveredMinutes: coveredMin, coveredIntervals: coveredIv,
+            floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
+            fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
+            unpaidLeave: dlm.unpaidLeave,
+            dayMeta: dayMeta,
+            earlyOtEnabled: !!(emp.earlyOtEnabled || emp.earlyOt)
+          });
+          const absMin = nonWork ? 0 : (Number(calc.hourlyAbsenceMinutes) || 0);
+          if (absMin <= 0) continue;
+          let wd = '';
+          try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
+          daily.push({
+            code: emp.code,
+            fullName: emp.fullName || '',
+            date: dateFa,
+            weekday: wd,
+            in1: punch.in1 || '',
+            out1: punch.out1 || '',
+            in2: punch.in2 || '',
+            out2: punch.out2 || '',
+            workHours: calc.workHours,
+            workHoursHM: calc.workHoursHM || '',
+            absenceMin: Math.round(absMin),
+            absenceHours: Math.round((absMin / 60) * 100) / 100,
+            absenceHM: calc.hourlyAbsenceHM || fmtHM(absMin / 60),
+            note: ''
+          });
+        }
+      } catch (eDay) {
+        console.log(JSON.stringify({ event: 'absence_report_day_err', code: emp.code, message: String(eDay && eDay.message) }));
+      }
+    }
+  });
+
+  summary.sort(function (a, b) { return String(a.code).localeCompare(String(b.code), 'fa'); });
+  daily.sort(function (a, b) {
+    const c = String(a.code).localeCompare(String(b.code), 'fa');
+    if (c) return c;
+    return String(a.date).localeCompare(String(b.date));
+  });
+  return jsonResponse({ ok: true, year: year, month: month, summary: summary, daily: mode === 'daily' ? daily : [] });
+}
+
 async function handleAdminTimesheet(request, who, env) {
   try {
   if (who.role !== 'admin' && who.role !== 'operator') {
@@ -6914,6 +7059,7 @@ async function route(request, env, users, found) {
   }
   if (path === '/api/admin/employee-history') return handleAdminEmployeeHistory(request, who, env);
   if (path === '/api/admin/contracts-report') return handleAdminContractsReport(request, who, env);
+  if (path === '/api/admin/absence-report') return handleAdminAbsenceReport(request, who, env);
   if (path === '/api/admin/set-emp-password') return handleAdminSetEmpPassword(request, who, env);
   if (path === '/api/admin/set-manager') return handleAdminSetManager(request, who, env);
   if (path === '/api/admin/get-manager') return handleAdminGetManager(request, who, env);
