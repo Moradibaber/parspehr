@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v107" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v108" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -3226,24 +3226,41 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
   }
   if (!firstAct || !lastAct) return 0;
 
-  /* کارکرد:
-     ۱) تعطیلات اول ماه (از fromD تا قبل از اولین حضور) — چون بعداً کارکرد دارد
-     ۲) تعطیلات فی‌مابین اولین تا آخرین حضور
-     ۳) تعطیلات آخر ماه (بعد از آخرین حضور تا toD) — چون قبلش کارکرد داشته
-     ۴) روزهای دارای تردد / مرخصی / مأموریت
-     ۵) روز کاری کاملاً خالی → شمرده نمی‌شود (کسر کارکرد)
+  /* کارکرد (قواعد هفته):
+     - روز عادی با حضور/مرخصی/مأموریت → کارکرد
+     - روز عادی بدون کارکرد → غیبت (شمرده نمی‌شود)
+     - پنجشنبه/جمعه و تعطیل: فقط اگر در همان هفته (شنبه تا جمعه)
+       حداقل یک روز عادی با حضور/فعالیت باشد → آن هفته پنجشنبه و جمعه هم کارکرد
+     - اگر کل هفته شنبه تا جمعه بدون فعالیت باشد → کل هفته غیبت (پنجشنبه/جمعه داده نمی‌شود)
+     - منطق مرخصی/مأموریت/اضافه‌کار/کسری روزانه دست نخورده می‌ماند
   */
+  // کلید هفته: شنبهٔ همان هفته (روز ماه، می‌تواند ≤0 باشد)
+  function weekKey(d) {
+    const wd = jalaliWeekday(year, month, d); // 0=یکشنبه … 6=شنبه
+    const sinceSat = (wd + 1) % 7; // شنبه=0 … جمعه=6
+    return d - sinceSat;
+  }
+  // آیا در این هفته حداقل یک روز عادی با activity هست؟
+  const weekHasWorkdayActivity = {};
+  for (let d = fromD; d <= toD; d++) {
+    const info = dayInfo[d];
+    if (!info) continue;
+    if (!info.nonWork && info.activity) {
+      weekHasWorkdayActivity[weekKey(d)] = true;
+    }
+  }
   let n = 0;
   for (let d = fromD; d <= toD; d++) {
     const info = dayInfo[d];
     if (!info) continue;
-    if (info.nonWork) {
-      // تعطیل اول / وسط / آخر ماه — همگی با وجود حداقل یک روز حضور در ماه
-      n++;
-    } else if (info.activity) {
-      n++;
+    if (!info.nonWork) {
+      // روز عادی کاری
+      if (info.activity) n++;
+      // بدون activity = غیبت → نمی‌شماریم
+    } else {
+      // پنجشنبه / جمعه / تعطیل رسمی: فقط اگر همان هفته روز عادی با فعالیت داشته باشد
+      if (weekHasWorkdayActivity[weekKey(d)]) n++;
     }
-    // روز کاری خالی: هیچ
   }
   return n;
 }
