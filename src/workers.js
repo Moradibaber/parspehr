@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v111" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v112" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -447,6 +447,43 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (prev.obj.employeePhotos && typeof prev.obj.employeePhotos === 'object') {
           obj.employeePhotos = Object.assign({}, prev.obj.employeePhotos, obj.employeePhotos || {});
         }
+        // نوع قرارداد و تقویم قرارداد: اگر کلاینت (فرم اصلی) لیست ناقص فرستاد، لیست کامل سرور حفظ شود
+        try {
+          if (prev.obj.settings && typeof prev.obj.settings === 'object') {
+            if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+            var prevList = Array.isArray(prev.obj.settings.contractTypesList) ? prev.obj.settings.contractTypesList : [];
+            var curList = Array.isArray(obj.settings.contractTypesList) ? obj.settings.contractTypesList : [];
+            if (prevList.length > curList.length) {
+              // ادغام: همهٔ قبلی + جدیدهای کلاینت
+              var byId = {};
+              prevList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+              curList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+              obj.settings.contractTypesList = Object.keys(byId).map(function (k) { return byId[k]; });
+            } else if (!curList.length && prevList.length) {
+              obj.settings.contractTypesList = prevList;
+            }
+            if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
+              if (!obj.settings.contractCalendars || typeof obj.settings.contractCalendars !== 'object') {
+                obj.settings.contractCalendars = prev.obj.settings.contractCalendars;
+              } else {
+                Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
+                  if (!obj.settings.contractCalendars[ctId]) {
+                    obj.settings.contractCalendars[ctId] = prev.obj.settings.contractCalendars[ctId];
+                  }
+                });
+              }
+            }
+            if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
+              if (!obj.settings.leavePolicy) obj.settings.leavePolicy = {};
+              if (!obj.settings.leavePolicy.byContractType) obj.settings.leavePolicy.byContractType = {};
+              Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
+                if (obj.settings.leavePolicy.byContractType[ctId] == null) {
+                  obj.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                }
+              });
+            }
+          }
+        } catch (eCt) { /* non-fatal */ }
         try { mergeAllEmployeeExtras(obj); } catch (e2) { /* non-fatal */ }
       }
     }
