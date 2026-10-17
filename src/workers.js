@@ -3002,22 +3002,14 @@ function getHolidaySet(obj, year, contractType) {
 }
 
 function isHolidayOrNonWork(obj, y, m, d, contractType) {
+  // فقط تقویم همان نوع قرارداد کارمند — نه تقویم انواع دیگر
+  // (قبلاً اگر هر نوعی پنجشنبه/جمعه تعطیل بود، برای همه غیبت صفر می‌شد)
   function metaIsFullHoliday(meta) {
     if (!meta) return false;
     if (meta.conditional && meta.fullDay === false) return false;
     return true;
   }
-  if (metaIsFullHoliday(getDayMeta(obj, y, m, d, contractType))) return true;
-  // جستجو در همه تقویم‌های قرارداد (اگر نوع قرارداد کارمند با تقویم ذخیره‌شده فرق داشت)
-  try {
-    const cals = (obj && obj.settings && obj.settings.contractCalendars) || {};
-    const keys = Object.keys(cals);
-    for (let i = 0; i < keys.length; i++) {
-      if (String(keys[i]) === String(contractType || 'normal')) continue;
-      if (metaIsFullHoliday(getDayMeta(obj, y, m, d, keys[i]))) return true;
-    }
-  } catch (e) {}
-  return false;
+  return metaIsFullHoliday(getDayMeta(obj, y, m, d, contractType));
 }
 
 function getWorkWeekSettings(obj, contractType) {
@@ -3415,21 +3407,18 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
   }
   if (!firstAct || !lastAct) return 0;
 
-  /* کارکرد (قواعد هفته):
-     - روز عادی با حضور/مرخصی/مأموریت → کارکرد
-     - روز عادی بدون کارکرد → غیبت (شمرده نمی‌شود)
-     - پنجشنبه/جمعه و تعطیل: فقط اگر در همان هفته (شنبه تا جمعه)
-       حداقل یک روز عادی با حضور/فعالیت باشد → آن هفته پنجشنبه و جمعه هم کارکرد
-     - اگر کل هفته شنبه تا جمعه بدون فعالیت باشد → کل هفته غیبت (پنجشنبه/جمعه داده نمی‌شود)
-     - منطق مرخصی/مأموریت/اضافه‌کار/کسری روزانه دست نخورده می‌ماند
+  /* کارکرد:
+     - روز کاری (داخل workWeekDays و نه تعطیل رسمی) با حضور/مرخصی/مأموریت → کارکرد
+     - روز کاری بدون حضور/مرخصی/مأموریت → غیبت (در کارکرد شمرده نمی‌شود)
+     - روز غیرکاری (خارج workWeekDays یا تعطیل رسمی):
+       اگر در همان هفته حداقل یک روز کاری با فعالیت باشد → به کارکرد هفته اضافه می‌شود
+       (مثلاً وقتی پنجشنبه/جمعه در تقویم تعطیل‌اند؛ اگر خودشان روز کاری باشند nonWork=false و مشمول غیبت‌اند)
   */
-  // کلید هفته: شنبهٔ همان هفته (روز ماه، می‌تواند ≤0 باشد)
   function weekKey(d) {
     const wd = jalaliWeekday(year, month, d); // 0=یکشنبه … 6=شنبه
     const sinceSat = (wd + 1) % 7; // شنبه=0 … جمعه=6
     return d - sinceSat;
   }
-  // آیا در این هفته حداقل یک روز عادی با activity هست؟
   const weekHasWorkdayActivity = {};
   for (let d = fromD; d <= toD; d++) {
     const info = dayInfo[d];
@@ -3443,11 +3432,11 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     const info = dayInfo[d];
     if (!info) continue;
     if (!info.nonWork) {
-      // روز عادی کاری
+      // روز کاری تعریف‌شده در workWeekDays
       if (info.activity) n++;
-      // بدون activity = غیبت → نمی‌شماریم
+      // بدون activity = غیبت → در کارکرد نمی‌آید
     } else {
-      // پنجشنبه / جمعه / تعطیل رسمی: فقط اگر همان هفته روز عادی با فعالیت داشته باشد
+      // فقط روزهای واقعاً غیرکاری (تعطیل رسمی / خارج workWeekDays)
       if (weekHasWorkdayActivity[weekKey(d)]) n++;
     }
   }
