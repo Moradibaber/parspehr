@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v115" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v116" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -7168,23 +7168,27 @@ function loginPage(opts) {
   const html = '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1"><title>ورود — پارسپهر</title>' +
     '<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>' +
-    '<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css">' +
+    '<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>' +
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
+    '<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">' +
+    '<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">' +
     '<style>' +
     'html,body{margin:0;min-height:100vh;direction:rtl;}' +
     'body{display:flex;align-items:center;justify-content:center;background:#0f766e;' +
-    'font-family:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;}' +
+    'font-family:"Vazirmatn",Tahoma,"Segoe UI","Iran Sans","B Nazanin",sans-serif !important;}' +
     '.c{background:#fff;border-radius:12px;padding:28px;width:100%;max-width:360px;box-shadow:0 8px 30px rgba(0,0,0,.25);}' +
+    'h1,p.s,label,.m,a.emp,button,input{font-family:"Vazirmatn",Tahoma,"Segoe UI",sans-serif !important;}' +
     'h1{font-size:1.15rem;color:#0f766e;text-align:center;margin:0 0 6px;font-weight:700}' +
     'p.s{font-size:.85rem;color:#64748b;text-align:center;margin:0 0 16px}' +
     'label{display:block;font-size:.88rem;margin:10px 0 4px;color:#0f172a;font-weight:600}' +
-    'input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #99f6e4;border-radius:8px;' +
-    'font-size:1rem;font-family:"Vazirmatn",Tahoma,sans-serif;direction:rtl;text-align:right;}' +
+    'input,input[type=text],input[type=password]{width:100%;box-sizing:border-box;padding:10px 12px;' +
+    'border:1px solid #99f6e4;border-radius:8px;font-size:1rem;direction:rtl;text-align:right;}' +
     'input:focus{outline:2px solid #5eead4;border-color:#0f766e}' +
     'button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:8px;background:#0f766e;color:#fff;' +
-    'font-size:1rem;cursor:pointer;font-family:"Vazirmatn",Tahoma,sans-serif;font-weight:700}' +
+    'font-size:1rem;cursor:pointer;font-weight:700}' +
     'button:hover{background:#0d9488}' +
     '.m{color:#b91c1c;font-size:.85rem;text-align:center;margin-bottom:8px;min-height:1em}' +
-    'a.emp{display:block;text-align:center;margin-top:14px;font-size:.82rem;color:#0f766e;font-family:inherit}' +
+    'a.emp{display:block;text-align:center;margin-top:14px;font-size:.82rem;color:#0f766e}' +
     '</style></head><body><div class="c">' +
     '<h1>ورود به سیستم حقوق و دستمزد پارسپهر</h1><p class="s">نام کاربری و رمز عبور خود را وارد کنید</p>' +
     '<div class="m">' + msg + '</div>' +
@@ -7197,7 +7201,7 @@ function loginPage(opts) {
     status: opts.error ? 401 : 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net data:; form-action 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://cdn.jsdelivr.net https://fonts.gstatic.com data:; form-action 'self'; frame-ancestors 'none'",
       'X-Robots-Tag': 'noindex, nofollow'
     }
   });
