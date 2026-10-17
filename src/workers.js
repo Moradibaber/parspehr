@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261016v112" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v113" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -896,9 +896,52 @@ async function handleState(request, who, env, path) {
       const base = Number(baseRaw);
       if (baseRaw === null || baseRaw === '' || !Number.isInteger(base) || base < 0) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
       if (Number(request.headers.get('Content-Length') || 0) > MAX_DOC_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
-      const text = (await request.text()).trim();
+      let text = (await request.text()).trim();
       if (text.length > MAX_DOC_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
       if (text.charAt(0) !== '{' || text.charAt(text.length - 1) !== '}') return jsonResponse({ ok: false, error: 'bad_body' }, 400);
+
+      // سند data: نوع‌قرارداد و تقویم‌های اضافه‌شده توسط پورتال را هنگام همگام‌سازی فرم اصلی حفظ کن
+      if (rest === 'data' && base > 0) {
+        try {
+          const incoming = JSON.parse(text);
+          if (incoming && typeof incoming === 'object') {
+            const prev = await storeGetData(cfg);
+            if (!prev.fail && prev.obj && prev.obj.settings) {
+              if (!incoming.settings || typeof incoming.settings !== 'object') incoming.settings = {};
+              const prevList = Array.isArray(prev.obj.settings.contractTypesList) ? prev.obj.settings.contractTypesList : [];
+              const curList = Array.isArray(incoming.settings.contractTypesList) ? incoming.settings.contractTypesList : [];
+              if (prevList.length) {
+                const byId = {};
+                prevList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+                curList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+                incoming.settings.contractTypesList = Object.keys(byId).map(function (k) { return byId[k]; });
+              }
+              if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
+                if (!incoming.settings.contractCalendars || typeof incoming.settings.contractCalendars !== 'object') {
+                  incoming.settings.contractCalendars = prev.obj.settings.contractCalendars;
+                } else {
+                  Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
+                    if (!incoming.settings.contractCalendars[ctId]) {
+                      incoming.settings.contractCalendars[ctId] = prev.obj.settings.contractCalendars[ctId];
+                    }
+                  });
+                }
+              }
+              if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
+                if (!incoming.settings.leavePolicy) incoming.settings.leavePolicy = {};
+                if (!incoming.settings.leavePolicy.byContractType) incoming.settings.leavePolicy.byContractType = {};
+                Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
+                  if (incoming.settings.leavePolicy.byContractType[ctId] == null) {
+                    incoming.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                  }
+                });
+              }
+              text = JSON.stringify(incoming);
+            }
+          }
+        } catch (eMergeCt) { /* non-fatal — keep original text */ }
+      }
+
       if (base === 0) {
         await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
           method: 'POST',
