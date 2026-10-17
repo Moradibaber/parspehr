@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v113" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v114" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -900,7 +900,7 @@ async function handleState(request, who, env, path) {
       if (text.length > MAX_DOC_BYTES) return jsonResponse({ ok: false, error: 'too_large' }, 413);
       if (text.charAt(0) !== '{' || text.charAt(text.length - 1) !== '}') return jsonResponse({ ok: false, error: 'bad_body' }, 400);
 
-      // سند data: نوع‌قرارداد و تقویم‌های اضافه‌شده توسط پورتال را هنگام همگام‌سازی فرم اصلی حفظ کن
+      // سند data: حفظ/ادغام نوع‌قرارداد + حذف تکراری هنگام همگام‌سازی فرم اصلی
       if (rest === 'data' && base > 0) {
         try {
           const incoming = JSON.parse(text);
@@ -910,12 +910,8 @@ async function handleState(request, who, env, path) {
               if (!incoming.settings || typeof incoming.settings !== 'object') incoming.settings = {};
               const prevList = Array.isArray(prev.obj.settings.contractTypesList) ? prev.obj.settings.contractTypesList : [];
               const curList = Array.isArray(incoming.settings.contractTypesList) ? incoming.settings.contractTypesList : [];
-              if (prevList.length) {
-                const byId = {};
-                prevList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
-                curList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
-                incoming.settings.contractTypesList = Object.keys(byId).map(function (k) { return byId[k]; });
-              }
+              // اول لیست قبلی را بگذار تا حذف نشوند، بعد لیست کلاینت
+              incoming.settings.contractTypesList = prevList.concat(curList);
               if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
                 if (!incoming.settings.contractCalendars || typeof incoming.settings.contractCalendars !== 'object') {
                   incoming.settings.contractCalendars = prev.obj.settings.contractCalendars;
@@ -936,8 +932,10 @@ async function handleState(request, who, env, path) {
                   }
                 });
               }
-              text = JSON.stringify(incoming);
             }
+            // حذف تکراری + برداشت از کارکنان
+            try { mergeDedupeContractTypes(incoming); } catch (eDd) {}
+            text = JSON.stringify(incoming);
           }
         } catch (eMergeCt) { /* non-fatal — keep original text */ }
       }
@@ -2115,6 +2113,77 @@ function defaultContractTypesList() {
   ];
 }
 
+/** کلید یکسان‌سازی برای حذف تکراری نوع قرارداد (فاصله/خط تیره/نیم‌فاصله نادیده) */
+function normContractKey(s) {
+  return String(s || '')
+    .replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, '')
+    .replace(/[\s\-_]+/g, '')
+    .toLowerCase();
+}
+
+/** ادغام و حذف تکراری لیست نوع قرارداد + برداشت از قرارداد کارکنان */
+function mergeDedupeContractTypes(obj) {
+  if (!obj) return;
+  if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+  var s = obj.settings;
+  var byId = {};
+  var byNameKey = {};
+  function add(t) {
+    if (!t) return;
+    var id = String(t.id || '').trim();
+    var name = String(t.name || t.id || '').trim();
+    if (!id && name) {
+      // شناسه از نام لاتین/ساده
+      id = name.replace(/[^\w\u0600-\u06FF]+/g, '_').replace(/^_+|_+$/g, '') || ('ct_' + Math.random().toString(36).slice(2, 8));
+    }
+    if (!id) return;
+    if (!name) name = id;
+    var nk = normContractKey(name);
+    // اگر همین نام قبلاً با id دیگری هست، همان را نگه دار (اولویت با قبلی)
+    if (byNameKey[nk] && byNameKey[nk] !== id) {
+      // تکراری نام — ادغام به id قبلی
+      var keepId = byNameKey[nk];
+      if (!byId[keepId]) byId[keepId] = { id: keepId, name: name };
+      return;
+    }
+    if (byId[id]) {
+      // ترجیح نام فارسی خواناتر
+      if (name && name.length >= String(byId[id].name || '').length) byId[id].name = name;
+    } else {
+      byId[id] = { id: id, name: name };
+      if (nk) byNameKey[nk] = id;
+    }
+  }
+  (Array.isArray(s.contractTypesList) ? s.contractTypesList : []).forEach(add);
+  defaultContractTypesList().forEach(add);
+  // از کارکنان
+  (Array.isArray(obj.employees) ? obj.employees : []).forEach(function (e) {
+    if (!e) return;
+    var ct = e.contractType || e.contract_type || '';
+    if (!ct) return;
+    var id = String(ct).trim();
+    var name = id;
+    // اگر در لیست فعلی نام فارسی دارد همان را استفاده کن
+    add({ id: id, name: name });
+  });
+  // از قراردادها
+  (Array.isArray(obj.contracts) ? obj.contracts : []).forEach(function (c) {
+    if (!c) return;
+    var ct = c.contractType || c.type || '';
+    if (ct) add({ id: String(ct).trim(), name: String(ct).trim() });
+  });
+  var order = { normal: 0, daily: 1, hourly: 2 };
+  var list = Object.keys(byId).map(function (k) { return byId[k]; });
+  list.sort(function (a, b) {
+    var oa = order[a.id] != null ? order[a.id] : 50;
+    var ob = order[b.id] != null ? order[b.id] : 50;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || a.id).localeCompare(String(b.name || b.id), 'fa');
+  });
+  s.contractTypesList = list;
+  return list;
+}
+
 /** تعطیلات رسمی شمسی ثابت (بدون مناسبت‌های قمری که هر سال جابه‌جا می‌شوند) */
 function defaultIranHolidaysForYear(year) {
   year = Number(year);
@@ -2144,8 +2213,10 @@ function cloneHolidaysByYear(src) {
 function ensureContractCalendars(obj) {
   if (!obj.settings) obj.settings = {};
   const s = obj.settings;
-  if (!Array.isArray(s.contractTypesList) || !s.contractTypesList.length) {
-    s.contractTypesList = defaultContractTypesList();
+  try { mergeDedupeContractTypes(obj); } catch (eMd) {
+    if (!Array.isArray(s.contractTypesList) || !s.contractTypesList.length) {
+      s.contractTypesList = defaultContractTypesList();
+    }
   }
   if (!s.contractCalendars || typeof s.contractCalendars !== 'object') s.contractCalendars = {};
   const cy = Number(s.currentYear) || 1405;
@@ -6695,7 +6766,14 @@ async function handleAdminGetCurrentMonth(request, who, env) {
   const gd = await storeGetData(cfg);
   if (gd.fail) return storeFailResponse(gd.fail);
   if (!gd.obj) gd.obj = {};
+  const beforeLen = (gd.obj.settings && Array.isArray(gd.obj.settings.contractTypesList)) ? gd.obj.settings.contractTypesList.length : 0;
   ensureContractCalendars(gd.obj);
+  try { mergeDedupeContractTypes(gd.obj); } catch (eM) {}
+  const afterLen = (gd.obj.settings && Array.isArray(gd.obj.settings.contractTypesList)) ? gd.obj.settings.contractTypesList.length : 0;
+  // اگر از کارکنان نوع جدیدی برداشت شد، در استور ذخیره کن
+  if (afterLen > beforeLen && gd.version > 0) {
+    try { await storePutData(cfg, gd.version, gd.obj, 'ct-harvest'); } catch (eSave) {}
+  }
   const s = gd.obj.settings || {};
   const url = new URL(request.url);
   const ct = String(url.searchParams.get('contractType') || 'normal').trim() || 'normal';
