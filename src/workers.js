@@ -9417,6 +9417,7 @@ async function loadTimesheet(){
       var isMobile = (typeof window!=='undefined' && window.innerWidth<=640);
       html+='<div class="ts-day-wrap"><table class="ts-day-table"><thead><tr>';
       html+='<th class="sticky-date" style="'+thE+'">تاریخ</th>';
+      html+='<th style="'+thE+'">'+(isMobile?'روز':'روز هفته')+'</th>';
       if(_showCol('punch')){
         for(var hi=1;hi<=4;hi++){
           var hIn=isMobile?('و'+hi):('ورود '+hi);
@@ -9439,8 +9440,8 @@ async function loadTimesheet(){
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
         function cell(v,bad){ return '<td style="'+tdE+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        var dateLabel=d.date+(d.weekday?(' <span style="color:#64748b;font-size:0.85em">'+d.weekday+'</span>'):'');
-        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;white-space:nowrap;">'+dateLabel+'</td>';
+        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;white-space:nowrap;">'+(d.date||'')+'</td>';
+        html+='<td style="'+tdE+'direction:rtl;color:#64748b;white-space:nowrap;">'+(d.weekday||'')+'</td>';
         if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
         if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
