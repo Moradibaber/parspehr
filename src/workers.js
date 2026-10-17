@@ -9153,7 +9153,10 @@ async function loadAttTypes(){
     try{ if(j.currentYear||j.currentMonth) applyPortalCalendar(j); }catch(eC){}
     try{ fillRqDateSelects(); }catch(eF){}
     var sel=document.getElementById('rqType');
-    sel.innerHTML=attTypes.map(function(t){return '<option value="'+t.id+'">'+t.name+(t.kind==='mission'?' (مأموریت)':' (مرخصی)')+'</option>'}).join('')||'<option value="">—</option>';
+    sel.innerHTML=attTypes.map(function(t){
+      var nm=String(t.name||t.id||'').replace(/\s*[\(\（]\s*(مرخصی|مأموریت|ماموریت)\s*[\)\）]\s*$/g,'').trim();
+      return '<option value="'+t.id+'">'+nm+'</option>';
+    }).join('')||'<option value="">—</option>';
     onTypeChange();
   }catch(e){}
 }
