@@ -3856,9 +3856,12 @@ async function handleEmpTimesheet(request, env) {
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
     }, { year: year, month: month, day: d, isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    let wdName = '';
+    try { wdName = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (eW) {}
     dayMap[dk] = {
       day: d,
       date: dateFa,
+      weekday: wdName,
       in1: punch.in1 || '', out1: punch.out1 || '',
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
@@ -9436,7 +9439,8 @@ async function loadTimesheet(){
         var red='color:#b91c1c;font-weight:700;';
         var abs=(d.hourlyAbsenceHM&&d.hourlyAbsenceHM!=='00:00')?d.hourlyAbsenceHM:((d.hourlyAbsenceMin>0)?(function(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return (h<10?'0':'')+h+':'+(mm<10?'0':'')+mm;})(d.hourlyAbsenceMin):'');
         function cell(v,bad){ return '<td style="'+tdE+(bad?red:'')+'">'+(v||'')+'</td>'; }
-        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;">'+d.date+'</td>';
+        var dateLabel=d.date+(d.weekday?(' <span style="color:#64748b;font-size:0.85em">'+d.weekday+'</span>'):'');
+        html+='<tr style="'+bg+'"><td class="sticky-date" style="'+tdE+'direction:rtl;white-space:nowrap;">'+dateLabel+'</td>';
         if(_showCol('punch')){ for(var pi=1;pi<=4;pi++){html+=cell(d['in'+pi],ic['in'+pi])+cell(d['out'+pi],ic['out'+pi]);} }
         if(_showCol('work')) html+='<td style="'+tdE+'">'+(d.workHoursHM?d.workHoursHM:(d.workHours!=null&&d.workHours>0?d.workHours:''))+'</td>';
         if(_showCol('ot')) html+='<td style="'+tdE+'">'+(d.otHoursHM&&d.otHoursHM!=='00:00'&&d.otHoursHM!=='0'?d.otHoursHM:'')+'</td>';
