@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v114" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261017v115" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2121,6 +2121,43 @@ function normContractKey(s) {
     .toLowerCase();
 }
 
+/** نام فارسی استاندارد برای شناسه‌های رایج انگلیسی */
+var CONTRACT_TYPE_FA = {
+  normal: 'عادی',
+  daily: 'روزمزد',
+  hourly: 'ساعتی',
+  fixed: 'دائم',
+  permanent: 'دائم',
+  temporary: 'موقت',
+  temp: 'موقت',
+  contract: 'پیمانی',
+  shift: 'شیفتی',
+  parttime: 'پاره‌وقت',
+  'part-time': 'پاره‌وقت',
+  fulltime: 'تمام‌وقت',
+  'full-time': 'تمام‌وقت',
+  intern: 'کارآموزی',
+  seasonal: 'فصلی'
+};
+
+function isMostlyLatin(s) {
+  var t = String(s || '');
+  if (!t) return true;
+  var latin = (t.match(/[A-Za-z]/g) || []).length;
+  var fa = (t.match(/[\u0600-\u06FF]/g) || []).length;
+  return latin > 0 && fa === 0;
+}
+
+function persianContractName(id, name) {
+  var i = String(id || '').trim();
+  var n = String(name || '').trim();
+  var key = i.toLowerCase();
+  if (CONTRACT_TYPE_FA[key]) return CONTRACT_TYPE_FA[key];
+  if (n && CONTRACT_TYPE_FA[n.toLowerCase()]) return CONTRACT_TYPE_FA[n.toLowerCase()];
+  if (n && !isMostlyLatin(n)) return n;
+  return n || i;
+}
+
 /** ادغام و حذف تکراری لیست نوع قرارداد + برداشت از قرارداد کارکنان */
 function mergeDedupeContractTypes(obj) {
   if (!obj) return;
@@ -2131,24 +2168,26 @@ function mergeDedupeContractTypes(obj) {
   function add(t) {
     if (!t) return;
     var id = String(t.id || '').trim();
-    var name = String(t.name || t.id || '').trim();
+    var name = persianContractName(id, t.name || t.id || '');
     if (!id && name) {
-      // شناسه از نام لاتین/ساده
       id = name.replace(/[^\w\u0600-\u06FF]+/g, '_').replace(/^_+|_+$/g, '') || ('ct_' + Math.random().toString(36).slice(2, 8));
     }
     if (!id) return;
-    if (!name) name = id;
+    if (CONTRACT_TYPE_FA[id.toLowerCase()]) name = CONTRACT_TYPE_FA[id.toLowerCase()];
+    else if (!name) name = persianContractName(id, id);
     var nk = normContractKey(name);
-    // اگر همین نام قبلاً با id دیگری هست، همان را نگه دار (اولویت با قبلی)
     if (byNameKey[nk] && byNameKey[nk] !== id) {
-      // تکراری نام — ادغام به id قبلی
       var keepId = byNameKey[nk];
       if (!byId[keepId]) byId[keepId] = { id: keepId, name: name };
+      if (CONTRACT_TYPE_FA[keepId.toLowerCase()]) byId[keepId].name = CONTRACT_TYPE_FA[keepId.toLowerCase()];
+      else if (!isMostlyLatin(name)) byId[keepId].name = name;
       return;
     }
     if (byId[id]) {
-      // ترجیح نام فارسی خواناتر
-      if (name && name.length >= String(byId[id].name || '').length) byId[id].name = name;
+      var cur = byId[id].name || '';
+      if (CONTRACT_TYPE_FA[id.toLowerCase()]) byId[id].name = CONTRACT_TYPE_FA[id.toLowerCase()];
+      else if (isMostlyLatin(cur) && !isMostlyLatin(name)) byId[id].name = name;
+      else if (!isMostlyLatin(name) && name.length >= cur.length) byId[id].name = name;
     } else {
       byId[id] = { id: id, name: name };
       if (nk) byNameKey[nk] = id;
@@ -2156,27 +2195,26 @@ function mergeDedupeContractTypes(obj) {
   }
   (Array.isArray(s.contractTypesList) ? s.contractTypesList : []).forEach(add);
   defaultContractTypesList().forEach(add);
-  // از کارکنان
   (Array.isArray(obj.employees) ? obj.employees : []).forEach(function (e) {
     if (!e) return;
     var ct = e.contractType || e.contract_type || '';
     if (!ct) return;
     var id = String(ct).trim();
-    var name = id;
-    // اگر در لیست فعلی نام فارسی دارد همان را استفاده کن
-    add({ id: id, name: name });
+    add({ id: id, name: persianContractName(id, id) });
   });
-  // از قراردادها
   (Array.isArray(obj.contracts) ? obj.contracts : []).forEach(function (c) {
     if (!c) return;
     var ct = c.contractType || c.type || '';
-    if (ct) add({ id: String(ct).trim(), name: String(ct).trim() });
+    if (ct) {
+      var id = String(ct).trim();
+      add({ id: id, name: persianContractName(id, id) });
+    }
   });
-  var order = { normal: 0, daily: 1, hourly: 2 };
+  var order = { normal: 0, daily: 1, hourly: 2, fixed: 3, permanent: 3, temporary: 4, temp: 4 };
   var list = Object.keys(byId).map(function (k) { return byId[k]; });
   list.sort(function (a, b) {
-    var oa = order[a.id] != null ? order[a.id] : 50;
-    var ob = order[b.id] != null ? order[b.id] : 50;
+    var oa = order[String(a.id).toLowerCase()] != null ? order[String(a.id).toLowerCase()] : 50;
+    var ob = order[String(b.id).toLowerCase()] != null ? order[String(b.id).toLowerCase()] : 50;
     if (oa !== ob) return oa - ob;
     return String(a.name || a.id).localeCompare(String(b.name || b.id), 'fa');
   });
@@ -7129,25 +7167,37 @@ function loginPage(opts) {
   const action = '/login?next=' + encodeURIComponent(opts.next || '/') + (opts.popup ? '&popup=1' : '');
   const html = '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1"><title>ورود — پارسپهر</title>' +
-    '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f766e;font-family:Tahoma,Arial,sans-serif;}' +
+    '<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>' +
+    '<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css">' +
+    '<style>' +
+    'html,body{margin:0;min-height:100vh;direction:rtl;}' +
+    'body{display:flex;align-items:center;justify-content:center;background:#0f766e;' +
+    'font-family:"Vazirmatn",Tahoma,"Segoe UI",sans-serif;}' +
     '.c{background:#fff;border-radius:12px;padding:28px;width:100%;max-width:360px;box-shadow:0 8px 30px rgba(0,0,0,.25);}' +
-    'h1{font-size:1.1rem;color:#0f766e;text-align:center;margin:0 0 6px}p.s{font-size:.85rem;color:#64748b;text-align:center;margin:0 0 16px}' +
-    'label{display:block;font-size:.85rem;margin:10px 0 4px;color:#0f172a}input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #99f6e4;border-radius:8px;font-size:1rem}' +
-    'button{width:100%;margin-top:16px;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-size:1rem;cursor:pointer}' +
+    'h1{font-size:1.15rem;color:#0f766e;text-align:center;margin:0 0 6px;font-weight:700}' +
+    'p.s{font-size:.85rem;color:#64748b;text-align:center;margin:0 0 16px}' +
+    'label{display:block;font-size:.88rem;margin:10px 0 4px;color:#0f172a;font-weight:600}' +
+    'input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #99f6e4;border-radius:8px;' +
+    'font-size:1rem;font-family:"Vazirmatn",Tahoma,sans-serif;direction:rtl;text-align:right;}' +
+    'input:focus{outline:2px solid #5eead4;border-color:#0f766e}' +
+    'button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:8px;background:#0f766e;color:#fff;' +
+    'font-size:1rem;cursor:pointer;font-family:"Vazirmatn",Tahoma,sans-serif;font-weight:700}' +
+    'button:hover{background:#0d9488}' +
     '.m{color:#b91c1c;font-size:.85rem;text-align:center;margin-bottom:8px;min-height:1em}' +
-    'a.emp{display:block;text-align:center;margin-top:14px;font-size:.8rem;color:#0f766e}</style></head><body><div class="c">' +
+    'a.emp{display:block;text-align:center;margin-top:14px;font-size:.82rem;color:#0f766e;font-family:inherit}' +
+    '</style></head><body><div class="c">' +
     '<h1>ورود به سیستم حقوق و دستمزد پارسپهر</h1><p class="s">نام کاربری و رمز عبور خود را وارد کنید</p>' +
     '<div class="m">' + msg + '</div>' +
-    '<form method="post" action="' + action + '"><label for="u">نام کاربری</label>' +
-    '<input id="u" name="username" autocomplete="username" autofocus required>' +
-    '<label for="p">رمز عبور</label><input id="p" name="password" type="password" autocomplete="current-password" required>' +
+    '<form method="post" action="' + action + '" accept-charset="UTF-8"><label for="u">نام کاربری</label>' +
+    '<input id="u" name="username" autocomplete="username" autofocus required dir="rtl" lang="fa">' +
+    '<label for="p">رمز عبور</label><input id="p" name="password" type="password" autocomplete="current-password" required dir="rtl" lang="fa">' +
     '<button type="submit">ورود</button></form>' +
     '<a class="emp" href="/employee">ورود کارکنان (مشاهده فیش)</a></div></body></html>';
   return new Response(html, {
     status: opts.error ? 401 : 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net data:; form-action 'self'; frame-ancestors 'none'",
       'X-Robots-Tag': 'noindex, nofollow'
     }
   });
