@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v120" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v121" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2564,7 +2564,7 @@ function computeDayTimesheet(cal, punches, opts) {
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
-  const floatM = isHourly ? 0 : sched.floatMinutes;
+  const floatM = isHourly ? 0 : Math.max(0, Number(sched.floatMinutes) || 0);
   const compensate = isHourly ? false : (!!sched.floatCompensate || !!opts.floatCompensate);
   const official = isHourly ? 0 : officialWorkMinutes(sched);
 
@@ -4205,18 +4205,16 @@ function applyFloatToMorningGaps(gaps, cal, punches, forceCompOpt) {
   if (firstIn == null || lastOut == null) return { gaps: gaps, compensated: 0 };
 
   const morningDelay = Math.max(0, firstIn - start);
-  // شناوری فقط وقتی تأخیر ≤ سقف شناوری (مثلاً ۱۵د). ورود ۰۷:۰۱ با شروع ۰۶:۴۵ = ۱۶د → بدون شناوری
-  const withinFloat = morningDelay > 0 && morningDelay <= floatM;
-  // جبران فقط: داخل شناوری (خودکار) یا با تیک floatCompensate
-  if (!withinFloat && !forceComp) return { gaps: gaps, compensated: 0 };
   if (morningDelay <= 0) return { gaps: gaps, compensated: 0 };
 
   const stayedPast = Math.max(0, lastOut - end);
-  // داخل شناوری: سقف جبران = min(تأخیر، float، ماندن بعد از end)
-  // خارج شناوری با تیک جبران: min(تأخیر، ماندن بعد از end) — بدون سقف float
+  if (stayedPast <= 0 && !forceComp) return { gaps: gaps, compensated: 0 };
+
+  // جبران با ماندن بعد از end تا سقف float (حتی اگر تأخیر > float) — هم‌راستا با computeDayTimesheet
+  // تیک floatCompensate: بدون سقف float
   let maxComp;
-  if (withinFloat) maxComp = Math.min(morningDelay, floatM, stayedPast);
-  else maxComp = Math.min(morningDelay, stayedPast);
+  if (forceComp) maxComp = Math.min(morningDelay, Math.max(stayedPast, 0));
+  else maxComp = Math.min(morningDelay, floatM, stayedPast);
   const compensated = Math.max(0, maxComp);
   if (compensated <= 0) return { gaps: gaps, compensated: 0 };
 
