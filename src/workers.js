@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v121" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v122" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6584,11 +6584,22 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       schedFields.forEach(function (f) {
         if (r.body[f] != null && String(r.body[f]).trim() !== '') cal[f] = String(r.body[f]).trim();
       });
-      if (r.body.floatMinutes != null) cal.floatMinutes = Math.max(0, Number(r.body.floatMinutes) || 0);
+      if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
+        // پشتیبانی از ارقام فارسی/انگلیسی؛ هرگز به‌خاطر NaN صفر نکن مگر مقدار واقعاً 0 باشد
+        var fmRaw = String(r.body.floatMinutes).replace(/[۰-۹]/g, function (d) {
+          return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)];
+        }).replace(/[^\d.]/g, '');
+        var fmNum = parseInt(fmRaw, 10);
+        if (!isFinite(fmNum) || fmNum < 0) fmNum = 0;
+        if (fmNum > 480) fmNum = 480;
+        cal.floatMinutes = fmNum;
+      }
       if (r.body.hasBreak != null) cal.hasBreak = !!r.body.hasBreak;
       if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
       if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
     }
+    // اگر floatMinutes هرگز ست نشده، پیش‌فرض ۱۵
+    if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
