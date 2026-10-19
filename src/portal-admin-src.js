@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v123" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v124" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -467,6 +467,10 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
                 obj.settings.contractCalendars = prev.obj.settings.contractCalendars;
               } else {
                 // ادغام عمیق: شناوری/ساعت کار ذخیره‌شده با همگام‌سازی اصلی پاک نشود
+                // شناوری سراسری settings
+                if ((obj.settings.floatMinutes == null || obj.settings.floatMinutes === '') && prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
+                  obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
+                }
                 var SCHED_KEEP = ['floatMinutes','floatCompensate','workStart','workEnd','dayEnd','hasBreak','breakStart','breakEnd','breakCountsAsWork','workWeekDays','countNonWorkDaysAsLeave','nonWorkLeaveTypeIds','holidaysByYear','daySchedules'];
                 Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
                   var prevCal = prev.obj.settings.contractCalendars[ctId];
@@ -935,6 +939,9 @@ async function handleState(request, who, env, path) {
                 if (!incoming.settings.contractCalendars || typeof incoming.settings.contractCalendars !== 'object') {
                   incoming.settings.contractCalendars = prev.obj.settings.contractCalendars;
                 } else {
+                  if ((incoming.settings.floatMinutes == null || incoming.settings.floatMinutes === '') && prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
+                    incoming.settings.floatMinutes = prev.obj.settings.floatMinutes;
+                  }
                   var SCHED_KEEP2 = ['floatMinutes','floatCompensate','workStart','workEnd','dayEnd','hasBreak','breakStart','breakEnd','breakCountsAsWork','workWeekDays','countNonWorkDaysAsLeave','nonWorkLeaveTypeIds','holidaysByYear','daySchedules'];
                   Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
                     var prevCal = prev.obj.settings.contractCalendars[ctId];
@@ -2358,12 +2365,27 @@ function defaultWorkSchedule() {
   };
 }
 
-function normalizeWorkSchedule(cal) {
+function parseFloatMinutesValue(v, fallback) {
+  if (v == null || v === '') return fallback;
+  var s = String(v).replace(/[۰-۹]/g, function (d) {
+    return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)];
+  }).replace(/[^\d.]/g, '');
+  var n = parseInt(s, 10);
+  if (!isFinite(n) || n < 0) return fallback;
+  if (n > 480) n = 480;
+  return n;
+}
+
+function normalizeWorkSchedule(cal, globalFloat) {
   const d = defaultWorkSchedule();
   const c = cal || {};
   const hasBreak = c.hasBreak != null ? !!c.hasBreak : !!(c.breakStart && c.breakEnd && c._breakExplicit);
   // اگر hasBreak صریح نباشد ولی breakStart/End ذخیره شده و قبلاً استفاده شده
   const hb = c.hasBreak != null ? !!c.hasBreak : false;
+  // اولویت شناوری: مقدار تقویم نوع قرارداد → شناوری سراسری settings → پیش‌فرض ۱۵
+  var fm = parseFloatMinutesValue(c.floatMinutes, null);
+  if (fm == null) fm = parseFloatMinutesValue(globalFloat, null);
+  if (fm == null) fm = d.floatMinutes;
   return {
     workStart: c.workStart || d.workStart,
     workEnd: c.workEnd || d.workEnd,
@@ -2372,7 +2394,7 @@ function normalizeWorkSchedule(cal) {
     breakEnd: c.breakEnd != null ? c.breakEnd : d.breakEnd,
     breakCountsAsWork: hb && !!c.breakCountsAsWork,
     dayEnd: c.dayEnd || d.dayEnd,
-    floatMinutes: Math.max(0, (c.floatMinutes != null && c.floatMinutes !== '') ? Number(c.floatMinutes) : d.floatMinutes),
+    floatMinutes: fm,
     floatCompensate: c.floatCompensate != null ? !!c.floatCompensate : !!d.floatCompensate
   };
 }
@@ -2382,7 +2404,9 @@ function getContractCalendar(obj, contractType) {
   const s = (obj && obj.settings) || {};
   const ct = String(contractType || 'normal').trim() || 'normal';
   const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
-  const sched = normalizeWorkSchedule(cal);
+  // شناوری سراسری (settings.floatMinutes) اگر نوع قرارداد مقدار نداشته باشد
+  const globalFloat = s.floatMinutes;
+  const sched = normalizeWorkSchedule(cal, globalFloat);
   // ساعتی: بازه کاری کل شبانه‌روز (حضور هر ساعتی معتبر است)
   const hourlyAllDay = (ct === 'hourly');
   return {
@@ -2402,13 +2426,14 @@ function getContractCalendar(obj, contractType) {
     dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
     floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
     floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
-    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {}
+    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {},
+    _globalFloatMinutes: parseFloatMinutesValue(globalFloat, null)
   };
 }
 
 /** برنامه موظفی یک روز خاص — در صورت نبود، برنامه پیش‌فرض نوع قرارداد */
 function getDayWorkSchedule(cal, y, m, d) {
-  const base = normalizeWorkSchedule(cal);
+  const base = normalizeWorkSchedule(cal, cal && cal._globalFloatMinutes);
   if (!cal || !cal.daySchedules) return base;
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -2418,7 +2443,10 @@ function getDayWorkSchedule(cal, y, m, d) {
   if (over.workStart) out.workStart = String(over.workStart).trim();
   if (over.workEnd) out.workEnd = String(over.workEnd).trim();
   if (over.dayEnd) out.dayEnd = String(over.dayEnd).trim();
-  if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = Math.max(0, Number(over.floatMinutes) || 0);
+  // شناوری روزانه فقط اگر صریحاً ست شده؛ وگرنه همان سراسری/نوع قرارداد
+  if (over.floatMinutes != null && over.floatMinutes !== '') {
+    out.floatMinutes = parseFloatMinutesValue(over.floatMinutes, base.floatMinutes);
+  }
   if (over.hasBreak != null) out.hasBreak = !!over.hasBreak;
   if (over.breakStart) out.breakStart = String(over.breakStart).trim();
   if (over.breakEnd) out.breakEnd = String(over.breakEnd).trim();
@@ -6634,13 +6662,23 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     }
     // اگر floatMinutes هرگز ست نشده، پیش‌فرض ۱۵
     if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
-    // شناوری معمولاً سراسری است — روی همه انواع غیرساعتی هم بنویس تا محاسبه کارمند روی ۱۵ نماند
+    // شناوری سراسری + همه انواع غیرساعتی؛ پاک کردن override روزانه که روی ۱۵ قفل مانده
     if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
       var fmAll = cal.floatMinutes;
+      gd.obj.settings.floatMinutes = fmAll;
       Object.keys(gd.obj.settings.contractCalendars).forEach(function (cid) {
         if (String(cid) === 'hourly') return;
         var c2 = gd.obj.settings.contractCalendars[cid];
-        if (c2 && typeof c2 === 'object') c2.floatMinutes = fmAll;
+        if (!c2 || typeof c2 !== 'object') return;
+        c2.floatMinutes = fmAll;
+        if (c2.daySchedules && typeof c2.daySchedules === 'object') {
+          Object.keys(c2.daySchedules).forEach(function (dk) {
+            var ds = c2.daySchedules[dk];
+            if (ds && typeof ds === 'object' && Object.prototype.hasOwnProperty.call(ds, 'floatMinutes')) {
+              delete ds.floatMinutes;
+            }
+          });
+        }
       });
     }
     // سازگاری با فیلدهای قدیمی
@@ -6652,28 +6690,30 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     const tdef = (gd.obj.settings.contractTypesList || []).find(function (t) { return t.id === ct; });
+    const calOut = getContractCalendar(gd.obj, ct);
     return jsonResponse({
       ok: true,
       year: year,
       month: month,
       contractType: ct,
       contractTypeName: tdef ? tdef.name : ct,
-      workWeekDays: cal.workWeekDays,
-      countNonWorkDaysAsLeave: !!cal.countNonWorkDaysAsLeave,
-      nonWorkLeaveTypeIds: Array.isArray(cal.nonWorkLeaveTypeIds) ? cal.nonWorkLeaveTypeIds.map(String) : [],
+      workWeekDays: calOut.workWeekDays,
+      countNonWorkDaysAsLeave: !!calOut.countNonWorkDaysAsLeave,
+      nonWorkLeaveTypeIds: Array.isArray(calOut.nonWorkLeaveTypeIds) ? calOut.nonWorkLeaveTypeIds.map(String) : [],
       leaveTypesForNonWork: (function () {
         var t = (gd.obj && gd.obj.attendanceTypes) || [];
         if (!t.length && typeof defaultAttendanceTypes === 'function') t = defaultAttendanceTypes();
         return t.filter(function (x) { return x && x.kind === 'leave'; }).map(function (x) { return { id: String(x.id || ''), name: String(x.name || '') }; });
       })(),
-      workStart: cal.workStart,
-      workEnd: cal.workEnd,
-      breakStart: cal.breakStart,
-      breakEnd: cal.breakEnd,
-      dayEnd: cal.dayEnd,
-      floatMinutes: cal.floatMinutes,
-      breakCountsAsWork: !!cal.breakCountsAsWork,
-      floatCompensate: !!cal.floatCompensate,
+      workStart: calOut.workStart,
+      workEnd: calOut.workEnd,
+      breakStart: calOut.breakStart,
+      breakEnd: calOut.breakEnd,
+      dayEnd: calOut.dayEnd,
+      floatMinutes: calOut.floatMinutes,
+      settingsFloatMinutes: gd.obj.settings.floatMinutes,
+      breakCountsAsWork: !!calOut.breakCountsAsWork,
+      floatCompensate: !!calOut.floatCompensate,
       contractTypesList: gd.obj.settings.contractTypesList
     });
   }
@@ -6882,6 +6922,7 @@ async function handleAdminGetCurrentMonth(request, who, env) {
     breakEnd: cal.breakEnd,
     dayEnd: cal.dayEnd,
     floatMinutes: cal.floatMinutes,
+    settingsFloatMinutes: s.floatMinutes,
     breakCountsAsWork: !!cal.breakCountsAsWork,
     floatCompensate: !!cal.floatCompensate,
     officialWorkMinutes: officialWorkMinutes(cal),
