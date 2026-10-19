@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v122" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v123" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -466,9 +466,28 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               if (!obj.settings.contractCalendars || typeof obj.settings.contractCalendars !== 'object') {
                 obj.settings.contractCalendars = prev.obj.settings.contractCalendars;
               } else {
+                // ادغام عمیق: شناوری/ساعت کار ذخیره‌شده با همگام‌سازی اصلی پاک نشود
+                var SCHED_KEEP = ['floatMinutes','floatCompensate','workStart','workEnd','dayEnd','hasBreak','breakStart','breakEnd','breakCountsAsWork','workWeekDays','countNonWorkDaysAsLeave','nonWorkLeaveTypeIds','holidaysByYear','daySchedules'];
                 Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
+                  var prevCal = prev.obj.settings.contractCalendars[ctId];
+                  if (!prevCal || typeof prevCal !== 'object') return;
                   if (!obj.settings.contractCalendars[ctId]) {
-                    obj.settings.contractCalendars[ctId] = prev.obj.settings.contractCalendars[ctId];
+                    obj.settings.contractCalendars[ctId] = prevCal;
+                    return;
+                  }
+                  var curCal = obj.settings.contractCalendars[ctId];
+                  if (!curCal || typeof curCal !== 'object') {
+                    obj.settings.contractCalendars[ctId] = prevCal;
+                    return;
+                  }
+                  SCHED_KEEP.forEach(function (k) {
+                    var curMissing = (curCal[k] == null || curCal[k] === '');
+                    var prevHas = (prevCal[k] != null && prevCal[k] !== '');
+                    if (curMissing && prevHas) curCal[k] = prevCal[k];
+                  });
+                  // floatMinutes=0 معتبر است؛ فقط وقتی کلید اصلاً نیست از قبلی بگیر
+                  if (!Object.prototype.hasOwnProperty.call(curCal, 'floatMinutes') && Object.prototype.hasOwnProperty.call(prevCal, 'floatMinutes')) {
+                    curCal.floatMinutes = prevCal.floatMinutes;
                   }
                 });
               }
@@ -916,9 +935,24 @@ async function handleState(request, who, env, path) {
                 if (!incoming.settings.contractCalendars || typeof incoming.settings.contractCalendars !== 'object') {
                   incoming.settings.contractCalendars = prev.obj.settings.contractCalendars;
                 } else {
+                  var SCHED_KEEP2 = ['floatMinutes','floatCompensate','workStart','workEnd','dayEnd','hasBreak','breakStart','breakEnd','breakCountsAsWork','workWeekDays','countNonWorkDaysAsLeave','nonWorkLeaveTypeIds','holidaysByYear','daySchedules'];
                   Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
+                    var prevCal = prev.obj.settings.contractCalendars[ctId];
+                    if (!prevCal || typeof prevCal !== 'object') return;
                     if (!incoming.settings.contractCalendars[ctId]) {
-                      incoming.settings.contractCalendars[ctId] = prev.obj.settings.contractCalendars[ctId];
+                      incoming.settings.contractCalendars[ctId] = prevCal;
+                      return;
+                    }
+                    var curCal = incoming.settings.contractCalendars[ctId];
+                    if (!curCal || typeof curCal !== 'object') {
+                      incoming.settings.contractCalendars[ctId] = prevCal;
+                      return;
+                    }
+                    SCHED_KEEP2.forEach(function (k) {
+                      if ((curCal[k] == null || curCal[k] === '') && prevCal[k] != null && prevCal[k] !== '') curCal[k] = prevCal[k];
+                    });
+                    if (!Object.prototype.hasOwnProperty.call(curCal, 'floatMinutes') && Object.prototype.hasOwnProperty.call(prevCal, 'floatMinutes')) {
+                      curCal.floatMinutes = prevCal.floatMinutes;
                     }
                   });
                 }
@@ -6600,6 +6634,15 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     }
     // اگر floatMinutes هرگز ست نشده، پیش‌فرض ۱۵
     if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
+    // شناوری معمولاً سراسری است — روی همه انواع غیرساعتی هم بنویس تا محاسبه کارمند روی ۱۵ نماند
+    if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
+      var fmAll = cal.floatMinutes;
+      Object.keys(gd.obj.settings.contractCalendars).forEach(function (cid) {
+        if (String(cid) === 'hourly') return;
+        var c2 = gd.obj.settings.contractCalendars[cid];
+        if (c2 && typeof c2 === 'object') c2.floatMinutes = fmAll;
+      });
+    }
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
