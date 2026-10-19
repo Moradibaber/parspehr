@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v130" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v131" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2418,13 +2418,16 @@ function getContractCalendar(obj, contractType) {
     dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
     floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
     floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
-    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {}
+    daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {},
+    _globalFloatMinutes: parseFloatMinutesValue(s.floatMinutes, sched.floatMinutes)
   };
 }
 
 /** برنامه موظفی یک روز خاص — در صورت نبود، برنامه پیش‌فرض نوع قرارداد */
 function getDayWorkSchedule(cal, y, m, d) {
-  const base = normalizeWorkSchedule(cal);
+  // cal ممکن است خروجی getContractCalendar باشد (floatMinutes از قبل ست شده)
+  const globalF = (cal && cal._globalFloatMinutes != null) ? cal._globalFloatMinutes : (cal && cal.floatMinutes);
+  const base = normalizeWorkSchedule(cal, globalF);
   if (!cal || !cal.daySchedules) return base;
   const keySlash = y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
   const keyDash = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -2434,7 +2437,8 @@ function getDayWorkSchedule(cal, y, m, d) {
   if (over.workStart) out.workStart = String(over.workStart).trim();
   if (over.workEnd) out.workEnd = String(over.workEnd).trim();
   if (over.dayEnd) out.dayEnd = String(over.dayEnd).trim();
-  if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = Math.max(0, Number(over.floatMinutes) || 0);
+  // شناوری روزانه را نادیده بگیر — همیشه شناوری نوع قرارداد / سراسری (تا ۱۵ قفل نماند)
+  // if (over.floatMinutes != null && over.floatMinutes !== '') out.floatMinutes = ...
   if (over.hasBreak != null) out.hasBreak = !!over.hasBreak;
   if (over.breakStart) out.breakStart = String(over.breakStart).trim();
   if (over.breakEnd) out.breakEnd = String(over.breakEnd).trim();
@@ -2600,22 +2604,30 @@ function computeDayTimesheet(cal, punches, opts) {
   const isHoliday = !!opts.isHoliday;
   const isHourly = !!(opts.isHourly || opts.contractType === 'hourly' || (cal && cal._contractType === 'hourly'));
   let sched;
+  const _gFloat = (cal && cal._globalFloatMinutes != null) ? cal._globalFloatMinutes : (cal && cal.floatMinutes);
   if (opts.daySchedule && typeof opts.daySchedule === 'object') {
-    sched = Object.assign({}, normalizeWorkSchedule(cal), opts.daySchedule);
+    sched = Object.assign({}, normalizeWorkSchedule(cal, _gFloat), opts.daySchedule);
+    // شناوری روز را از daySchedule نپذیر (قفل ۱۵)
+    sched.floatMinutes = normalizeWorkSchedule(cal, _gFloat).floatMinutes;
   } else if (opts.year != null && opts.month != null && opts.day != null) {
     sched = getDayWorkSchedule(cal, opts.year, opts.month, opts.day);
   } else if (opts.dateKey) {
     const pp = String(opts.dateKey).replace(/-/g, '/').split('/');
     if (pp.length >= 3) sched = getDayWorkSchedule(cal, Number(pp[0]), Number(pp[1]), Number(pp[2]));
-    else sched = normalizeWorkSchedule(cal);
+    else sched = normalizeWorkSchedule(cal, _gFloat);
   } else {
-    sched = normalizeWorkSchedule(cal);
+    sched = normalizeWorkSchedule(cal, _gFloat);
   }
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
   const dayEnd = timeToMinutes(sched.dayEnd);
-  const floatM = isHourly ? 0 : Math.max(0, Number(sched.floatMinutes) || 0);
-  const compensate = isHourly ? false : (!!sched.floatCompensate || !!opts.floatCompensate);
+  // شناوری: برنامه روز → تقویم نوع قرارداد → سراسری (هرگز به‌خاطر daySchedule روی ۱۵ قفل نشود)
+  const floatM = isHourly ? 0 : Math.max(0,
+    parseFloatMinutesValue(sched.floatMinutes, null) != null ? parseFloatMinutesValue(sched.floatMinutes, null)
+      : (parseFloatMinutesValue(cal && cal.floatMinutes, null) != null ? parseFloatMinutesValue(cal && cal.floatMinutes, null)
+        : (parseFloatMinutesValue(cal && cal._globalFloatMinutes, null) != null ? parseFloatMinutesValue(cal && cal._globalFloatMinutes, null) : 0))
+  );
+  const compensate = isHourly ? false : (!!sched.floatCompensate || !!opts.floatCompensate || !!(cal && cal.floatCompensate));
   const official = isHourly ? 0 : officialWorkMinutes(sched);
 
   // نرمال‌سازی پانچ‌ها
@@ -4227,10 +4239,11 @@ function findOfficialAbsenceGaps(cal, punches) {
  * اعمال جبران شناوری روی شکاف صبح: ماندن بعد از end، از ابتدای شکاف صبح کم می‌کند
  */
 function applyFloatToMorningGaps(gaps, cal, punches, forceCompOpt) {
-  const sched = normalizeWorkSchedule(cal);
+  const globalF = (cal && cal._globalFloatMinutes != null) ? cal._globalFloatMinutes : (cal && cal.floatMinutes);
+  const sched = normalizeWorkSchedule(cal, globalF);
   const start = timeToMinutes(sched.workStart);
   const end = timeToMinutes(sched.workEnd);
-  const floatM = Number(sched.floatMinutes) || 0;
+  const floatM = parseFloatMinutesValue(sched.floatMinutes, 0) || 0;
   const forceComp = forceCompOpt != null ? !!forceCompOpt : !!sched.floatCompensate;
   if (start == null || end == null || !gaps || !gaps.length) return { gaps: gaps || [], compensated: 0 };
 
