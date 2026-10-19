@@ -2660,10 +2660,15 @@ function computeDayTimesheet(cal, punches, opts) {
   const hasComplete = completePairs.length > 0;
 
   /**
-   * شناوری:
-   * - اگر ورود در بازه [start, start+float] باشد → می‌تواند همان میزان تأخیر را با ماندن بعد از end جبران کند (حداکثر float)
-   * - اگر ورود بعد از start+float باشد → شناوری اعمال نمی‌شود؛ جبران فقط اگر تیک floatCompensate زده شده باشد
-   * - ماندن بعد از end بدون حق جبران = اضافه‌کار
+   * شناوری (شروع 06:45، پایان 15:30، float مثلاً ۱۵د):
+   * 1) ورود 06:48 / خروج 15:30 → کسری صبح 3د (داخل شناوری؛ بدون ماندن = بدون جبران)
+   * 2) ورود 06:45 / خروج 15:20 → کسری عصر 10د
+   * 3) ورود 06:50 / خروج 15:20 → کسری صبح 5د + عصر 10د
+   * 4) ورود 07:01 / خروج 15:30 → خارج شناوری؛ کسری صبح کامل 16د (بدون جبران)
+   * 5) ورود 07:01 / خروج 15:20 → کسری صبح 16د + عصر 10د
+   * 6) ورود 07:08 / خروج 15:40 → ماندن بعد از پایان تا سقف float روی کسری صبح می‌نشیند؛
+   *    مثال: ماندن 10د → 10د جبران، باقی 13د مرخصی؛ ماندن 20د → 15د جبران + 5د اضافه‌کار، باقی 8د مرخصی
+   *    تیک floatCompensate: جبران بدون سقف float (کل تأخیر در حد ماندن)
    */
   let delay = 0;          // تأخیر ورود نسبت به start (قبل از جبران)
   let earlyLeave = 0;     // تعجیل خروج نسبت به end (قبل از جبران)
@@ -2680,27 +2685,22 @@ function computeDayTimesheet(cal, punches, opts) {
     earlyLeave = Math.max(0, end - lastOut);
   }
 
-  // جبران: فقط داخل شناوری (خودکار) یا با تیک floatCompensate
-  const canCompensate = withinFloat || !!compensate;
-  if (hasComplete && canCompensate && delay > 0 && lastOut != null && end != null) {
+  // جبران با ماندن بعد از end:
+  // - همیشه تا سقف float دقیقه (حتی اگر ورود بعد از مرز شناوری باشد) — مورد 6
+  // - با تیک floatCompensate: تا کل تأخیر (بدون سقف float)
+  if (hasComplete && delay > 0 && lastOut != null && end != null && lastOut > end) {
     const stayedPast = Math.max(0, lastOut - end);
-    // حداکثر جبران = min(تأخیر، ماندن بعد از پایان، و اگر فقط شناوری باشد سقف float)
-    let maxComp = delay;
-    if (withinFloat && !compensate) {
+    let maxComp;
+    if (compensate) {
+      maxComp = delay;
+    } else {
       maxComp = Math.min(delay, floatM || 0);
     }
     compensated = Math.min(maxComp, stayedPast);
     delay = Math.max(0, delay - compensated);
-    // اضافه‌کار = ماندن بعد از end فراتر از جبران
     ot = Math.max(0, stayedPast - compensated);
-    // تعجیل فقط اگر زودتر از end رفته (و جبران صبح از end جداست)
-    if (lastOut < end) {
-      earlyLeave = end - lastOut;
-    } else {
-      earlyLeave = 0;
-    }
+    earlyLeave = 0;
   } else if (hasComplete && lastOut != null && end != null) {
-    // بدون حق جبران: ماندن بعد از end = OT؛ تأخیر کامل می‌ماند
     if (lastOut > end) {
       ot = lastOut - end;
       earlyLeave = 0;
