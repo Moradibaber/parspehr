@@ -79,9 +79,24 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-    // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v128" defer><\/script>';
-  const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
+    // اسکریپت پنل از Worker + یک اسکریپت اضطراری درون‌خطی (اگر boot لود نشد حداقل تب درست شود)
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v129" defer><\/script>';
+  const emergencyInline = '<script>(function(){try{' +
+    'window.__pspEmergency=1;' +
+    'function rn(){var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn");' +
+    'for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();' +
+    'if(!t||t.length>48)continue;' +
+    'var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;' +
+    'if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt")el.textContent="کارکرد";}}' +
+    'rn();setInterval(rn,1200);' +
+    'var n=0;var iv=setInterval(function(){n++;' +
+    'var p=document.getElementById("panel-portalatt");' +
+    'if(p&&p.innerText&&p.innerText.indexOf("اسکریپت پنل")>=0&&!document.getElementById("pspSub-ts")){' +
+    'p.innerHTML="<div class=card style=padding:14px><b style=color:#0f766e>در حال بارگذاری پنل کارکرد…</b>"' +
+    '+"<p style=font-size:0.8rem;color:#64748b>اگر ماند، یک‌بار خارج شوید و دوباره وارد شوید.</p></div>";}' +
+    'if(document.getElementById("pspSub-ts")||n>20)clearInterval(iv);},500);' +
+    '}catch(e){}})();<\/script>';
+  const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
     : html + top;
@@ -8648,27 +8663,10 @@ export default {
     if (url.pathname === '/api/emp/timesheet') return handleEmpTimesheet(request, env);
     if (url.pathname === '/api/emp/attendance-types') return handleEmpAttendanceTypes(request, env);
 
-    // ---- Portal admin boot JS (always application/javascript; needs session) ----
+    // ---- Portal admin boot JS: همیشه خود اسکریپت را بده (APIها جداگانه محافظت می‌شوند) ----
     if (url.pathname === '/api/admin/portal-boot.js') {
-      const sessBoot = await readSession(request, env, users);
-      if (!sessBoot) {
-        return new Response(
-          'console.error("[psp] portal-boot: login required");'
-          + 'window.__pspPortalAdmin=false;'
-          + '(function(){var p=document.getElementById("panel-portalatt");'
-          + 'if(p&&!document.getElementById("pspSub-ts"))'
-          + 'p.innerHTML="<div class=card style=padding:14px;color:#b91c1c>نشست منقضی شده. خارج شوید و دوباره وارد شوید.</div>";})();',
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/javascript; charset=utf-8',
-              'Cache-Control': 'no-store',
-              'X-Content-Type-Options': 'nosniff'
-            }
-          }
-        );
-      }
-      return new Response((Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join("\n") : String(PORTAL_ADMIN_JS || "")), {
+      const body = Array.isArray(PORTAL_ADMIN_JS) ? PORTAL_ADMIN_JS.join('\n') : String(PORTAL_ADMIN_JS || '');
+      return new Response(body || 'console.error("[psp] portal-boot empty");', {
         status: 200,
         headers: {
           'Content-Type': 'application/javascript; charset=utf-8',
