@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v131" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v132" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -2376,9 +2376,9 @@ function normalizeWorkSchedule(cal, globalFloat) {
   const c = cal || {};
   const hasBreak = c.hasBreak != null ? !!c.hasBreak : !!(c.breakStart && c.breakEnd && c._breakExplicit);
   const hb = c.hasBreak != null ? !!c.hasBreak : false;
-  // اولویت: تقویم نوع قرارداد → شناوری سراسری settings → پیش‌فرض ۱۵
-  var fm = parseFloatMinutesValue(c.floatMinutes, null);
-  if (fm == null) fm = parseFloatMinutesValue(globalFloat, null);
+  // اولویت: شناوری سراسری settings → تقویم نوع قرارداد → پیش‌فرض ۱۵
+  var fm = parseFloatMinutesValue(globalFloat, null);
+  if (fm == null) fm = parseFloatMinutesValue(c.floatMinutes, null);
   if (fm == null) fm = d.floatMinutes;
   return {
     workStart: c.workStart || d.workStart,
@@ -2393,12 +2393,37 @@ function normalizeWorkSchedule(cal, globalFloat) {
   };
 }
 
+function resolveCompanyFloatMinutes(obj, calHint) {
+  const s = (obj && obj.settings) || {};
+  // 1) سراسری
+  var fm = parseFloatMinutesValue(s.floatMinutes, null);
+  if (fm != null) return fm;
+  // 2) تقویم اشاره‌شده
+  if (calHint) {
+    fm = parseFloatMinutesValue(calHint.floatMinutes, null);
+    if (fm != null) return fm;
+  }
+  // 3) بزرگ‌ترین شناوری غیرساعتی ذخیره‌شده (اگر یکی ۹۰ باشد همان استفاده شود)
+  var best = null;
+  var cals = s.contractCalendars || {};
+  Object.keys(cals).forEach(function (id) {
+    if (String(id) === 'hourly') return;
+    var v = parseFloatMinutesValue(cals[id] && cals[id].floatMinutes, null);
+    if (v == null) return;
+    if (best == null || v > best) best = v;
+  });
+  if (best != null) return best;
+  return 15;
+}
+
 function getContractCalendar(obj, contractType) {
   ensureContractCalendars(obj || {});
   const s = (obj && obj.settings) || {};
   const ct = String(contractType || 'normal').trim() || 'normal';
   const cal = (s.contractCalendars && s.contractCalendars[ct]) || (s.contractCalendars && s.contractCalendars.normal) || {};
-  const sched = normalizeWorkSchedule(cal, s.floatMinutes);
+  // شناوری شرکت‌محور — نه قفل‌شده روی ۱۵ داخل یک نوع قدیمی
+  const companyFloat = resolveCompanyFloatMinutes(obj, cal);
+  const sched = normalizeWorkSchedule(cal, companyFloat);
   // ساعتی: بازه کاری کل شبانه‌روز (حضور هر ساعتی معتبر است)
   const hourlyAllDay = (ct === 'hourly');
   return {
@@ -2416,10 +2441,10 @@ function getContractCalendar(obj, contractType) {
     breakEnd: sched.breakEnd,
     breakCountsAsWork: hourlyAllDay ? false : sched.breakCountsAsWork,
     dayEnd: hourlyAllDay ? '23:59' : sched.dayEnd,
-    floatMinutes: hourlyAllDay ? 0 : sched.floatMinutes,
+    floatMinutes: hourlyAllDay ? 0 : companyFloat,
     floatCompensate: hourlyAllDay ? false : sched.floatCompensate,
     daySchedules: (cal.daySchedules && typeof cal.daySchedules === 'object') ? cal.daySchedules : {},
-    _globalFloatMinutes: parseFloatMinutesValue(s.floatMinutes, sched.floatMinutes)
+    _globalFloatMinutes: companyFloat
   };
 }
 
@@ -6663,7 +6688,7 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     }
     // اگر floatMinutes هرگز ست نشده، پیش‌فرض ۱۵
     if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
-    // شناوری سراسری: روی settings و همه انواع غیرساعتی بنویس؛ override روزانه را پاک کن
+    // شناوری سراسری: همیشه روی settings و همه انواع غیرساعتی بنویس؛ override روزانه را پاک کن
     if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
       var fmAll = cal.floatMinutes;
       gd.obj.settings.floatMinutes = fmAll;
@@ -6679,6 +6704,16 @@ async function handleAdminSetCurrentMonth(request, who, env) {
           });
         }
       });
+    } else if (gd.obj.settings.floatMinutes != null && gd.obj.settings.floatMinutes !== '') {
+      // حتی اگر این درخواست float نفرستاد، سراسری را روی همه انواع پخش کن
+      var fmKeep = parseFloatMinutesValue(gd.obj.settings.floatMinutes, null);
+      if (fmKeep != null) {
+        Object.keys(gd.obj.settings.contractCalendars || {}).forEach(function (cid) {
+          if (String(cid) === 'hourly') return;
+          var c2 = gd.obj.settings.contractCalendars[cid];
+          if (c2 && typeof c2 === 'object') c2.floatMinutes = fmKeep;
+        });
+      }
     }
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
@@ -6709,6 +6744,8 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       breakEnd: cal.breakEnd,
       dayEnd: cal.dayEnd,
       floatMinutes: cal.floatMinutes,
+      settingsFloatMinutes: gd.obj.settings.floatMinutes,
+      companyFloatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
       breakCountsAsWork: !!cal.breakCountsAsWork,
       floatCompensate: !!cal.floatCompensate,
       contractTypesList: gd.obj.settings.contractTypesList
@@ -6918,7 +6955,9 @@ async function handleAdminGetCurrentMonth(request, who, env) {
     breakStart: cal.breakStart,
     breakEnd: cal.breakEnd,
     dayEnd: cal.dayEnd,
-    floatMinutes: cal.floatMinutes,
+    floatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
+    settingsFloatMinutes: s.floatMinutes,
+    companyFloatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
     breakCountsAsWork: !!cal.breakCountsAsWork,
     floatCompensate: !!cal.floatCompensate,
     officialWorkMinutes: officialWorkMinutes(cal),
