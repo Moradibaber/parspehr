@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v132" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v133" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -483,12 +483,30 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
                     return;
                   }
                   SCHED_KEEP.forEach(function (k) {
+                    if (k === 'floatMinutes') return; // جداگانه
                     if ((curCal[k] == null || curCal[k] === '') && prevCal[k] != null && prevCal[k] !== '') curCal[k] = prevCal[k];
                   });
-                  if (!Object.prototype.hasOwnProperty.call(curCal, 'floatMinutes') && Object.prototype.hasOwnProperty.call(prevCal, 'floatMinutes')) {
-                    curCal.floatMinutes = prevCal.floatMinutes;
+                  // شناوری: مقدار قبلی (۹۰) را با پیش‌فرض ۱۵ همگام‌سازی اصلی بازنویسی نکن
+                  var prevFm = parseFloatMinutesValue(prevCal.floatMinutes, null);
+                  var curFm = parseFloatMinutesValue(curCal.floatMinutes, null);
+                  if (prevFm != null && (curFm == null || (curFm === 15 && prevFm !== 15))) {
+                    curCal.floatMinutes = prevFm;
+                  } else if (curFm == null && prevFm != null) {
+                    curCal.floatMinutes = prevFm;
                   }
                 });
+                // پس از ادغام: شناوری سراسری قبلی را برگردان و روی همه انواع پخش کن
+                if (prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
+                  obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
+                  var fmForce = parseFloatMinutesValue(obj.settings.floatMinutes, null);
+                  if (fmForce != null) {
+                    Object.keys(obj.settings.contractCalendars || {}).forEach(function (cid) {
+                      if (String(cid) === 'hourly') return;
+                      var cx = obj.settings.contractCalendars[cid];
+                      if (cx && typeof cx === 'object') cx.floatMinutes = fmForce;
+                    });
+                  }
+                }
               }
             }
             if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
@@ -951,12 +969,28 @@ async function handleState(request, who, env, path) {
                       return;
                     }
                     SCHED_KEEP2.forEach(function (k) {
+                      if (k === 'floatMinutes') return;
                       if ((curCal[k] == null || curCal[k] === '') && prevCal[k] != null && prevCal[k] !== '') curCal[k] = prevCal[k];
                     });
-                    if (!Object.prototype.hasOwnProperty.call(curCal, 'floatMinutes') && Object.prototype.hasOwnProperty.call(prevCal, 'floatMinutes')) {
-                      curCal.floatMinutes = prevCal.floatMinutes;
+                    var prevFm2 = parseFloatMinutesValue(prevCal.floatMinutes, null);
+                    var curFm2 = parseFloatMinutesValue(curCal.floatMinutes, null);
+                    if (prevFm2 != null && (curFm2 == null || (curFm2 === 15 && prevFm2 !== 15))) {
+                      curCal.floatMinutes = prevFm2;
+                    } else if (curFm2 == null && prevFm2 != null) {
+                      curCal.floatMinutes = prevFm2;
                     }
                   });
+                  if (prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
+                    incoming.settings.floatMinutes = prev.obj.settings.floatMinutes;
+                    var fmForce2 = parseFloatMinutesValue(incoming.settings.floatMinutes, null);
+                    if (fmForce2 != null) {
+                      Object.keys(incoming.settings.contractCalendars || {}).forEach(function (cid) {
+                        if (String(cid) === 'hourly') return;
+                        var cx = incoming.settings.contractCalendars[cid];
+                        if (cx && typeof cx === 'object') cx.floatMinutes = fmForce2;
+                      });
+                    }
+                  }
                 }
               }
               if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
@@ -4976,6 +5010,7 @@ async function handleAdminTimesheet(request, who, env) {
   if (filterCode && rows.length === 1) {
     const emp0 = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(filterCode); });
     const cal = getContractCalendar(gd.obj, (emp0 && emp0.contractType) || 'normal');
+    const _floatUsed = resolveCompanyFloatMinutes(gd.obj, cal);
     const dim = daysInJalaliMonth(year, month);
     if (!gd.obj.dailyAttendance) gd.obj.dailyAttendance = {};
     const punchStore = gd.obj.dailyAttendance[String(filterCode)] || {};
@@ -5247,7 +5282,7 @@ async function handleAdminTimesheet(request, who, env) {
     };
   }
 
-  return jsonResponse({ ok: true, year, month, rows, daily: daily });
+  return jsonResponse({ ok: true, year, month, rows, daily: daily, floatMinutesUsed: (typeof _floatUsed !== "undefined" ? _floatUsed : resolveCompanyFloatMinutes(gd.obj, null)) });
   } catch (e) {
     console.error('handleAdminTimesheet', e && e.stack ? e.stack : e);
     return jsonResponse({ ok: false, error: 'server_error', message: String(e && e.message ? e.message : e) }, 500);
