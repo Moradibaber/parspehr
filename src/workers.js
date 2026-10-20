@@ -79,9 +79,10 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-    // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v134" defer><\/script>';
-  const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
+    // اسکریپت پنل + تغییر نام اضطراری تب به «کارکرد»
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v135" defer><\/script>';
+  const emergencyRename = '<script>(function(){function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt")el.textContent="کارکرد";}}catch(e){}}rn();setInterval(rn,1000);})();<\/script>';
+  const bottom = emergencyRename + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
     : html + top;
@@ -182,6 +183,34 @@ async function storeGetData(cfg) {
   }
   if (obj) {
     try { mergeAllEmployeeExtras(obj); } catch (eMerge) { /* non-fatal */ }
+    // ترمیم شناوری: portalFloatMinutes / floatMinutes را یکدست کن
+    try {
+      if (obj.settings && typeof obj.settings === 'object') {
+        var fm = null;
+        if (obj.settings.portalFloatMinutes != null && obj.settings.portalFloatMinutes !== '') {
+          fm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+        }
+        if (fm == null && obj.settings.floatMinutes != null && obj.settings.floatMinutes !== '') {
+          fm = parseFloatMinutesValue(obj.settings.floatMinutes, null);
+        }
+        if (fm == null && obj.settings.contractCalendars) {
+          Object.keys(obj.settings.contractCalendars).forEach(function (id) {
+            if (String(id) === 'hourly') return;
+            var v = parseFloatMinutesValue(obj.settings.contractCalendars[id] && obj.settings.contractCalendars[id].floatMinutes, null);
+            if (v != null && (fm == null || v > fm)) fm = v;
+          });
+        }
+        if (fm != null && fm !== 15) {
+          obj.settings.portalFloatMinutes = fm;
+          obj.settings.floatMinutes = fm;
+          Object.keys(obj.settings.contractCalendars || {}).forEach(function (id) {
+            if (String(id) === 'hourly') return;
+            var c = obj.settings.contractCalendars[id];
+            if (c && typeof c === 'object') c.floatMinutes = fm;
+          });
+        }
+      }
+    } catch (eFloatHeal) {}
   }
   return { version: Number(row.version) || 0, obj: obj };
 }
