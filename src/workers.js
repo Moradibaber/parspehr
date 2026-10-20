@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل فقط از Worker (فایل جدا) — جلوگیری از SyntaxError داخل HTML
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v133" defer><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v134" defer><\/script>';
   const bottom = portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -495,18 +495,52 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
                     curCal.floatMinutes = prevFm;
                   }
                 });
-                // پس از ادغام: شناوری سراسری قبلی را برگردان و روی همه انواع پخش کن
-                if (prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
-                  obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
-                  var fmForce = parseFloatMinutesValue(obj.settings.floatMinutes, null);
-                  if (fmForce != null) {
-                    Object.keys(obj.settings.contractCalendars || {}).forEach(function (cid) {
-                      if (String(cid) === 'hourly') return;
-                      var cx = obj.settings.contractCalendars[cid];
-                      if (cx && typeof cx === 'object') cx.floatMinutes = fmForce;
-                    });
+                // شناوری سراسری: مقدار جدید set-current-month را حفظ کن؛ فقط پیش‌فرض ۱۵ همگام‌سازی را رد کن
+                (function () {
+                  var prevSF = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.floatMinutes, null);
+                  var curSF = parseFloatMinutesValue(obj.settings && obj.settings.floatMinutes, null);
+                  var fromFloatSet = String(updatedBy || '').indexOf('float-set:') === 0;
+                  var finalFm = curSF;
+                  if (fromFloatSet && curSF != null) {
+                    finalFm = curSF;
+                  } else if (curSF == null && prevSF != null) {
+                    finalFm = prevSF;
+                  } else if (curSF === 15 && prevSF != null && prevSF !== 15) {
+                    // همگام‌سازی اصلی احتمالاً ۱۵ پیش‌فرض فرستاده — قبلی را نگه دار
+                    finalFm = prevSF;
+                  } else if (curSF != null) {
+                    finalFm = curSF;
+                  } else {
+                    finalFm = prevSF;
                   }
-                }
+                  if (finalFm != null) {
+                    obj.settings.floatMinutes = finalFm;
+                    if (fromFloatSet || obj.settings.portalFloatMinutes == null || obj.settings.portalFloatMinutes === '') {
+                      obj.settings.portalFloatMinutes = finalFm;
+                    } else {
+                      var pfm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+                      var prevPfm = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.portalFloatMinutes, null);
+                      if (fromFloatSet) obj.settings.portalFloatMinutes = finalFm;
+                      else if (prevPfm != null && (pfm == null || (pfm === 15 && prevPfm !== 15))) obj.settings.portalFloatMinutes = prevPfm;
+                    }
+                    var useFm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, finalFm);
+                    if (useFm != null) {
+                      obj.settings.floatMinutes = useFm;
+                      Object.keys(obj.settings.contractCalendars || {}).forEach(function (cid) {
+                        if (String(cid) === 'hourly') return;
+                        var cx = obj.settings.contractCalendars[cid];
+                        if (cx && typeof cx === 'object') cx.floatMinutes = useFm;
+                      });
+                    }
+                  } else {
+                    // حتی بدون finalFm، portalFloatMinutes قبلی را حفظ کن
+                    var prevPfm2 = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.portalFloatMinutes, null);
+                    if (prevPfm2 != null && (obj.settings.portalFloatMinutes == null || obj.settings.portalFloatMinutes === '')) {
+                      obj.settings.portalFloatMinutes = prevPfm2;
+                      obj.settings.floatMinutes = prevPfm2;
+                    }
+                  }
+                })();
               }
             }
             if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
@@ -980,17 +1014,23 @@ async function handleState(request, who, env, path) {
                       curCal.floatMinutes = prevFm2;
                     }
                   });
-                  if (prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
-                    incoming.settings.floatMinutes = prev.obj.settings.floatMinutes;
-                    var fmForce2 = parseFloatMinutesValue(incoming.settings.floatMinutes, null);
-                    if (fmForce2 != null) {
+                  (function () {
+                    var prevSF = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.floatMinutes, null);
+                    var curSF = parseFloatMinutesValue(incoming.settings && incoming.settings.floatMinutes, null);
+                    var finalFm = curSF;
+                    if (curSF == null && prevSF != null) finalFm = prevSF;
+                    else if (curSF === 15 && prevSF != null && prevSF !== 15) finalFm = prevSF;
+                    else if (curSF != null) finalFm = curSF;
+                    else finalFm = prevSF;
+                    if (finalFm != null) {
+                      incoming.settings.floatMinutes = finalFm;
                       Object.keys(incoming.settings.contractCalendars || {}).forEach(function (cid) {
                         if (String(cid) === 'hourly') return;
                         var cx = incoming.settings.contractCalendars[cid];
-                        if (cx && typeof cx === 'object') cx.floatMinutes = fmForce2;
+                        if (cx && typeof cx === 'object') cx.floatMinutes = finalFm;
                       });
                     }
-                  }
+                  })();
                 }
               }
               if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
@@ -2429,8 +2469,11 @@ function normalizeWorkSchedule(cal, globalFloat) {
 
 function resolveCompanyFloatMinutes(obj, calHint) {
   const s = (obj && obj.settings) || {};
-  // 1) سراسری
-  var fm = parseFloatMinutesValue(s.floatMinutes, null);
+  // 1) شناوری پرتال (مقاوم در برابر همگام‌سازی)
+  var fm = parseFloatMinutesValue(s.portalFloatMinutes, null);
+  if (fm != null) return fm;
+  // 2) سراسری
+  fm = parseFloatMinutesValue(s.floatMinutes, null);
   if (fm != null) return fm;
   // 2) تقویم اشاره‌شده
   if (calHint) {
@@ -6727,6 +6770,7 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
       var fmAll = cal.floatMinutes;
       gd.obj.settings.floatMinutes = fmAll;
+      gd.obj.settings.portalFloatMinutes = fmAll;
       Object.keys(gd.obj.settings.contractCalendars || {}).forEach(function (cid) {
         if (String(cid) === 'hourly') return;
         var c2 = gd.obj.settings.contractCalendars[cid];
@@ -6755,7 +6799,7 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       gd.obj.settings.workWeekDays = cal.workWeekDays.slice();
       gd.obj.settings.countNonWorkDaysAsLeave = cal.countNonWorkDaysAsLeave;
     }
-    const put = await storePutData(cfg, gd.version, gd.obj, who.name);
+    const put = await storePutData(cfg, gd.version, gd.obj, 'float-set:' + (who.name || 'admin'));
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     const tdef = (gd.obj.settings.contractTypesList || []).find(function (t) { return t.id === ct; });
