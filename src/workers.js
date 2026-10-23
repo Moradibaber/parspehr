@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل — بدون defer + اضطراری درون‌خطی (حتی اگر boot لود نشود)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v168"><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v169"><\/script>';
   const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
@@ -5789,9 +5789,10 @@ function snapshotEmpExtra(obj, emp) {
   };
   // نام پدر / موبایل / آدرس — با ذخیره فرم اصلی پاک نشوند
   var per = {};
-  ['fatherName', 'mobile', 'address'].forEach(function (k) {
+  ['fatherName', 'mobile', 'address', 'birthDate', 'militaryStatus', 'militaryExemptType', 'jobGrade', 'educationLevel', 'educationField', 'city',
+   'priorExpY', 'priorExpM', 'priorExpD', 'expFromWork', 'expFromHire', 'totalExpWork', 'totalExpHire'].forEach(function (k) {
     var v = emp[k];
-    per[k] = (v !== undefined && v !== null) ? String(v) : String(prevPer[k] || '');
+    per[k] = (v !== undefined && v !== null && String(v) !== '') ? String(v) : String(prevPer[k] || '');
   });
   obj.employeeExtras[code].personal = per;
   // customItems مربوط به بیمه تکمیلی را هم نگه دار
@@ -5886,7 +5887,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenCount: Number(emp.children) || 0,
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
-      personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; function g(k){ return emp[k] || ex[k] || ''; } return { fatherName: g('fatherName'), mobile: emp.mobile || emp.phone || ex.mobile || '', address: g('address'), birthDate: g('birthDate'), militaryStatus: g('militaryStatus'), militaryExemptType: g('militaryExemptType'), jobGrade: g('jobGrade'), educationLevel: g('educationLevel'), educationField: g('educationField'), city: g('city') }; })(),
+      personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; function g(k){ return emp[k] || ex[k] || ''; } return { fatherName: g('fatherName'), mobile: emp.mobile || emp.phone || ex.mobile || '', address: g('address'), birthDate: g('birthDate'), militaryStatus: g('militaryStatus'), militaryExemptType: g('militaryExemptType'), jobGrade: g('jobGrade'), educationLevel: g('educationLevel'), educationField: g('educationField'), city: g('city'), priorExpY: g('priorExpY'), priorExpM: g('priorExpM'), priorExpD: g('priorExpD'), expFromWork: g('expFromWork'), expFromHire: g('expFromHire'), totalExpWork: g('totalExpWork'), totalExpHire: g('totalExpHire') }; })(),
       photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
@@ -5977,10 +5978,21 @@ async function handleAdminEmployeeExtra(request, who, env) {
       emp.city = pstr('city', 80, emp.city);
       if (!gd.obj.employeeExtras || typeof gd.obj.employeeExtras !== 'object') gd.obj.employeeExtras = {};
       if (!gd.obj.employeeExtras[empCode] || typeof gd.obj.employeeExtras[empCode] !== 'object') gd.obj.employeeExtras[empCode] = {};
+      var prevP = (gd.obj.employeeExtras[empCode].personal) || {};
+      function keep(k, max) {
+        if (body.personal[k] != null) return String(body.personal[k]).trim().slice(0, max);
+        return String(emp[k] != null ? emp[k] : (prevP[k] || '')).trim().slice(0, max);
+      }
+      emp.priorExpY = keep('priorExpY', 8); emp.priorExpM = keep('priorExpM', 8); emp.priorExpD = keep('priorExpD', 8);
+      emp.expFromWork = keep('expFromWork', 80); emp.expFromHire = keep('expFromHire', 80);
+      emp.totalExpWork = keep('totalExpWork', 80); emp.totalExpHire = keep('totalExpHire', 80);
       gd.obj.employeeExtras[empCode].personal = {
         fatherName: emp.fatherName || '', mobile: emp.mobile || '', address: emp.address || '',
         birthDate: emp.birthDate || '', militaryStatus: emp.militaryStatus || '', militaryExemptType: emp.militaryExemptType || '',
-        jobGrade: emp.jobGrade || '', educationLevel: emp.educationLevel || '', educationField: emp.educationField || '', city: emp.city || ''
+        jobGrade: emp.jobGrade || '', educationLevel: emp.educationLevel || '', educationField: emp.educationField || '', city: emp.city || '',
+        priorExpY: emp.priorExpY || '', priorExpM: emp.priorExpM || '', priorExpD: emp.priorExpD || '',
+        expFromWork: emp.expFromWork || '', expFromHire: emp.expFromHire || '',
+        totalExpWork: emp.totalExpWork || '', totalExpHire: emp.totalExpHire || ''
       };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
