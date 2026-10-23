@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل — بدون defer + اضطراری درون‌خطی (حتی اگر boot لود نشود)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v171"><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v175"><\/script>';
   const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
@@ -830,16 +830,16 @@ function listEmployeesMissingContract(obj) {
 }
 
 async function handlePayroll(request, user, env) {
+  try {
   const r = await readBody(request);
   if (r.error) return r.error;
-  const body = r.body;
-  const year = Number(body.year);
-  const month = Number(body.month);
-  if (!Number.isInteger(year) || year < 1300 || year > 1600 ||
-      !Number.isInteger(month) || month < 1 || month > 12 ||
+  const body = r.body || {};
+  const year = Math.round(Number(body.year));
+  const month = Math.round(Number(body.month));
+  if (!isInt(year, 1300, 1600) || !isInt(month, 1, 12) ||
       !isPlainObject(body.settings) || !Array.isArray(body.employees) || !Array.isArray(body.allowances) ||
       !isPlainObject(body.monthlyData) || !isPlainObject(body.payrolls)) {
-    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'پارامترهای محاسبه نامعتبر است (سال/ماه یا ساختار داده)' }, 400);
   }
   let data = {
     settings: body.settings,
@@ -850,7 +850,11 @@ async function handlePayroll(request, user, env) {
     loanDeductedMonths: isPlainObject(body.loanDeductedMonths) ? body.loanDeductedMonths : {},
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
-  data = await enrichCalcDataFromStore(env, data);
+  try {
+    data = await enrichCalcDataFromStore(env, data);
+  } catch (eEn) {
+    console.error('payroll enrich', eEn);
+  }
   let contractWarnings = [];
   try {
     const cfg = storeConfig(env);
@@ -867,22 +871,28 @@ async function handlePayroll(request, user, env) {
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
   } catch (e) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
-    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+    return jsonResponse({ ok: false, error: 'calculation_failed', message: String(e && e.message ? e.message : e) }, 500);
   }
-  if (out && typeof out === 'object') {
-    out.contractWarnings = contractWarnings;
-    if (contractWarnings.length) {
-      out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
-    }
+  if (!out || typeof out !== 'object') {
+    return jsonResponse({ ok: false, error: 'calculation_failed', message: 'نتیجه محاسبه خالی بود' }, 500);
+  }
+  out.contractWarnings = contractWarnings;
+  if (contractWarnings.length) {
+    out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
   }
   console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length, contractWarnings: contractWarnings.length }));
   return jsonResponse(out, out.ok ? 200 : 400);
+  } catch (eOuter) {
+    console.error('handlePayroll outer', eOuter && eOuter.stack ? eOuter.stack : eOuter);
+    return jsonResponse({ ok: false, error: 'server_error', message: String(eOuter && eOuter.message ? eOuter.message : eOuter) }, 500);
+  }
 }
 
 async function handleCalc(request, user, env) {
+  try {
   const r = await readBody(request);
   if (r.error) return r.error;
-  const body = r.body;
+  const body = r.body || {};
   const op = body.op;
   let data = {
     settings: objOf(body.settings),
@@ -897,7 +907,12 @@ async function handleCalc(request, user, env) {
   if (data.employees.length > MAX_ITEMS || data.allowances.length > MAX_ITEMS) {
     return jsonResponse({ ok: false, error: 'too_many_items' }, 413);
   }
-  data = await enrichCalcDataFromStore(env, data);
+  try {
+    data = await enrichCalcDataFromStore(env, data);
+  } catch (eEn) {
+    console.error('enrichCalcDataFromStore', eEn);
+    // ادامه با دادهٔ کلاینت — enrich اختیاری است
+  }
   const bad = function () { return jsonResponse({ ok: false, error: 'bad_request' }, 400); };
   let result;
   try {
@@ -935,6 +950,10 @@ async function handleCalc(request, user, env) {
   }
   console.log(JSON.stringify({ event: 'calc', user: user, op: op, employees: data.employees.length }));
   return jsonResponse(result);
+  } catch (eCalcOuter) {
+    console.error('handleCalc', eCalcOuter && eCalcOuter.stack ? eCalcOuter.stack : eCalcOuter);
+    return jsonResponse({ ok: false, error: 'server_error', message: String(eCalcOuter && eCalcOuter.message ? eCalcOuter.message : eCalcOuter) }, 500);
+  }
 }
 
 function handleWhoami(request, who, adminConfigured, env) {
@@ -5031,7 +5050,16 @@ async function handleAdminTimesheet(request, who, env) {
       unit: emp.unit || '',
       managerCode: emp.managerCode || '',
       childrenEligibleCount: (emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)),
-      workDays: (function(){ var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code); return Math.round(r) || 0; })(),
+      workDays: (function(){
+        try {
+          var stored = Number(mdRow.workDays);
+          if (!isNaN(stored) && stored > 0) return Math.round(stored);
+          var r = recountEmpMonthWorkDays(gd.obj, year, month, emp.code);
+          return Math.round(r) || 0;
+        } catch (eWd) {
+          return Number(mdRow.workDays) || 0;
+        }
+      })(),
       leaveDays: Math.round(aLeave * 100) / 100,
       hourlyLeave: Number(mdRow.hourlyLeave) != null ? Number(mdRow.hourlyLeave) : Math.round(aHourly * 100) / 100,
       missionDays: Math.round(aMission * 100) / 100,
