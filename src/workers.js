@@ -339,11 +339,6 @@ function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
   const at = new Date().toISOString();
   const by = String(updatedBy || 'system');
   changes.forEach(function (c) {
-    if (!c) return;
-    var f = String(c.field || '');
-    var lab = String(c.label || '');
-    // آدرس هرگز در تاریخچه ثبت نشود
-    if (f === 'address' || lab === 'آدرس' || /آدرس|address/i.test(lab) || /آدرس|address/i.test(f)) return;
     obj.employeeChangeLog[key].push({
       at: at,
       by: by,
@@ -353,13 +348,6 @@ function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
       to: c.to,
       text: (c.label || c.field) + ' از «' + c.from + '» به «' + c.to + '» تغییر کرد'
     });
-  });
-  // پاکسازی رکوردهای قدیمی آدرس
-  obj.employeeChangeLog[key] = obj.employeeChangeLog[key].filter(function (r) {
-    if (!r) return false;
-    var f2 = String(r.field || ''), lab2 = String(r.label || ''), tx2 = String(r.text || '');
-    if (f2 === 'address' || lab2 === 'آدرس' || /آدرس|address/i.test(lab2) || /آدرس|address/i.test(tx2)) return false;
-    return true;
   });
   // keep last 300
   if (obj.employeeChangeLog[key].length > 300) {
@@ -437,29 +425,18 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               });
               if (!obj.employeeExtras) obj.employeeExtras = {};
               if (!obj.employeeExtras[codeKey] || typeof obj.employeeExtras[codeKey] !== 'object') obj.employeeExtras[codeKey] = Object.assign({}, (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {});
-              // personal را با نسخه قبلی ادغام کن تا فیلدهایی مثل تاریخ تولد با ذخیره فرم اصلی پاک نشوند
-              var prevPersonal = (per && typeof per === 'object') ? per : {};
-              var nextPersonal = Object.assign({}, prevPersonal, {
-                fatherName: e.fatherName || prevPersonal.fatherName || '',
-                mobile: e.mobile || e.phone || prevPersonal.mobile || '',
-                address: e.address || prevPersonal.address || '',
-                birthDate: e.birthDate || prevPersonal.birthDate || '',
-                militaryStatus: e.militaryStatus || prevPersonal.militaryStatus || '',
-                militaryExemptType: e.militaryExemptType || prevPersonal.militaryExemptType || '',
-                jobGrade: e.jobGrade || prevPersonal.jobGrade || '',
-                educationLevel: e.educationLevel || prevPersonal.educationLevel || '',
-                educationField: e.educationField || prevPersonal.educationField || '',
-                city: e.city || prevPersonal.city || ''
-              });
-              ['priorExpY','priorExpM','priorExpD','expFromWork','expFromHire','totalExpWork','totalExpHire','province','gender'].forEach(function (pk) {
-                if (e[pk] != null && String(e[pk]).trim() !== '') nextPersonal[pk] = e[pk];
-                else if (nextPersonal[pk] == null && prevPersonal[pk] != null) nextPersonal[pk] = prevPersonal[pk];
-              });
-              obj.employeeExtras[codeKey].personal = nextPersonal;
-              // روی خود emp هم بنشان تا بار بعدی در diff/UI باشد
-              Object.keys(nextPersonal).forEach(function (pk) {
-                if (nextPersonal[pk] != null && String(nextPersonal[pk]).trim() !== '' && (!e[pk] || String(e[pk]).trim() === '')) e[pk] = nextPersonal[pk];
-              });
+              obj.employeeExtras[codeKey].personal = {
+                fatherName: e.fatherName || '',
+                mobile: e.mobile || e.phone || '',
+                address: e.address || '',
+                birthDate: e.birthDate || '',
+                militaryStatus: e.militaryStatus || '',
+                militaryExemptType: e.militaryExemptType || '',
+                jobGrade: e.jobGrade || '',
+                educationLevel: e.educationLevel || '',
+                educationField: e.educationField || '',
+                city: e.city || ''
+              };
             } catch (ePer) {}
 
             if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
@@ -496,34 +473,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         }
         // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
         if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
-          // ادغام عمیق: personal/family/suppInsurance کلاینت ناقص نباید extras قبلی را پاک کند
-          var mergedEx = {};
-          Object.keys(prev.obj.employeeExtras).forEach(function (ck) {
-            mergedEx[ck] = Object.assign({}, prev.obj.employeeExtras[ck] || {});
-          });
-          Object.keys(obj.employeeExtras || {}).forEach(function (ck) {
-            var cur = obj.employeeExtras[ck] || {};
-            var base = mergedEx[ck] || (prev.obj.employeeExtras[ck] || {});
-            var next = Object.assign({}, base, cur);
-            // personal: ادغام فیلد به فیلد — مقدار خالی کلاینت، مقدار قبلی را پاک نکند
-            var basePer = (base && base.personal && typeof base.personal === 'object') ? base.personal : {};
-            var curPer = (cur && cur.personal && typeof cur.personal === 'object') ? cur.personal : null;
-            if (curPer) {
-              var perOut = Object.assign({}, basePer);
-              Object.keys(curPer).forEach(function (pk) {
-                var v = curPer[pk];
-                if (v !== undefined && v !== null && String(v).trim() !== '') perOut[pk] = v;
-                else if (perOut[pk] === undefined) perOut[pk] = (v == null ? '' : v);
-              });
-              next.personal = perOut;
-            } else if (basePer && Object.keys(basePer).length) {
-              next.personal = Object.assign({}, basePer);
-            }
-            if (cur.family == null && base.family) next.family = base.family;
-            if (cur.suppInsurance == null && base.suppInsurance) next.suppInsurance = base.suppInsurance;
-            mergedEx[ck] = next;
-          });
-          obj.employeeExtras = mergedEx;
+          obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
           // خانواده از extras منبع حقیقت است — روی employees بنشان تا با همگام‌سازی فرم اصلی پاک نشود
           try {
             (obj.employees || []).forEach(function (e) {
@@ -531,11 +481,6 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               var ex = obj.employeeExtras[String(e.code)];
               if (ex && ex.family) e.family = JSON.parse(JSON.stringify(ex.family));
               if (ex && ex.suppInsurance) e.suppInsurance = JSON.parse(JSON.stringify(ex.suppInsurance));
-              if (ex && ex.personal && typeof ex.personal === 'object') {
-                ['fatherName','mobile','address','phone','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city','province','gender'].forEach(function (k) {
-                  if ((!e[k] || String(e[k]).trim() === '') && ex.personal[k]) e[k] = ex.personal[k];
-                });
-              }
             });
           } catch (eFam) {}
         }
@@ -6013,17 +5958,9 @@ function applyEmpExtra(obj, emp) {
     if (ex.childrenEligibleCount != null) emp.childrenEligibleCount = ex.childrenEligibleCount;
     if (ex.children != null) emp.children = ex.children;
     if (ex.personal && typeof ex.personal === 'object') {
-      // همه فیلدهای personal باید روی emp بنشینند (تاریخ تولد و … نباید بعد از F5 ناپدید شوند)
-      ['fatherName', 'mobile', 'address', 'phone', 'birthDate', 'militaryStatus', 'militaryExemptType',
-       'jobGrade', 'educationLevel', 'educationField', 'city', 'province', 'gender',
-       'priorExpY', 'priorExpM', 'priorExpD', 'expFromWork', 'expFromHire', 'totalExpWork', 'totalExpHire'].forEach(function (k) {
-        var v = ex.personal[k];
-        if (v === undefined || v === null) return;
-        if (String(v).trim() === '' && emp[k] != null && String(emp[k]).trim() !== '') return;
-        emp[k] = v;
+      ['fatherName', 'mobile', 'address'].forEach(function (k) {
+        if (ex.personal[k] !== undefined) emp[k] = ex.personal[k];
       });
-      if ((!emp.mobile || String(emp.mobile).trim() === '') && ex.personal.phone) emp.mobile = ex.personal.phone;
-      if ((!emp.phone || String(emp.phone).trim() === '') && emp.mobile) emp.phone = emp.mobile;
     }
     emp.suppInsuranceDeduct = !!ex.suppInsuranceDeduct;
     emp.suppInsuranceDeductCount = Number(ex.suppInsuranceDeductCount) || 0;
@@ -6203,51 +6140,39 @@ async function handleAdminEmployeeExtra(request, who, env) {
       }
     }
     if (body.personal && typeof body.personal === 'object') {
+      function pstr(k, max, fallback) {
+        if (body.personal[k] != null) return String(body.personal[k]).trim().slice(0, max);
+        return String(fallback || '').trim().slice(0, max);
+      }
+      var pf = pstr('fatherName', 80, emp.fatherName);
+      var pm = pstr('mobile', 20, emp.mobile || emp.phone);
+      var pa = pstr('address', 300, emp.address);
+      emp.fatherName = pf; emp.mobile = pm; emp.phone = pm; emp.address = pa;
+      emp.birthDate = pstr('birthDate', 20, emp.birthDate);
+      emp.militaryStatus = pstr('militaryStatus', 40, emp.militaryStatus);
+      emp.militaryExemptType = pstr('militaryExemptType', 80, emp.militaryExemptType);
+      emp.jobGrade = pstr('jobGrade', 80, emp.jobGrade);
+      emp.educationLevel = pstr('educationLevel', 40, emp.educationLevel);
+      emp.educationField = pstr('educationField', 120, emp.educationField);
+      emp.city = pstr('city', 80, emp.city);
       if (!gd.obj.employeeExtras || typeof gd.obj.employeeExtras !== 'object') gd.obj.employeeExtras = {};
       if (!gd.obj.employeeExtras[empCode] || typeof gd.obj.employeeExtras[empCode] !== 'object') gd.obj.employeeExtras[empCode] = {};
       var prevP = (gd.obj.employeeExtras[empCode].personal) || {};
-      // مقدار خالی در body نباید مقدار قبلی را پاک کند (مگر کلید صریحاً با رشتهٔ غیرخالی آمده باشد)
-      function pstr(k, max, fallback) {
-        if (!Object.prototype.hasOwnProperty.call(body.personal, k) || body.personal[k] == null) {
-          return String(fallback != null ? fallback : '').trim().slice(0, max);
-        }
-        var incoming = String(body.personal[k]).trim().slice(0, max);
-        if (incoming === '') {
-          var prev = String(fallback != null ? fallback : '').trim().slice(0, max);
-          return prev; // خالی = نگه داشتن قبلی
-        }
-        return incoming;
-      }
-      var pf = pstr('fatherName', 80, emp.fatherName || prevP.fatherName);
-      var pm = pstr('mobile', 20, emp.mobile || emp.phone || prevP.mobile);
-      var pa = pstr('address', 300, emp.address || prevP.address);
-      emp.fatherName = pf; emp.mobile = pm; emp.phone = pm; emp.address = pa;
-      emp.birthDate = pstr('birthDate', 20, emp.birthDate || prevP.birthDate);
-      emp.militaryStatus = pstr('militaryStatus', 40, emp.militaryStatus || prevP.militaryStatus);
-      emp.militaryExemptType = pstr('militaryExemptType', 80, emp.militaryExemptType || prevP.militaryExemptType);
-      emp.jobGrade = pstr('jobGrade', 80, emp.jobGrade || prevP.jobGrade);
-      emp.educationLevel = pstr('educationLevel', 40, emp.educationLevel || prevP.educationLevel);
-      emp.educationField = pstr('educationField', 120, emp.educationField || prevP.educationField);
-      emp.city = pstr('city', 80, emp.city || prevP.city);
       function keep(k, max) {
-        if (!Object.prototype.hasOwnProperty.call(body.personal, k) || body.personal[k] == null) {
-          return String(emp[k] != null ? emp[k] : (prevP[k] || '')).trim().slice(0, max);
-        }
-        var incoming = String(body.personal[k]).trim().slice(0, max);
-        if (incoming === '') return String(emp[k] != null ? emp[k] : (prevP[k] || '')).trim().slice(0, max);
-        return incoming;
+        if (body.personal[k] != null) return String(body.personal[k]).trim().slice(0, max);
+        return String(emp[k] != null ? emp[k] : (prevP[k] || '')).trim().slice(0, max);
       }
       emp.priorExpY = keep('priorExpY', 8); emp.priorExpM = keep('priorExpM', 8); emp.priorExpD = keep('priorExpD', 8);
       emp.expFromWork = keep('expFromWork', 80); emp.expFromHire = keep('expFromHire', 80);
       emp.totalExpWork = keep('totalExpWork', 80); emp.totalExpHire = keep('totalExpHire', 80);
-      gd.obj.employeeExtras[empCode].personal = Object.assign({}, prevP, {
+      gd.obj.employeeExtras[empCode].personal = {
         fatherName: emp.fatherName || '', mobile: emp.mobile || '', address: emp.address || '',
         birthDate: emp.birthDate || '', militaryStatus: emp.militaryStatus || '', militaryExemptType: emp.militaryExemptType || '',
         jobGrade: emp.jobGrade || '', educationLevel: emp.educationLevel || '', educationField: emp.educationField || '', city: emp.city || '',
         priorExpY: emp.priorExpY || '', priorExpM: emp.priorExpM || '', priorExpD: emp.priorExpD || '',
         expFromWork: emp.expFromWork || '', expFromHire: emp.expFromHire || '',
         totalExpWork: emp.totalExpWork || '', totalExpHire: emp.totalExpHire || ''
-      });
+      };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
       if (!emp.suppInsurance || typeof emp.suppInsurance !== 'object') emp.suppInsurance = { covered: [], deducted: [], deductCount: 0 };
@@ -8287,12 +8212,7 @@ async function handleAdminEmployeeHistory(request, who, env) {
   }
   // summary: last change per employee
   const summary = Object.keys(log).map(function (c) {
-    const rows = (log[c] || []).filter(function (r) {
-      if (!r) return false;
-      var f = String(r.field || ''), lab = String(r.label || ''), tx = String(r.text || '');
-      if (f === 'address' || lab === 'آدرس' || /آدرس|address/i.test(tx)) return false;
-      return true;
-    });
+    const rows = log[c] || [];
     const last = rows.length ? rows[rows.length - 1] : null;
     const emp = ((gd.obj && gd.obj.employees) || []).find(function (e) { return String(e.code) === String(c); });
     return {
@@ -8302,7 +8222,7 @@ async function handleAdminEmployeeHistory(request, who, env) {
       lastAt: last ? last.at : null,
       lastText: last ? last.text : ''
     };
-  }).filter(function (x) { return x.count > 0; }).sort(function (a, b) { return String(b.lastAt || '').localeCompare(String(a.lastAt || '')); });
+  }).sort(function (a, b) { return String(b.lastAt || '').localeCompare(String(a.lastAt || '')); });
   return jsonResponse({ ok: true, summary: summary });
 }
 
