@@ -82,7 +82,7 @@ async function stamp(html, user, env) {
   // اسکریپت اضطراری درون‌خطی (حتی اگر boot لود نشود)
   const emergencyInline =
     '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||(tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0)){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v200"><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v201"><\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/<\/script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -248,7 +248,6 @@ function employeeFieldLabels() {
     nationalId: 'کد ملی',
     mobile: 'شماره همراه',
     fatherName: 'نام پدر',
-    address: 'آدرس',
     marital: 'وضعیت تأهل',
     childrenCount: 'تعداد اولاد',
     taxPercent: 'درصد مالیات',
