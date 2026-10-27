@@ -80,8 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل — بدون defer + اضطراری درون‌خطی (حتی اگر boot لود نشود)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v194"><\/script>';
-  const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v195"div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
@@ -6021,7 +6020,18 @@ async function handleAdminEmployeeExtra(request, who, env) {
       childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
       family: { members: members, children: emp.family.children || [], spouse: emp.family.spouse || {}, father: emp.family.father || {}, mother: emp.family.mother || {} },
       personal: (function(){ var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].personal) || {}; function g(k){ return emp[k] || ex[k] || ''; } return { fatherName: g('fatherName'), mobile: emp.mobile || emp.phone || ex.mobile || '', address: g('address'), birthDate: g('birthDate'), militaryStatus: g('militaryStatus'), militaryExemptType: g('militaryExemptType'), jobGrade: g('jobGrade'), educationLevel: g('educationLevel'), educationField: g('educationField'), city: g('city'), priorExpY: g('priorExpY'), priorExpM: g('priorExpM'), priorExpD: g('priorExpD'), expFromWork: g('expFromWork'), expFromHire: g('expFromHire'), totalExpWork: g('totalExpWork'), totalExpHire: g('totalExpHire') }; })(),
-      photo: getEmpPhoto(gd.obj, emp), suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
+      photo: getEmpPhoto(gd.obj, emp), suppInsurance: (function(){
+        var si = emp.suppInsurance || {};
+        var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[empCode] && gd.obj.employeeExtras[empCode].suppInsurance) || null;
+        // اگر emp خالی بود از extras
+        if ((!si.deducted || !si.deducted.length) && ex && Array.isArray(ex.deducted) && ex.deducted.length) si = ex;
+        if ((!si.covered || !si.covered.length) && ex && Array.isArray(ex.covered)) si = Object.assign({}, si, { covered: ex.covered });
+        return {
+          covered: Array.isArray(si.covered) ? si.covered.map(String) : [],
+          deducted: Array.isArray(si.deducted) ? si.deducted.map(String) : [],
+          deductCount: Array.isArray(si.deducted) ? si.deducted.length : (Number(si.deductCount)||0)
+        };
+      })(),
       systemMessages: emp.systemMessages || [],
       settings: { sonAlertAge: Number(gd.obj.settings.sonAlertAge) || 18, childStatusOptions: gd.obj.settings.childStatusOptions || [], suppInsurancePerPerson: Number(gd.obj.settings.suppInsurancePerPerson) || 0 }
     });
@@ -6140,6 +6150,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
       };
     }
     if (body.suppInsurance && typeof body.suppInsurance === 'object') {
+      if (!emp.suppInsurance || typeof emp.suppInsurance !== 'object') emp.suppInsurance = { covered: [], deducted: [], deductCount: 0 };
       emp.suppInsurance.covered = Array.isArray(body.suppInsurance.covered) ? body.suppInsurance.covered.map(String).slice(0, 30) : [];
       emp.suppInsurance.deducted = Array.isArray(body.suppInsurance.deducted) ? body.suppInsurance.deducted.map(String).slice(0, 30) : [];
       emp.suppInsurance.deductCount = emp.suppInsurance.deducted.length;
@@ -6151,6 +6162,7 @@ async function handleAdminEmployeeExtra(request, who, env) {
         emp.suppInsuranceUseCustom = u > 0;
       }
       syncSuppInsuranceEmpItem(gd.obj, emp);
+      try { snapshotEmpExtra(gd.obj, emp); } catch (eSnap) {}
       // همه ماه‌های monthlyData را برای این فرد به‌روز کن
       try {
         var code = String(emp.code);
