@@ -80,7 +80,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل — بدون defer + اضطراری درون‌خطی (حتی اگر boot لود نشود)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v190"><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v191"><\/script>';
   const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
@@ -739,10 +739,18 @@ async function enrichCalcDataFromStore(env, data) {
       if (!s) return;
       if (s.family) e.family = s.family;
       if (s.suppInsurance) e.suppInsurance = s.suppInsurance;
+      try {
+        var ex = (gd.obj.employeeExtras && gd.obj.employeeExtras[String(e.code)]) || {};
+        if (ex.suppInsurance && !e.suppInsurance) e.suppInsurance = ex.suppInsurance;
+        if (ex.suppInsurance) e.suppInsurance = ex.suppInsurance;
+        if (ex.suppInsuranceUnitAmount != null) e.suppInsuranceUnitAmount = ex.suppInsuranceUnitAmount;
+      } catch (eEx) {}
       if (s.childrenEligibleCount != null) e.childrenEligibleCount = s.childrenEligibleCount;
       if (s.children != null && (e.children == null || e.children === '')) e.children = s.children;
       if (s.suppInsuranceDeductCount != null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
       if (s.suppInsuranceDeduct != null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
+      if (s.suppInsuranceUnitAmount != null) e.suppInsuranceUnitAmount = s.suppInsuranceUnitAmount;
+      if (s.suppInsuranceUseCustom != null) e.suppInsuranceUseCustom = s.suppInsuranceUseCustom;
       // آیتم کسر بیمه تکمیلی
       if (Array.isArray(s.customItems) && s.customItems.length) {
         if (!Array.isArray(e.customItems)) e.customItems = e.customItems || [];
@@ -792,6 +800,39 @@ async function enrichCalcDataFromStore(env, data) {
           });
         }
       });
+    }
+    // اجبار: تعداد و مبلغ کسر بیمه تکمیلی از اعضای خانواده روی monthlyData + customItems
+    try {
+      if (!data.settings) data.settings = {};
+      if (Number(gd.obj.settings && gd.obj.settings.suppInsurancePerPerson) > 0) {
+        data.settings.suppInsurancePerPerson = Number(gd.obj.settings.suppInsurancePerPerson);
+      }
+      (data.employees || []).forEach(function (e) {
+        if (!e) return;
+        try { syncSuppInsuranceEmpItem(data, e); } catch (eS) {}
+        var cnt = 0;
+        if (e.suppInsurance && Array.isArray(e.suppInsurance.deducted)) cnt = e.suppInsurance.deducted.length;
+        else cnt = Number(e.suppInsuranceDeductCount) || 0;
+        var unit = resolveEmpSuppUnit(data, e);
+        Object.keys(data.monthlyData || {}).forEach(function (mk) {
+          if (!data.monthlyData[mk] || typeof data.monthlyData[mk] !== 'object') data.monthlyData[mk] = {};
+          var code = String(e.code);
+          if (!data.monthlyData[mk][code]) data.monthlyData[mk][code] = {};
+          var row = data.monthlyData[mk][code];
+          if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+          // همیشه از تعداد مشمول کسر خانواده بنویس (منبع حقیقت)
+          row.qty['کسر بیمه تکمیلی'] = cnt;
+          row.qty['تعداد کسر بیمه تکمیلی'] = cnt;
+          row.qty['بیمه تکمیلی'] = cnt;
+          if (unit > 0) {
+            row.qty['مبلغ واحد بیمه تکمیلی'] = unit;
+            row.vars = row.vars || {};
+            row.vars['مبلغ واحد بیمه تکمیلی'] = unit;
+          }
+        });
+      });
+    } catch (eForce) {
+      console.log(JSON.stringify({ event: 'enrich_supp_force', message: String(eForce && eForce.message) }));
     }
   } catch (eEn) {
     console.log(JSON.stringify({ event: 'enrich_calc_error', message: String(eEn && eEn.message) }));
@@ -5728,19 +5769,37 @@ function refreshSonAgeMessages(obj, emp) {
 
 /** همگام‌سازی آیتم کسر بیمه تکمیلی روی کارت کارمند */
 function resolveSuppUnitAmount(obj) {
-  var s = obj.settings || {};
+  var s = (obj && obj.settings) || {};
   var keys = ['suppInsurancePerPerson', 'supplementaryInsurancePerPerson', 'suppInsPerPerson', 'suppInsuranceAmount', 'bimeTakmiliPerPerson'];
   for (var i = 0; i < keys.length; i++) {
     var v = Number(s[keys[i]]);
     if (v > 0) return Math.round(v);
   }
-  var allows = obj.allowances || [];
+  var allows = (obj && obj.allowances) || [];
   for (var j = 0; j < allows.length; j++) {
     var a = allows[j];
     if (!a || !a.name) continue;
     if (/بیمه\s*تکمیلی/.test(String(a.name))) {
       var av = Number(a.amount) || 0;
       if (av > 0) return Math.round(av);
+    }
+  }
+  return 0;
+}
+/** اولویت: مبلغ اختصاصی کارمند (اگر >0) وگرنه مبلغ سراسری تنظیمات */
+function resolveEmpSuppUnit(obj, emp) {
+  emp = emp || {};
+  var custom = Number(emp.suppInsuranceUnitAmount);
+  if (custom > 0) return Math.round(custom);
+  var globalUnit = resolveSuppUnitAmount(obj);
+  if (globalUnit > 0) return globalUnit;
+  if (Array.isArray(emp.customItems)) {
+    for (var i = 0; i < emp.customItems.length; i++) {
+      var ci = emp.customItems[i];
+      if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''))) {
+        var a = Number(ci.amount) || 0;
+        if (a > 0) return Math.round(a);
+      }
     }
   }
   return 0;
@@ -5755,9 +5814,9 @@ function syncSuppInsuranceEmpItem(obj, emp) {
   emp.suppInsuranceDeductCount = count;
   if (emp.suppInsurance) emp.suppInsurance.deductCount = count;
 
-  var unit = resolveSuppUnitAmount(obj);
-  // اگر مبلغ در تنظیمات بود، در settings.suppInsurancePerPerson هم بنویس تا موتور یک منبع داشته باشد
-  if (unit > 0) obj.settings.suppInsurancePerPerson = unit;
+  var globalUnit = resolveSuppUnitAmount(obj);
+  if (globalUnit > 0 && obj.settings) obj.settings.suppInsurancePerPerson = globalUnit;
+  var unit = resolveEmpSuppUnit(obj, emp);
 
   var itemName = 'کسر بیمه تکمیلی';
   if (!Array.isArray(emp.customItems)) emp.customItems = [];
@@ -5768,7 +5827,7 @@ function syncSuppInsuranceEmpItem(obj, emp) {
   if (count > 0) {
     var rec = {
       name: itemName,
-      amount: unit > 0 ? unit : (idx >= 0 ? (Number(emp.customItems[idx].amount) || 0) : 0),
+      amount: unit,
       isDeduction: true,
       entryType: 'quantity',
       enabled: true,
@@ -5851,6 +5910,8 @@ function snapshotEmpExtra(obj, emp) {
   obj.employeeExtras[code] = {
     family: emp.family || { members: [] },
     suppInsurance: emp.suppInsurance || { covered: [], deducted: [], deductCount: 0 },
+    suppInsuranceUnitAmount: Number(emp.suppInsuranceUnitAmount) || 0,
+    suppInsuranceUseCustom: !!emp.suppInsuranceUseCustom,
     systemMessages: Array.isArray(emp.systemMessages) ? emp.systemMessages : [],
     childrenEligibleCount: Number(emp.childrenEligibleCount) || 0,
     children: Number(emp.children) || 0,
@@ -6073,7 +6134,26 @@ async function handleAdminEmployeeExtra(request, who, env) {
       emp.suppInsurance.deductCount = emp.suppInsurance.deducted.length;
       emp.suppInsuranceDeductCount = emp.suppInsurance.deductCount;
       emp.suppInsuranceDeduct = emp.suppInsurance.deductCount > 0;
+      if (body.suppInsuranceUnitAmount != null) {
+        var u = Math.max(0, Math.round(Number(body.suppInsuranceUnitAmount) || 0));
+        emp.suppInsuranceUnitAmount = u;
+        emp.suppInsuranceUseCustom = u > 0;
+      }
       syncSuppInsuranceEmpItem(gd.obj, emp);
+      // همه ماه‌های monthlyData را برای این فرد به‌روز کن
+      try {
+        var code = String(emp.code);
+        var cnt = emp.suppInsuranceDeductCount || 0;
+        Object.keys(gd.obj.monthlyData || {}).forEach(function (mk) {
+          if (!gd.obj.monthlyData[mk]) gd.obj.monthlyData[mk] = {};
+          if (!gd.obj.monthlyData[mk][code]) gd.obj.monthlyData[mk][code] = {};
+          var row = gd.obj.monthlyData[mk][code];
+          if (!row.qty) row.qty = {};
+          row.qty['کسر بیمه تکمیلی'] = cnt;
+          row.qty['تعداد کسر بیمه تکمیلی'] = cnt;
+          row.qty['بیمه تکمیلی'] = cnt;
+        });
+      } catch (eMd) {}
     }
     if (body.resolveMessage && body.resolveMessage.id) {
       const msg = (emp.systemMessages || []).find(function (m) { return m && m.id === body.resolveMessage.id; });
