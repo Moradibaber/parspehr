@@ -591,6 +591,42 @@ export function makeEngine(data) {
     return Math.max(0, Math.min(baseMax, monthDays - specialDays));
   }
 
+  /**
+   * اضافه‌کار / شب‌کاری / نوبت‌کاری یک ماه با «حقوق پایه» دلخواه.
+   * دقیقاً همان فرمول runMonth است (تا معوقه با فیش ماه یکسان باشد).
+   * workDays: کارکرد مؤثر ماه (پس از سقف‌ها).
+   */
+  function calcVariablePay(basicSalary, d, workDays) {
+    d = d || {};
+    const sv = data.settings || {};
+    const daily = (Number(basicSalary) || 0) / 30;
+    const ot = Math.round((daily / 7.33) * (d.otHours || 0) * sv.overtimeFactor);
+    const night = Math.round((daily / 7.33) * (d.nightHours || 0) * (sv.nightFactor || 1.35));
+    let shiftPct = 0;
+    const st = d.shiftType || 'none';
+    if (st === 'me') shiftPct = Number(sv.shiftMorningEvening) || 10;
+    else if (st === 'mn') shiftPct = Number(sv.shiftWithNight) || 22.5;
+    else if (st === 'all') shiftPct = Number(sv.shiftAllThree) || 15;
+    let shiftDays = Number(d.shiftDays) || 0;
+    if (shiftPct > 0 && shiftDays <= 0 && workDays > 0) shiftDays = workDays;
+    const shift = (shiftPct > 0 && shiftDays > 0) ? Math.round(daily * shiftDays * (shiftPct / 100)) : 0;
+    return { ot: ot, night: night, shift: shift, total: ot + night + shift, shiftType: st, shiftDays: shiftDays };
+  }
+
+  /** مابه‌التفاوت اضافه‌کار/شب‌کاری/نوبت‌کاری ماهِ (year, month) بین دو حقوق پایه — برای معوقه حکم */
+  function calcVariablePayDiff(emp, oldBasic, newBasic, year, month) {
+    const key = year + '-' + month;
+    const md = data.monthlyData && data.monthlyData[key];
+    const d = md && md[emp.code];
+    if (!d) return { ot: 0, night: 0, shift: 0, total: 0, found: false };
+    const monthDays = getMonthDays(year, month);
+    let workDays = Math.min(Number(d.workDays) || 0, maxWorkDaysForEmployee(emp, year, month), monthDays);
+    if (countSpecialDaysInMonth(emp, year, month) > 0) workDays = Math.min(workDays, maxWorkDaysWithSpecial(emp, year, month));
+    const a = calcVariablePay(oldBasic, d, workDays);
+    const b = calcVariablePay(newBasic, d, workDays);
+    return { ot: b.ot - a.ot, night: b.night - a.night, shift: b.shift - a.shift, total: b.total - a.total, found: true };
+  }
+
   function runMonth(year, month, opts) {
     opts = opts || {};
     const key = year + '-' + month;
@@ -708,28 +744,18 @@ export function makeEngine(data) {
       const ratioFunc = functionalDays > 0 ? (workDays / functionalDays) : 0;
       const basicAmount = Math.round(emp.basicSalary * ratioBase);
       const daily = emp.basicSalary / 30;
-      const otAmount = Math.round((daily / 7.33) * (d.otHours||0) * s.overtimeFactor);
-      const nightAmount = Math.round((daily / 7.33) * (d.nightHours||0) * (s.nightFactor||1.35));
+      const vp = calcVariablePay(emp.basicSalary, d, workDays);
+      const otAmount = vp.ot;
+      const nightAmount = vp.night;
       // کسر کار مازاد: هر ساعت = جمع حکم ÷ ۱۹۰
       const decreeForShort = (typeof getDecreeEmpTotals === 'function' ? (getDecreeEmpTotals(emp.code).decreeSum || 0) : 0) || (Number(emp.basicSalary) || 0);
       const excessAbsH = Math.max(0, Number(d.excessAbsenceHours) || 0);
       const shortfallDeduction = (excessAbsH > 0 && decreeForShort > 0)
         ? Math.round(excessAbsH * (decreeForShort / 190))
         : 0;
-      // نوبت‌کاری: مزد روزانه × روزهای نوبت × درصد
-      // فرمول رایج: تعداد روزهای نوبت × (درصد × مزد روزانه)
-      let shiftAmount = 0;
-      const st = d.shiftType || 'none';
-      let shiftPct = 0;
-      if (st === 'me') shiftPct = Number(s.shiftMorningEvening) || 10;
-      else if (st === 'mn') shiftPct = Number(s.shiftWithNight) || 22.5;
-      else if (st === 'all') shiftPct = Number(s.shiftAllThree) || 15;
-      let shiftDays = Number(d.shiftDays) || 0;
-      // اگر نوع نوبت انتخاب شده ولی روز وارد نشده، پیش‌فرض = روز کارکرد
-      if (shiftPct > 0 && shiftDays <= 0 && workDays > 0) shiftDays = workDays;
-      if (shiftPct > 0 && shiftDays > 0) {
-        shiftAmount = Math.round(daily * shiftDays * (shiftPct / 100));
-      }
+      const shiftAmount = vp.shift;
+      const st = vp.shiftType;
+      const shiftDays = vp.shiftDays;
       let totalAllow = 0, totalDeductions = 0;
       let insBase = basicAmount, taxBase = basicAmount + otAmount + nightAmount + shiftAmount;
       const itemDetails = [];
@@ -1231,5 +1257,5 @@ export function makeEngine(data) {
     return entries;
   }
 
-  return { runMonth: runMonth, runEid: runEid, runAnnualTax: runAnnualTax, bonusBases: bonusBases, bonusRows: bonusRows, decreeAmounts: decreeAmounts };
+  return { runMonth: runMonth, calcVariablePayDiff: calcVariablePayDiff, runEid: runEid, runAnnualTax: runAnnualTax, bonusBases: bonusBases, bonusRows: bonusRows, decreeAmounts: decreeAmounts };
 }
