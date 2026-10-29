@@ -2,6 +2,9 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
+const STATE_DOCS = ['settings', 'data', 'log'];
+const MAX_DOC_BYTES = 8 * 1024 * 1024;
+const SESSION_IDLE_SECONDS = 60 * 60;
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -69,6 +72,13 @@ async function authenticate(request, users) {
 
 
 
+function jsonResponse(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+  });
+}
+
 async function stamp(html, user, env) {
   const key = env.WM_KEY || env.SITE_USERS || env.SITE_PASSWORD || 'parspehr';
   const tag = (await hmacHex(key, 'psp:' + user)).slice(0, 16);
@@ -80,7 +90,7 @@ async function stamp(html, user, env) {
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
     // اسکریپت پنل — بدون defer + اضطراری درون‌خطی (حتی اگر boot لود نشود)
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v208"><\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v209';
   const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
@@ -89,6 +99,59 @@ async function stamp(html, user, env) {
   const end = out.lastIndexOf('</body>');
   out = end >= 0 ? out.slice(0, end) + bottom + out.slice(end) : out + bottom;
   return out;
+}
+
+
+// ---------- Session helpers (admin) ----------
+const COOKIE_NAME = 'psp_session';
+const EMP_COOKIE_NAME = 'psp_emp';
+const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
+function b64urlEncode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64urlDecode(str) {
+  const b = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(b.length);
+  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+  return out;
+}
+
+async function sessionKey(env) {
+  const material = 'psp-session|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|' +
+    String(env.SITE_USER || '') + '|' + String(env.SITE_PASSWORD || '');
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function makeToken(env, name, exp) {
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ u: name, e: exp })));
+  const sig = await crypto.subtle.sign('HMAC', await sessionKey(env), new TextEncoder().encode(payload));
+  return payload + '.' + b64urlEncode(new Uint8Array(sig));
+}
+
+function sessionCookie(token) {
+  return COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
+}
+
+async function readSession(request, env, users) {
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_session=([^;]+)/);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  if (parts.length !== 2) return null;
+  try {
+    const good = await crypto.subtle.verify('HMAC', await sessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
+    if (!good) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    if (!p || typeof p.u !== 'string' || !Number.isFinite(p.e)) return null;
+    if (p.e < Math.floor(Date.now() / 1000)) return null;
+    if (!Object.prototype.hasOwnProperty.call(users, p.u)) return null;
+    return { name: p.u, role: users[p.u].role, exp: p.e };
+  } catch (e) {
+    return null;
+  }
 }
 
 async function handleState(request, who, env, path) {
