@@ -5,6 +5,8 @@ const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English l
 const STATE_DOCS = ['settings', 'data', 'log'];
 const MAX_DOC_BYTES = 8 * 1024 * 1024;
 const SESSION_IDLE_SECONDS = 60 * 60;
+const COOKIE_NAME = 'psp_session';
+const EMP_COOKIE_NAME = 'psp_emp';
 
 async function sha256(text) {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -89,7 +91,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v212"><\\/script>';
+  const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=20261019v213"><\\/script>';
   const emergencyInline = '<script>(function(){function nuke(){try{var all=document.querySelectorAll("div,p,span,section,article");for(var i=0;i<all.length;i++){var el=all[i],tx=String(el.textContent||"");if(tx.indexOf("اسکریپت پنل اجرا نشد")>=0||(tx.indexOf("portal-boot.js")>=0&&tx.indexOf("Network")>=0)){if(tx.length<400){el.style.display="none";el.setAttribute("data-psp-nuked","1");}}}}catch(e){}}function rn(){try{var ns=document.querySelectorAll("button,[role=tab],a,.tab-btn,[data-tab]");for(var i=0;i<ns.length;i++){var el=ns[i],t=String(el.textContent||"").replace(/\\s+/g," ").trim();if(!t||t.length>48||t==="کارکرد")continue;var L=t.indexOf("مرخصی")>=0,M=t.indexOf("مأموریت")>=0||t.indexOf("ماموریت")>=0,O=t.indexOf("سایر")>=0;if((L&&M&&O)||el.id==="pspPortalTabBtn"||el.getAttribute("data-tab")==="portalatt"){el.textContent="کارکرد";}}}catch(e){}}nuke();rn();setInterval(function(){nuke();rn();},800);})();<\\/script>';
   const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
@@ -100,11 +102,537 @@ async function stamp(html, user, env) {
   return out;
 }
 
-// ---------- Session helpers (admin) ----------
-const COOKIE_NAME = 'psp_session';
-const EMP_COOKIE_NAME = 'psp_emp';
-const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+function isPlainObject(x) {
+  return x !== null && typeof x === 'object' && !Array.isArray(x);
+}
+function arrOf(x) { return Array.isArray(x) ? x : []; }
+function objOf(x) { return isPlainObject(x) ? x : {}; }
+function isInt(x, lo, hi) { return Number.isInteger(x) && x >= lo && x <= hi; }
+function isNum(x) { return typeof x === 'number' && Number.isFinite(x); }
 
+async function readBody(request) {
+  const m = request.method;
+  if (m !== 'POST' && m !== 'PUT' && m !== 'DELETE' && m !== 'PATCH') {
+    return { error: jsonResponse({ ok: false, error: 'method_not_allowed' }, 405) };
+  }
+  const site = request.headers.get('Sec-Fetch-Site');
+  if (site && site !== 'same-origin') return { error: jsonResponse({ ok: false, error: 'forbidden' }, 403) };
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY_BYTES) {
+    return { error: jsonResponse({ ok: false, error: 'too_large' }, 413) };
+  }
+  try {
+    const text = await request.text();
+    if (text.length > MAX_BODY_BYTES) return { error: jsonResponse({ ok: false, error: 'too_large' }, 413) };
+    const body = JSON.parse(text);
+    if (!isPlainObject(body)) return { error: jsonResponse({ ok: false, error: 'bad_request' }, 400) };
+    return { body: body };
+  } catch (e) {
+    return { error: jsonResponse({ ok: false, error: 'bad_json' }, 400) };
+  }
+}
+
+// ---------- Supabase helpers ----------
+function storeConfig(env) {
+  const url = String(env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  const key = String(env.SUPABASE_SERVICE_KEY || '').trim();
+  if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(url) || !key) return null;
+  return { url: url, key: key };
+}
+
+function storeHeaders(cfg, extra) {
+  const h = { apikey: cfg.key };
+  if (/^eyJ/.test(cfg.key)) h.Authorization = 'Bearer ' + cfg.key;
+  return Object.assign(h, extra || {});
+}
+
+async function storeFail(r) {
+  let code = '';
+  try { code = String(JSON.parse((await r.text()).slice(0, 2000)).code || ''); } catch (e) {}
+  let reason = 'store_error';
+  if (r.status === 404 || code === 'PGRST205' || code === '42P01') reason = 'table_missing';
+  else if (r.status === 401 || r.status === 403 || code === '42501') reason = 'bad_key';
+  return { reason: reason, status: r.status };
+}
+
+function storeFailResponse(f) {
+  return jsonResponse({ ok: false, error: 'store_error', reason: f.reason, upstream: f.status }, 502);
+}
+
+async function storeVersions(cfg) {
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?select=name,version', { headers: storeHeaders(cfg) });
+  if (!r.ok) return { fail: await storeFail(r) };
+  const rows = await r.json();
+  const v = { settings: 0, data: 0, log: 0 };
+  rows.forEach(function (x) { if (x && STATE_DOCS.indexOf(x.name) >= 0) v[x.name] = Number(x.version) || 0; });
+  return { versions: v };
+}
+
+async function storeGetData(cfg) {
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.data&select=version,data',
+    { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+  if (r.status === 406) return { version: 0, obj: null };
+  if (!r.ok) return { fail: await storeFail(r) };
+  const row = await r.json();
+  let obj = null;
+  if (row && row.data) {
+    try { obj = JSON.parse(row.data); } catch (e) { return { fail: { reason: 'bad_json', status: 502 } }; }
+  }
+  if (obj) {
+    try { mergeAllEmployeeExtras(obj); } catch (eMerge) { /* non-fatal */ }
+    // ترمیم شناوری: portalFloatMinutes / floatMinutes را یکدست کن
+    try {
+      if (obj.settings && typeof obj.settings === 'object') {
+        var fm = null;
+        if (obj.settings.portalFloatMinutes != null && obj.settings.portalFloatMinutes !== '') {
+          fm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+        }
+        if (fm == null && obj.settings.floatMinutes != null && obj.settings.floatMinutes !== '') {
+          fm = parseFloatMinutesValue(obj.settings.floatMinutes, null);
+        }
+        if (fm == null && obj.settings.contractCalendars) {
+          Object.keys(obj.settings.contractCalendars).forEach(function (id) {
+            if (String(id) === 'hourly') return;
+            var v = parseFloatMinutesValue(obj.settings.contractCalendars[id] && obj.settings.contractCalendars[id].floatMinutes, null);
+            if (v != null && (fm == null || v > fm)) fm = v;
+          });
+        }
+        if (fm != null && fm !== 15) {
+          obj.settings.portalFloatMinutes = fm;
+          obj.settings.floatMinutes = fm;
+          Object.keys(obj.settings.contractCalendars || {}).forEach(function (id) {
+            if (String(id) === 'hourly') return;
+            var c = obj.settings.contractCalendars[id];
+            if (c && typeof c === 'object') c.floatMinutes = fm;
+          });
+        }
+      }
+    } catch (eFloatHeal) {}
+  }
+  return { version: Number(row.version) || 0, obj: obj };
+}
+
+
+function employeeFieldLabels() {
+  return {
+    fullName: 'نام و نام خانوادگی',
+    firstName: 'نام',
+    lastName: 'نام خانوادگی',
+    birthDate: 'تاریخ تولد',
+    management: 'مدیریت',
+    deputy: 'معاونت',
+    unit: 'واحد',
+    group: 'گروه',
+    jobGrade: 'رده شغلی',
+    workplace: 'محل کار',
+    city: 'شهر محل سکونت',
+    province: 'استان محل سکونت',
+    gender: 'جنسیت',
+    militaryStatus: 'وضعیت نظام وظیفه',
+    militaryExemptType: 'نوع معافیت نظام وظیفه',
+    educationLevel: 'مقطع تحصیلی',
+    educationField: 'رشته تحصیلی',
+    hireDate: 'تاریخ استخدام',
+    endDate: 'تاریخ پایان همکاری',
+    position: 'سمت',
+    basicSalary: 'حقوق پایه',
+    status: 'وضعیت',
+    contractType: 'نوع قرارداد',
+    bankName: 'نام بانک',
+    accountNumber: 'شماره حساب',
+    insuranceNo: 'شماره بیمه',
+    nationalId: 'کد ملی',
+    mobile: 'شماره همراه',
+    fatherName: 'نام پدر',
+    address: 'آدرس',
+    marital: 'وضعیت تأهل',
+    childrenCount: 'تعداد اولاد',
+    taxPercent: 'درصد مالیات',
+    exemption: 'معافیت',
+    seniorityBase: 'پایه سنوات'
+  };
+}
+
+function normEmpVal(v) {
+  if (v == null || v === undefined) return '';
+  if (typeof v === 'number') return String(v);
+  return String(v).trim();
+}
+
+function diffEmployeeChanges(prev, next) {
+  if (!prev || !next) return [];
+  const labels = employeeFieldLabels();
+  const keys = Object.keys(labels);
+  const out = [];
+  keys.forEach(function (k) {
+    const a = normEmpVal(prev[k]);
+    const b = normEmpVal(next[k]);
+    // fullName: also compose from first/last if needed
+    if (k === 'fullName') {
+      const fa = a || (normEmpVal(prev.firstName) + ' ' + normEmpVal(prev.lastName)).trim();
+      const fb = b || (normEmpVal(next.firstName) + ' ' + normEmpVal(next.lastName)).trim();
+      if (fa !== fb && (fa || fb)) {
+        out.push({ field: k, label: labels[k], from: fa || '—', to: fb || '—' });
+      }
+      return;
+    }
+    if (a !== b && (a || b)) {
+      out.push({ field: k, label: labels[k], from: a || '—', to: b || '—' });
+    }
+  });
+  // customItems by name — فقط تغییر واقعی مبلغ/فعال بودن (نه 0 در برابر غیرفعال)
+  function itemSig(emp) {
+    const m = {};
+    (emp.customItems || emp.customs || emp.items || []).forEach(function (ci) {
+      if (!ci || !ci.name) return;
+      const name = String(ci.name).trim();
+      if (!name) return;
+      const amount = Number(ci.amount);
+      const amt = isFinite(amount) ? amount : 0;
+      // فعال بودن: صریح false/0 = خاموش؛ در غیر این صورت اگر مبلغ > 0 یا enabled true
+      let en = true;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') en = false;
+      if (ci.active === false || ci.active === 0) en = false;
+      // مبلغ صفر و بدون فلگ فعال = معادل غیرفعال/خالی
+      if (!en || !(amt > 0)) {
+        m[name] = { key: 'off', label: 'غیرفعال' };
+      } else {
+        m[name] = { key: 'on:' + amt, label: String(amt) };
+      }
+    });
+    return m;
+  }
+  const pm = itemSig(prev);
+  const nm = itemSig(next);
+  const names = {};
+  Object.keys(pm).forEach(function (n) { names[n] = true; });
+  Object.keys(nm).forEach(function (n) { names[n] = true; });
+  function isOffState(x) {
+    if (!x || x.key === 'off') return true;
+    var s = String(x.label || '').trim();
+    if (!s || s === '—' || s === 'غیرفعال' || s === 'حذف شد') return true;
+    var n = Number(String(s).replace(/,/g, ''));
+    if (isFinite(n) && n === 0) return true;
+    return false;
+  }
+  Object.keys(names).forEach(function (n) {
+    const a = pm[n] || { key: 'off', label: '—' };
+    const b = nm[n] || { key: 'off', label: '—' };
+    if (a.key === b.key) return;
+    // 0 / غیرفعال / نبودن = معادل هم — ثبت نشود
+    if (isOffState(a) && isOffState(b)) return;
+    out.push({ field: 'custom:' + n, label: 'آیتم «' + n + '»', from: a.label, to: b.label });
+  });
+  return out;
+}
+
+function appendEmployeeChangeLog(obj, code, changes, updatedBy) {
+  if (!obj || !code || !changes || !changes.length) return;
+  if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') obj.employeeChangeLog = {};
+  const key = String(code);
+  if (!Array.isArray(obj.employeeChangeLog[key])) obj.employeeChangeLog[key] = [];
+  const at = new Date().toISOString();
+  const by = String(updatedBy || 'system');
+  changes.forEach(function (c) {
+    obj.employeeChangeLog[key].push({
+      at: at,
+      by: by,
+      field: c.field,
+      label: c.label,
+      from: c.from,
+      to: c.to,
+      text: (c.label || c.field) + ' از «' + c.from + '» به «' + c.to + '» تغییر کرد'
+    });
+  });
+  // keep last 300
+  if (obj.employeeChangeLog[key].length > 300) {
+    obj.employeeChangeLog[key] = obj.employeeChangeLog[key].slice(-300);
+  }
+}
+
+async function storePutData(cfg, baseVersion, obj, updatedBy) {
+  // Preserve portal fields the main app form does not know about (managerCode, portal password, requests…)
+  try {
+    if (obj && Array.isArray(obj.employees) && baseVersion > 0) {
+      const prev = await storeGetData(cfg);
+      if (!prev.fail && prev.obj && Array.isArray(prev.obj.employees)) {
+        const map = {};
+        prev.obj.employees.forEach(function (e) { map[String(e.code)] = e; });
+        if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+          obj.employeeChangeLog = (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object')
+            ? JSON.parse(JSON.stringify(prev.obj.employeeChangeLog))
+            : {};
+        }
+
+        // Managers stored in portalMeta so main-app saves cannot wipe them.
+        var allowMgrWrite = String(updatedBy || '').indexOf('mgr-set:') === 0;
+        var prevMeta = prev.obj.portalMeta && typeof prev.obj.portalMeta === 'object' ? prev.obj.portalMeta : {};
+        if (!obj.portalMeta || typeof obj.portalMeta !== 'object') obj.portalMeta = {};
+        obj.portalMeta = Object.assign({}, prevMeta, obj.portalMeta);
+        obj.employees.forEach(function (e) {
+          const p = map[String(e.code)];
+          const codeKey = String(e.code);
+          const m = obj.portalMeta[codeKey] || prevMeta[codeKey];
+          if (!allowMgrWrite && m) {
+            e.managerCode = m.managerCode || '';
+            e.managerCode2 = m.managerCode2 || '';
+          } else if (!allowMgrWrite && p) {
+            if (p.managerCode) e.managerCode = p.managerCode;
+            if (p.managerCode2) e.managerCode2 = p.managerCode2;
+          }
+          if (allowMgrWrite) {
+            obj.portalMeta[codeKey] = {
+              managerCode: e.managerCode || '',
+              managerCode2: e.managerCode2 || ''
+            };
+          }
+          if (p) {
+            if (e.portalPassHash === undefined || e.portalPassHash === null) {
+              if (p.portalPassHash) e.portalPassHash = p.portalPassHash;
+            }
+            if (e.portalEnabled === undefined || e.portalEnabled === null) {
+              if (p.portalEnabled != null) e.portalEnabled = p.portalEnabled;
+            }
+            if (!e.portalPassChangedAt && p.portalPassChangedAt) e.portalPassChangedAt = p.portalPassChangedAt;
+            // اگر کلاینت family نفرستاد، از قبلی نگه دار (تا F5 پاک نکند)
+            if (e.family === undefined && p.family) e.family = p.family;
+            if (e.suppInsurance === undefined && p.suppInsurance) e.suppInsurance = p.suppInsurance;
+            if (e.systemMessages === undefined && p.systemMessages) e.systemMessages = p.systemMessages;
+            ['fatherName','mobile','address','phone','birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function (k) {
+              var inc = e[k];
+              var prev = p[k];
+              var incEmpty = (inc === undefined || inc === null || String(inc).trim() === '');
+              var prevHas = (prev !== undefined && prev !== null && String(prev).trim() !== '');
+              if (incEmpty && prevHas) e[k] = prev;
+            });
+            if ((!e.mobile || String(e.mobile).trim() === '') && e.phone) e.mobile = e.phone;
+            if ((!e.phone || String(e.phone).trim() === '') && e.mobile) e.phone = e.mobile;
+            if (e.childrenEligibleCount === undefined && p.childrenEligibleCount != null) e.childrenEligibleCount = p.childrenEligibleCount;
+
+            try {
+              var ex = (obj.employeeExtras && obj.employeeExtras[codeKey]) || (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {};
+              var per = (ex && ex.personal) || {};
+              if ((!e.fatherName || String(e.fatherName).trim() === '') && per.fatherName) e.fatherName = per.fatherName;
+              if ((!e.mobile || String(e.mobile).trim() === '') && (per.mobile || per.phone)) e.mobile = per.mobile || per.phone;
+              if ((!e.address || String(e.address).trim() === '') && per.address) e.address = per.address;
+              ['birthDate','militaryStatus','militaryExemptType','jobGrade','educationLevel','educationField','city'].forEach(function(pk){
+                if ((!e[pk] || String(e[pk]).trim() === '') && per[pk]) e[pk] = per[pk];
+              });
+              if (!obj.employeeExtras) obj.employeeExtras = {};
+              if (!obj.employeeExtras[codeKey] || typeof obj.employeeExtras[codeKey] !== 'object') obj.employeeExtras[codeKey] = Object.assign({}, (prev.obj.employeeExtras && prev.obj.employeeExtras[codeKey]) || {});
+              obj.employeeExtras[codeKey].personal = {
+                fatherName: e.fatherName || '',
+                mobile: e.mobile || e.phone || '',
+                address: e.address || '',
+                birthDate: e.birthDate || '',
+                militaryStatus: e.militaryStatus || '',
+                militaryExemptType: e.militaryExemptType || '',
+                jobGrade: e.jobGrade || '',
+                educationLevel: e.educationLevel || '',
+                educationField: e.educationField || '',
+                city: e.city || ''
+              };
+            } catch (ePer) {}
+
+            if ((e.photo === undefined || e.photo === null || e.photo === '') && p.photo) e.photo = p.photo;
+            // تاریخچه تغییرات کارت کارمند
+            try {
+              const ch = diffEmployeeChanges(p, e);
+              if (ch.length) appendEmployeeChangeLog(obj, e.code, ch, updatedBy);
+            } catch (eLog) {}
+          }
+        });
+        // حفظ تاریخچه قبلی اگر کلاینت نفرستاده
+        if (prev.obj.employeeChangeLog && typeof prev.obj.employeeChangeLog === 'object') {
+          if (!obj.employeeChangeLog || typeof obj.employeeChangeLog !== 'object') {
+            obj.employeeChangeLog = prev.obj.employeeChangeLog;
+          } else {
+            Object.keys(prev.obj.employeeChangeLog).forEach(function (k) {
+              if (!obj.employeeChangeLog[k]) obj.employeeChangeLog[k] = prev.obj.employeeChangeLog[k];
+            });
+          }
+        }
+        if (obj.attendanceTypes === undefined && prev.obj.attendanceTypes) obj.attendanceTypes = prev.obj.attendanceTypes;
+        if (obj.attendanceRequests === undefined && prev.obj.attendanceRequests) obj.attendanceRequests = prev.obj.attendanceRequests;
+        if (obj.attendanceGrants === undefined && prev.obj.attendanceGrants) obj.attendanceGrants = prev.obj.attendanceGrants;
+        if (obj.contracts === undefined && prev.obj.contracts) obj.contracts = prev.obj.contracts;
+        if (obj.employeeChangeLog === undefined && prev.obj.employeeChangeLog) obj.employeeChangeLog = prev.obj.employeeChangeLog;
+        // تنظیمات نمایش حکم/مشخصات فقط توسط خود ذخیره‌ی پورتال‌ویو (updatedBy = 'portal-view:...') قابل تغییر است؛
+        // ذخیره‌های دیگر (فرم اصلی) نسخه‌ی قبلی را حفظ می‌کنند. (قبلاً این خط ذخیره‌ی خود پورتال‌ویو را هم برمی‌گرداند!)
+        if (String(updatedBy || '').indexOf('portal-view:') !== 0) {
+          if (prev.obj.portalViewConfig) obj.portalViewConfig = prev.obj.portalViewConfig;
+        }
+        // پیام‌های همگانی ادمین: فقط ذخیره‌های خود پیام‌رسان (updatedBy = 'bcast:...') می‌توانند تغییرشان دهند
+        if (String(updatedBy || '').indexOf('bcast:') !== 0) {
+          if (Array.isArray(prev.obj.broadcastMessages)) obj.broadcastMessages = prev.obj.broadcastMessages;
+        }
+        // خانواده / بیمه تکمیلی / عکس — هرگز با ذخیره فرم اصلی پاک نشوند
+        if (prev.obj.employeeExtras && typeof prev.obj.employeeExtras === 'object') {
+          obj.employeeExtras = Object.assign({}, prev.obj.employeeExtras, obj.employeeExtras || {});
+        }
+        if (prev.obj.employeePhotos && typeof prev.obj.employeePhotos === 'object') {
+          obj.employeePhotos = Object.assign({}, prev.obj.employeePhotos, obj.employeePhotos || {});
+        }
+        // نوع قرارداد و تقویم قرارداد: اگر کلاینت (فرم اصلی) لیست ناقص فرستاد، لیست کامل سرور حفظ شود
+        try {
+          if (prev.obj.settings && typeof prev.obj.settings === 'object') {
+            if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+            var prevList = Array.isArray(prev.obj.settings.contractTypesList) ? prev.obj.settings.contractTypesList : [];
+            var curList = Array.isArray(obj.settings.contractTypesList) ? obj.settings.contractTypesList : [];
+            if (prevList.length > curList.length) {
+              // ادغام: همهٔ قبلی + جدیدهای کلاینت
+              var byId = {};
+              prevList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+              curList.forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+              obj.settings.contractTypesList = Object.keys(byId).map(function (k) { return byId[k]; });
+            } else if (!curList.length && prevList.length) {
+              obj.settings.contractTypesList = prevList;
+            }
+            if ((obj.settings.floatMinutes == null || obj.settings.floatMinutes === '') && prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
+              obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
+            }
+            if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
+              if (!obj.settings.contractCalendars || typeof obj.settings.contractCalendars !== 'object') {
+                obj.settings.contractCalendars = prev.obj.settings.contractCalendars;
+              } else {
+                var SCHED_KEEP = ['floatMinutes','floatCompensate','workStart','workEnd','dayEnd','hasBreak','breakStart','breakEnd','breakCountsAsWork','workWeekDays','countNonWorkDaysAsLeave','nonWorkLeaveTypeIds','holidaysByYear','daySchedules'];
+                Object.keys(prev.obj.settings.contractCalendars).forEach(function (ctId) {
+                  var prevCal = prev.obj.settings.contractCalendars[ctId];
+                  if (!prevCal || typeof prevCal !== 'object') return;
+                  if (!obj.settings.contractCalendars[ctId]) {
+                    obj.settings.contractCalendars[ctId] = prevCal;
+                    return;
+                  }
+                  var curCal = obj.settings.contractCalendars[ctId];
+                  if (!curCal || typeof curCal !== 'object') {
+                    obj.settings.contractCalendars[ctId] = prevCal;
+                    return;
+                  }
+                  SCHED_KEEP.forEach(function (k) {
+                    if (k === 'floatMinutes') return; // جداگانه
+                    if ((curCal[k] == null || curCal[k] === '') && prevCal[k] != null && prevCal[k] !== '') curCal[k] = prevCal[k];
+                  });
+                  // شناوری: مقدار قبلی (۹۰) را با پیش‌فرض ۱۵ همگام‌سازی اصلی بازنویسی نکن
+                  var prevFm = parseFloatMinutesValue(prevCal.floatMinutes, null);
+                  var curFm = parseFloatMinutesValue(curCal.floatMinutes, null);
+                  if (prevFm != null && (curFm == null || (curFm === 15 && prevFm !== 15))) {
+                    curCal.floatMinutes = prevFm;
+                  } else if (curFm == null && prevFm != null) {
+                    curCal.floatMinutes = prevFm;
+                  }
+                });
+                // شناوری سراسری: مقدار جدید set-current-month را حفظ کن؛ فقط پیش‌فرض ۱۵ همگام‌سازی را رد کن
+                (function () {
+                  var prevSF = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.floatMinutes, null);
+                  var curSF = parseFloatMinutesValue(obj.settings && obj.settings.floatMinutes, null);
+                  var fromFloatSet = String(updatedBy || '').indexOf('float-set:') === 0;
+                  var finalFm = curSF;
+                  if (fromFloatSet && curSF != null) {
+                    finalFm = curSF;
+                  } else if (curSF == null && prevSF != null) {
+                    finalFm = prevSF;
+                  } else if (curSF === 15 && prevSF != null && prevSF !== 15) {
+                    // همگام‌سازی اصلی احتمالاً ۱۵ پیش‌فرض فرستاده — قبلی را نگه دار
+                    finalFm = prevSF;
+                  } else if (curSF != null) {
+                    finalFm = curSF;
+                  } else {
+                    finalFm = prevSF;
+                  }
+                  if (finalFm != null) {
+                    obj.settings.floatMinutes = finalFm;
+                    if (fromFloatSet || obj.settings.portalFloatMinutes == null || obj.settings.portalFloatMinutes === '') {
+                      obj.settings.portalFloatMinutes = finalFm;
+                    } else {
+                      var pfm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+                      var prevPfm = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.portalFloatMinutes, null);
+                      if (fromFloatSet) obj.settings.portalFloatMinutes = finalFm;
+                      else if (prevPfm != null && (pfm == null || (pfm === 15 && prevPfm !== 15))) obj.settings.portalFloatMinutes = prevPfm;
+                    }
+                    var useFm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, finalFm);
+                    if (useFm != null) {
+                      obj.settings.floatMinutes = useFm;
+                      Object.keys(obj.settings.contractCalendars || {}).forEach(function (cid) {
+                        if (String(cid) === 'hourly') return;
+                        var cx = obj.settings.contractCalendars[cid];
+                        if (cx && typeof cx === 'object') cx.floatMinutes = useFm;
+                      });
+                    }
+                  } else {
+                    // حتی بدون finalFm، portalFloatMinutes قبلی را حفظ کن
+                    var prevPfm2 = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.portalFloatMinutes, null);
+                    if (prevPfm2 != null && (obj.settings.portalFloatMinutes == null || obj.settings.portalFloatMinutes === '')) {
+                      obj.settings.portalFloatMinutes = prevPfm2;
+                      obj.settings.floatMinutes = prevPfm2;
+                    }
+                  }
+                })();
+              }
+            }
+            if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
+              if (!obj.settings.leavePolicy) obj.settings.leavePolicy = {};
+              if (!obj.settings.leavePolicy.byContractType) obj.settings.leavePolicy.byContractType = {};
+              Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
+                if (obj.settings.leavePolicy.byContractType[ctId] == null) {
+                  obj.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                }
+              });
+            }
+          }
+        } catch (eCt) { /* non-fatal */ }
+        try { mergeAllEmployeeExtras(obj); } catch (e2) { /* non-fatal */ }
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+
+  // سبک‌سازی قبل از ذخیره: عکس تکراری داخل extras و روی emp اگر در employeePhotos هست
+  try {
+    if (obj.employeeExtras && typeof obj.employeeExtras === 'object') {
+      Object.keys(obj.employeeExtras).forEach(function (k) {
+        if (obj.employeeExtras[k] && obj.employeeExtras[k].photo) delete obj.employeeExtras[k].photo;
+      });
+    }
+  } catch (eStrip) {}
+  const text = JSON.stringify(obj);
+  if (text.length > MAX_DOC_BYTES) return { fail: { reason: 'too_large', status: 413 } };
+  if (baseVersion === 0) {
+    await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+      method: 'POST',
+      headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
+      body: JSON.stringify([{ name: 'data', version: 0 }])
+    });
+  }
+  const payload = JSON.stringify({
+    version: baseVersion + 1,
+    updated_by: updatedBy || 'system',
+    updated_at: new Date().toISOString(),
+    data: text
+  });
+  const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.data&version=eq.' + baseVersion + '&select=version', {
+    method: 'PATCH',
+    headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: payload
+  });
+  if (!r.ok) return { fail: await storeFail(r) };
+  const rows = await r.json();
+  if (Array.isArray(rows) && rows.length === 1) return { version: baseVersion + 1 };
+  return { conflict: true };
+}
+
+// ---------- Password helpers (SHA-256 hex, same style as existing auth) ----------
+async function hashPassword(pass) {
+  const bytes = await sha256(String(pass || ''));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkPassword(plain, storedHash) {
+  if (!storedHash || !plain) return false;
+  const h = await hashPassword(plain);
+  const a = new TextEncoder().encode(h);
+  const b = new TextEncoder().encode(String(storedHash));
+  return sameBytes(a, b);
+}
+
+// ---------- Session (admin/operator) ----------
 function b64urlEncode(bytes) {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
@@ -136,6 +664,8 @@ function sessionCookie(token) {
   return COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
 }
 
+const CLEAR_COOKIE = COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
 async function readSession(request, env, users) {
   const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_session=([^;]+)/);
   if (!m) return null;
@@ -153,6 +683,263 @@ async function readSession(request, env, users) {
     return null;
   }
 }
+
+// ---------- Employee session (separate cookie) ----------
+async function empSessionKey(env) {
+  const material = 'psp-emp|' + String(env.SESSION_SECRET || '') + '|' + String(env.SITE_USERS || '') + '|emp-portal';
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(material), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+}
+
+async function makeEmpToken(env, code, fullName, exp) {
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ c: String(code), n: fullName || '', e: exp })));
+  const sig = await crypto.subtle.sign('HMAC', await empSessionKey(env), new TextEncoder().encode(payload));
+  return payload + '.' + b64urlEncode(new Uint8Array(sig));
+}
+
+function empCookie(token) {
+  return EMP_COOKIE_NAME + '=' + token + '; Path=/; HttpOnly; Secure; SameSite=Lax';
+}
+
+const CLEAR_EMP_COOKIE = EMP_COOKIE_NAME + '=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+
+async function readEmpSession(request, env) {
+  const m = (request.headers.get('Cookie') || '').match(/(?:^|;\s*)psp_emp=([^;]+)/);
+  if (!m) return null;
+  const parts = m[1].split('.');
+  if (parts.length !== 2) return null;
+  try {
+    const good = await crypto.subtle.verify('HMAC', await empSessionKey(env), b64urlDecode(parts[1]), new TextEncoder().encode(parts[0]));
+    if (!good) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    if (!p || typeof p.c !== 'string' || !Number.isFinite(p.e)) return null;
+    if (p.e < Math.floor(Date.now() / 1000)) return null;
+    return { code: p.c, fullName: p.n || '', exp: p.e };
+  } catch (e) {
+    return null;
+  }
+}
+
+
+/** قبل از محاسبه: family/suppInsurance/مبلغ واحد را از ذخیره سرور روی payload کلاینت بنشان */
+async function enrichCalcDataFromStore(env, data) {
+  try {
+    const cfg = storeConfig(env);
+    if (!cfg || !data) return data;
+    const gd = await storeGetData(cfg);
+    if (gd.fail || !gd.obj) return data;
+    const byCode = {};
+    (gd.obj.employees || []).forEach(function (e) {
+      if (e && e.code != null) byCode[String(e.code)] = e;
+    });
+    (data.employees || []).forEach(function (e) {
+      if (!e || e.code == null) return;
+      const s = byCode[String(e.code)];
+      if (!s) return;
+      if (s.family) e.family = s.family;
+      if (s.suppInsurance) e.suppInsurance = s.suppInsurance;
+      if (s.childrenEligibleCount != null) e.childrenEligibleCount = s.childrenEligibleCount;
+      if (s.children != null && (e.children == null || e.children === '')) e.children = s.children;
+      if (s.suppInsuranceDeductCount != null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
+      if (s.suppInsuranceDeduct != null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
+      // آیتم کسر بیمه تکمیلی
+      if (Array.isArray(s.customItems) && s.customItems.length) {
+        if (!Array.isArray(e.customItems)) e.customItems = e.customItems || [];
+        var hasSupp = (e.customItems || []).some(function (ci) { return ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')); });
+        if (!hasSupp) {
+          s.customItems.forEach(function (ci) {
+            if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''))) e.customItems.push(JSON.parse(JSON.stringify(ci)));
+          });
+        } else {
+          // مبلغ/تعداد را از سرور به‌روز کن
+          e.customItems.forEach(function (ci) {
+            if (!ci || !/بیمه\s*تکمیلی/.test(String(ci.name || ''))) return;
+            var src = s.customItems.find(function (x) { return x && /بیمه\s*تکمیلی/.test(String(x.name || '')); });
+            if (src) {
+              if (Number(src.amount) > 0) ci.amount = src.amount;
+              if (src.qtyDefault != null) ci.qtyDefault = src.qtyDefault;
+              ci.isDeduction = true;
+              ci.entryType = 'quantity';
+              ci.enabled = src.enabled !== false;
+            }
+          });
+        }
+      }
+    });
+    if (gd.obj.settings) {
+      if (!data.settings || typeof data.settings !== 'object') data.settings = {};
+      var sk = ['suppInsurancePerPerson', 'supplementaryInsurancePerPerson', 'suppInsPerPerson', 'suppInsuranceAmount', 'bimeTakmiliPerPerson'];
+      sk.forEach(function (k) {
+        if (Number(gd.obj.settings[k]) > 0) data.settings[k] = gd.obj.settings[k];
+      });
+    }
+    // qty ماه جاری
+    if (gd.obj.monthlyData && data.monthlyData) {
+      Object.keys(gd.obj.monthlyData).forEach(function (mk) {
+        if (!data.monthlyData[mk]) data.monthlyData[mk] = gd.obj.monthlyData[mk];
+        else {
+          Object.keys(gd.obj.monthlyData[mk] || {}).forEach(function (ck) {
+            if (!data.monthlyData[mk][ck]) data.monthlyData[mk][ck] = gd.obj.monthlyData[mk][ck];
+            else if (gd.obj.monthlyData[mk][ck] && gd.obj.monthlyData[mk][ck].qty) {
+              if (!data.monthlyData[mk][ck].qty) data.monthlyData[mk][ck].qty = {};
+              Object.keys(gd.obj.monthlyData[mk][ck].qty).forEach(function (qn) {
+                if (data.monthlyData[mk][ck].qty[qn] == null || data.monthlyData[mk][ck].qty[qn] === '') {
+                  data.monthlyData[mk][ck].qty[qn] = gd.obj.monthlyData[mk][ck].qty[qn];
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+  } catch (eEn) {
+    console.log(JSON.stringify({ event: 'enrich_calc_error', message: String(eEn && eEn.message) }));
+  }
+  return data;
+}
+
+// ---------- Payroll calculation ----------
+
+function listEmployeesMissingContract(obj) {
+  const emps = (obj && obj.employees) || [];
+  const contracts = (obj && obj.contracts) || [];
+  const out = [];
+  function isApprovedContract(c) {
+    if (!c) return false;
+    const st = String(c.status || '').toLowerCase();
+    if (st === 'terminated' || st === 'expired' || st === 'revoked') return false;
+    // accepted: explicit adminApproved OR legacy status active/approved
+    if (c.adminApproved === true || c.adminApproved === 1 || c.adminApproved === 'true') return true;
+    if (st === 'active' || st === 'approved' || st === 'signed') return true;
+    return false;
+  }
+  emps.forEach(function (e) {
+    if (!e || e.status === 'inactive') return;
+    const mine = contracts.filter(function (c) { return String(c.empCode) === String(e.code); });
+    const ok = mine.some(isApprovedContract);
+    if (!ok) {
+      out.push({
+        code: e.code,
+        fullName: e.fullName || '',
+        reason: mine.length ? 'قرارداد بدون تأیید ادمین' : 'بدون قرارداد'
+      });
+    }
+  });
+  return out;
+}
+
+async function handlePayroll(request, user, env) {
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body;
+  const year = Number(body.year);
+  const month = Number(body.month);
+  if (!Number.isInteger(year) || year < 1300 || year > 1600 ||
+      !Number.isInteger(month) || month < 1 || month > 12 ||
+      !isPlainObject(body.settings) || !Array.isArray(body.employees) || !Array.isArray(body.allowances) ||
+      !isPlainObject(body.monthlyData) || !isPlainObject(body.payrolls)) {
+    return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+  }
+  let data = {
+    settings: body.settings,
+    allowances: body.allowances,
+    employees: body.employees,
+    monthlyData: body.monthlyData,
+    payrolls: body.payrolls,
+    loanDeductedMonths: isPlainObject(body.loanDeductedMonths) ? body.loanDeductedMonths : {},
+    transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
+  };
+  data = await enrichCalcDataFromStore(env, data);
+  let contractWarnings = [];
+  try {
+    const cfg = storeConfig(env);
+    if (cfg) {
+      const gd = await storeGetData(cfg);
+      if (!gd.fail && gd.obj) {
+        const full = Object.assign({}, gd.obj, { employees: data.employees });
+        contractWarnings = listEmployeesMissingContract(full);
+      }
+    }
+  } catch (eCw) {}
+  let out;
+  try {
+    out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
+  } catch (e) {
+    console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
+    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+  }
+  if (out && typeof out === 'object') {
+    out.contractWarnings = contractWarnings;
+    if (contractWarnings.length) {
+      out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
+    }
+  }
+  console.log(JSON.stringify({ event: 'payroll', user: user, year: year, month: month, employees: data.employees.length, contractWarnings: contractWarnings.length }));
+  return jsonResponse(out, out.ok ? 200 : 400);
+}
+
+async function handleCalc(request, user, env) {
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body;
+  const op = body.op;
+  let data = {
+    settings: objOf(body.settings),
+    allowances: arrOf(body.allowances),
+    employees: arrOf(body.employees),
+    monthlyData: objOf(body.monthlyData),
+    payrolls: objOf(body.payrolls),
+    decreeHeaders: arrOf(body.decreeHeaders),
+    decreeValues: objOf(body.decreeValues),
+    eidTaxAdjustments: objOf(body.eidTaxAdjustments)
+  };
+  if (data.employees.length > MAX_ITEMS || data.allowances.length > MAX_ITEMS) {
+    return jsonResponse({ ok: false, error: 'too_many_items' }, 413);
+  }
+  data = await enrichCalcDataFromStore(env, data);
+  const bad = function () { return jsonResponse({ ok: false, error: 'bad_request' }, 400); };
+  let result;
+  try {
+    const eng = makeEngine(data);
+    if (op === 'eid') {
+      const year = Number(body.year);
+      if (!isInt(year, 1300, 1600) || !isNum(body.minDaily) || body.minDaily <= 0 ||
+          !isNum(body.leaveCeilingVal) || body.leaveCeilingVal < 0 || typeof body.includeSpecialDays !== 'boolean') return bad();
+      result = { ok: true, results: eng.runEid(year, body.minDaily, body.leaveCeilingVal, body.includeSpecialDays) };
+    } else if (op === 'annualTax') {
+      const year = Number(body.year);
+      const until = Number(body.until);
+      if (!isInt(year, 1300, 1600) || !isInt(until, 1, 12) || !Array.isArray(body.selected) || body.selected.length > MAX_ITEMS) return bad();
+      const bracketsBefore = JSON.stringify(data.settings.taxBrackets);
+      result = { ok: true, results: eng.runAnnualTax(year, until, body.selected) };
+      result.filledTaxBrackets = JSON.stringify(data.settings.taxBrackets) !== bracketsBefore;
+    } else if (op === 'bonusBases') {
+      if (typeof body.baseType !== 'string' || !Array.isArray(body.names)) return bad();
+      result = { ok: true, bases: eng.bonusBases(data.employees, body.baseType, body.names) };
+    } else if (op === 'bonusRows') {
+      if (!Array.isArray(body.rows) || body.rows.length > MAX_ITEMS) return bad();
+      const bracketsBefore = JSON.stringify(data.settings.taxBrackets);
+      result = { ok: true, rows: eng.bonusRows(body.rows) };
+      result.filledTaxBrackets = JSON.stringify(data.settings.taxBrackets) !== bracketsBefore;
+    } else if (op === 'decreeAmounts') {
+      const year = Number(body.year);
+      if (!isInt(year, 1300, 1600) || !Array.isArray(body.selectedNames) || body.selectedNames.length > MAX_ITEMS) return bad();
+      result = { ok: true, entries: eng.decreeAmounts(year, body.selectedNames) };
+    } else {
+      return jsonResponse({ ok: false, error: 'unknown_op' }, 400);
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ event: 'calc_error', user: user, op: String(op), message: String(e && e.message) }));
+    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+  }
+  console.log(JSON.stringify({ event: 'calc', user: user, op: op, employees: data.employees.length }));
+  return jsonResponse(result);
+}
+
+function handleWhoami(request, who, adminConfigured, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  return jsonResponse({ ok: true, user: who.name, role: who.role, adminConfigured: adminConfigured, syncConfigured: !!storeConfig(env) });
+}
+
 
 async function handleState(request, who, env, path) {
   const site = request.headers.get('Sec-Fetch-Site');
