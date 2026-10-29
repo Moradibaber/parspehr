@@ -833,6 +833,99 @@ function listEmployeesMissingContract(obj) {
   return out;
 }
 
+const DECREE_ARREARS_ITEM = 'معوقه حکم';
+
+function faDigitsToLatin(s) {
+  return String(s == null ? '' : s)
+    .replace(/[۰-۹]/g, function (c) { return String(c.charCodeAt(0) - 1776); })
+    .replace(/[٠-٩]/g, function (c) { return String(c.charCodeAt(0) - 1632); });
+}
+
+// اندیس ماهِ تاریخ اجرای حکم (سال*12 + ماه-1)
+function decreeEffIndex(dec) {
+  const p = parseJalaliYMD(faDigitsToLatin(dec && dec.effectiveDate));
+  return p ? (p.y * 12 + (p.m - 1)) : null;
+}
+
+function decreeNumDiff(newV, oldV) {
+  newV = newV || {}; oldV = oldV || {};
+  const keys = {};
+  Object.keys(newV).forEach(function (k) { keys[k] = 1; });
+  Object.keys(oldV).forEach(function (k) { keys[k] = 1; });
+  let s = 0;
+  Object.keys(keys).forEach(function (k) { s += (Number(newV[k]) || 0) - (Number(oldV[k]) || 0); });
+  return s;
+}
+
+// مقادیر حکمِ معتبر در ماهِ idx، بدون حکم dec (اگر حکم قبلی نبود: مقادیر قبل از همین حکم)
+function decreeValuesBefore(hist, dec, idx) {
+  let best = null, bestIdx = -1, bestAt = '';
+  hist.forEach(function (h) {
+    if (!h || h === dec || !h.values) return;
+    const ei = decreeEffIndex(h);
+    if (ei == null || ei > idx) return;
+    const at = String(h.at || '');
+    if (ei > bestIdx || (ei === bestIdx && at > bestAt)) { best = h; bestIdx = ei; bestAt = at; }
+  });
+  return best ? best.values : (dec.prevValues || {});
+}
+
+// معوقه‌ای که باید در حقوق (year, month) پرداخت شود: احکامی که تاریخ اجرایشان در همین ماه است و «با معوقه N ماه» دارند
+function computeDecreeArrears(hist, year, month) {
+  let total = 0;
+  const items = [];
+  const target = year * 12 + (month - 1);
+  (hist || []).forEach(function (dec) {
+    if (!dec || !dec.values) return;
+    const n = Math.min(12, Math.floor(Number(dec.arrearsMonths) || 0));
+    if (n < 1) return;
+    if (decreeEffIndex(dec) !== target) return;
+    let sub = 0;
+    for (let k = 1; k <= n; k++) sub += decreeNumDiff(dec.values, decreeValuesBefore(hist, dec, target - k));
+    sub = Math.round(sub);
+    if (sub) { total += sub; items.push({ id: dec.id || '', title: dec.title || '', months: n, amount: sub }); }
+  });
+  return { total: total, items: items };
+}
+
+async function applyDecreeArrears(env, data, year, month) {
+  const cfg = storeConfig(env);
+  if (!cfg) return [];
+  const gd = await storeGetData(cfg);
+  if (gd.fail || !gd.obj || !gd.obj.employeeExtras) return [];
+  const extras = gd.obj.employeeExtras;
+  const applied = [];
+  (data.employees || []).forEach(function (emp) {
+    if (!emp || emp.code == null) return;
+    const ex = extras[String(emp.code)];
+    const hist = ex && Array.isArray(ex.decreeHistory) ? ex.decreeHistory : null;
+    if (!hist || !hist.length) return;
+    const res = computeDecreeArrears(hist, year, month);
+    if (!res.total) return;
+    const code = String(emp.code);
+    if (!Array.isArray(emp.customItems)) emp.customItems = [];
+    emp.customItems = emp.customItems.filter(function (ci) { return !(ci && ci.name === DECREE_ARREARS_ITEM); });
+    emp.customItems.push({
+      name: DECREE_ARREARS_ITEM,
+      amount: Math.abs(res.total),
+      isDeduction: res.total < 0,
+      entryType: 'quantity',
+      enabled: true,
+      active: true,
+      value: true,
+      flag: 'بلی',
+      qtyDefault: 1,
+      duration: 'always',
+      note: 'خودکار از احکام: ' + res.items.map(function (x) { return x.months + ' ماه'; }).join('، ')
+    });
+    const row = ensureEmpMonthRow(data, year, month, code);
+    if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+    row.qty[DECREE_ARREARS_ITEM] = 1;
+    applied.push({ code: code, total: res.total, items: res.items });
+  });
+  return applied;
+}
+
 async function handlePayroll(request, user, env) {
   const r = await readBody(request);
   if (r.error) return r.error;
@@ -855,6 +948,8 @@ async function handlePayroll(request, user, env) {
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
   data = await enrichCalcDataFromStore(env, data);
+  let decreeArrears = [];
+  try { decreeArrears = await applyDecreeArrears(env, data, year, month); } catch (eDa) { decreeArrears = []; }
   let contractWarnings = [];
   try {
     const cfg = storeConfig(env);
@@ -875,6 +970,7 @@ async function handlePayroll(request, user, env) {
   }
   if (out && typeof out === 'object') {
     out.contractWarnings = contractWarnings;
+    out.decreeArrears = decreeArrears;
     if (contractWarnings.length) {
       out.contractWarningMessage = contractWarnings.length + ' نفر فاقد قرارداد تأییدشده هستند. محاسبه حقوق فقط برای افراد دارای قرارداد تأییدشده معتبر است.';
     }
