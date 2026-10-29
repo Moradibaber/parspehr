@@ -1055,6 +1055,7 @@
           <input type="number" id="dataFunctionalDays" value="22" min="1" max="31" onchange="updateFunctionalDays()" title="فقط برای آیتم‌های «تعداد خالص»؛ تعداد روز کاری ماه پس از کسر پنجشنبه و جمعه و تعطیل">
         </div>
       </div>
+      <div id="deEmpPicker" class="psp-emp-picker" data-prefix="de"></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
         <button class="btn btn-primary" onclick="loadDataEntry()">بارگذاری ماه</button>
         <button class="btn btn-success" onclick="saveDataEntry()">ذخیره داده‌ها</button>
@@ -1110,6 +1111,7 @@
           </select>
         </div>
       </div>
+      <div id="payEmpPicker" class="psp-emp-picker" data-prefix="pay"></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
         <button class="btn btn-success" onclick="runCalculation()">اجرای محاسبه</button>
         <button class="btn btn-outline" onclick="lockPayrollBaseline()">قفل مبنای پرداخت‌شده</button>
@@ -3069,6 +3071,116 @@ function maxWorkDaysForEmployee(emp, year, month) {
 }
 
 function getActiveEmployees() { return data.employees.filter(e => e.status !== 'inactive'); }
+
+/* ===== انتخاب کارکنان (کرکره با تیک) برای «محاسبه و نتیجه» و «ورود داده‌های ماهانه» =====
+   __pspEmpSel[prefix] = null  → همه کارکنان فعال
+                       = Set   → فقط کدهای انتخاب‌شده */
+var __pspEmpSel = { pay: null, de: null };
+var __pspEmpSelTimer = {};
+function pspEmpEsc(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function pspGetSelCodes(prefix) {
+  var st = __pspEmpSel[prefix];
+  if (!st) return null;
+  var active = {};
+  getActiveEmployees().forEach(function(e) { active[String(e.code)] = 1; });
+  var out = new Set();
+  st.forEach(function(c) { if (active[c]) out.add(c); });
+  return out;
+}
+function pspEmpPickerSummary(prefix) {
+  var total = getActiveEmployees().length;
+  var st = pspGetSelCodes(prefix);
+  return st ? ('انتخاب کارکنان — ' + st.size + ' از ' + total + ' نفر') : ('انتخاب کارکنان — همه (' + total + ' نفر)');
+}
+function pspEmpPickerRender(prefix) {
+  var box = document.getElementById(prefix + 'EmpPicker');
+  if (!box || typeof data === 'undefined' || !data || !Array.isArray(data.employees)) return;
+  var oldDet = box.querySelector('details');
+  var wasOpen = oldDet ? oldDet.open : false;
+  var oldSearch = box.querySelector('.psp-emp-search');
+  var q = oldSearch ? oldSearch.value : '';
+  var emps = getActiveEmployees();
+  var sel = pspGetSelCodes(prefix);
+  var items = emps.map(function(e) {
+    var c = String(e.code);
+    var on = !sel || sel.has(c);
+    return '<label class="psp-emp-item" data-t="' + pspEmpEsc((c + ' ' + (e.fullName || '')).toLowerCase()) + '" ' +
+      'style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.78rem;background:#fff;cursor:pointer;">' +
+      '<input type="checkbox" class="psp-emp-cb" value="' + pspEmpEsc(c) + '"' + (on ? ' checked' : '') + '>' +
+      '<span style="color:#64748b;">' + pspEmpEsc(c) + '</span><span>' + pspEmpEsc(e.fullName || '') + '</span></label>';
+  }).join('');
+  box.innerHTML =
+    '<details style="margin-bottom:12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;"' + (wasOpen ? ' open' : '') + '>' +
+    '<summary class="psp-emp-sum" style="cursor:pointer;padding:8px 12px;font-weight:700;font-size:0.82rem;color:#0f766e;">' + pspEmpEsc(pspEmpPickerSummary(prefix)) + '</summary>' +
+    '<div style="padding:8px 12px 12px;">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">' +
+        '<input type="text" class="psp-emp-search" placeholder="جست‌وجو (نام یا کد)" value="' + pspEmpEsc(q) + '" style="flex:1 1 180px;max-width:260px;padding:5px 8px;border:1px solid #99f6e4;border-radius:6px;font-size:0.78rem;">' +
+        '<button type="button" class="btn btn-outline psp-emp-all" style="padding:4px 10px;font-size:0.75rem;">انتخاب همه</button>' +
+        '<button type="button" class="btn btn-outline psp-emp-none" style="padding:4px 10px;font-size:0.75rem;">هیچ‌کدام</button>' +
+      '</div>' +
+      '<div class="psp-emp-list" style="max-height:240px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;">' + (items || '<span style="font-size:0.78rem;color:#64748b;">کارمند فعالی وجود ندارد.</span>') + '</div>' +
+    '</div></details>';
+  if (q) pspEmpPickerFilter(box);
+}
+function pspEmpPickerFilter(box) {
+  var inp = box.querySelector('.psp-emp-search');
+  var q = String((inp && inp.value) || '').trim().toLowerCase();
+  box.querySelectorAll('.psp-emp-item').forEach(function(l) {
+    l.style.display = (!q || (l.getAttribute('data-t') || '').indexOf(q) >= 0) ? 'flex' : 'none';
+  });
+}
+function pspEmpPickerCollect(prefix, box) {
+  var all = getActiveEmployees().length;
+  var set = new Set();
+  box.querySelectorAll('.psp-emp-cb').forEach(function(cb) { if (cb.checked) set.add(String(cb.value)); });
+  __pspEmpSel[prefix] = (set.size >= all) ? null : set;
+  var sum = box.querySelector('.psp-emp-sum');
+  if (sum) sum.textContent = pspEmpPickerSummary(prefix);
+  if (prefix === 'de') {
+    clearTimeout(__pspEmpSelTimer.de);
+    __pspEmpSelTimer.de = setTimeout(function() {
+      var area = document.getElementById('dataEntryArea');
+      if (area && area.style.display === 'block' && typeof loadDataEntry === 'function') loadDataEntry();
+    }, 250);
+  }
+}
+document.addEventListener('change', function(ev) {
+  var t = ev.target;
+  if (!t || !t.classList || !t.classList.contains('psp-emp-cb')) return;
+  var box = t.closest('.psp-emp-picker');
+  if (box) pspEmpPickerCollect(box.getAttribute('data-prefix'), box);
+});
+document.addEventListener('input', function(ev) {
+  var t = ev.target;
+  if (!t || !t.classList || !t.classList.contains('psp-emp-search')) return;
+  var box = t.closest('.psp-emp-picker');
+  if (box) pspEmpPickerFilter(box);
+});
+document.addEventListener('click', function(ev) {
+  var t = ev.target;
+  if (!t || !t.classList) return;
+  var isAll = t.classList.contains('psp-emp-all'), isNone = t.classList.contains('psp-emp-none');
+  if (isAll || isNone) {
+    var box = t.closest('.psp-emp-picker');
+    if (!box) return;
+    var q = String((box.querySelector('.psp-emp-search') || {}).value || '').trim().toLowerCase();
+    box.querySelectorAll('.psp-emp-item').forEach(function(l) {
+      if (q && (l.getAttribute('data-t') || '').indexOf(q) < 0) return; // فقط موارد دیده‌شده
+      var cb = l.querySelector('.psp-emp-cb'); if (cb) cb.checked = isAll;
+    });
+    pspEmpPickerCollect(box.getAttribute('data-prefix'), box);
+    return;
+  }
+  var btn = t.closest ? t.closest('.tab-btn') : null;
+  if (btn) {
+    var tab = btn.getAttribute('data-tab');
+    if (tab === 'payroll' || tab === 'dataentry') {
+      setTimeout(function() { pspEmpPickerRender(tab === 'payroll' ? 'pay' : 'de'); }, 0);
+    }
+  }
+});
 
 /** برچسب نوع قرارداد — از روی مقدار ذخیره‌شده + موارد شناخته‌شده */
 var CONTRACT_TYPE_LABELS = {
@@ -5934,6 +6046,8 @@ function loadDataEntry() {
   const fd = data.monthlyData[key]._meta.functionalDays || data.settings.defaultFunctionalDays || 22;
   document.getElementById('dataFunctionalDays').value = fd;
   const activeEmps = getActiveEmployees();
+  try { pspEmpPickerRender('de'); } catch (ePk) {}
+  const deSel = pspGetSelCodes('de'); // null = همه
   const allQtyNames = getAllQuantityItemNames(y, m);
   // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
   pruneOrphanQtyKeys(key, allQtyNames);
@@ -6022,6 +6136,8 @@ function loadDataEntry() {
       }
     });
     html += '</tr>';
+    // ردیف همه کارکنان در monthlyData ساخته می‌شود؛ فقط ردیف افراد انتخاب‌شده نمایش داده می‌شود
+    if (deSel && !deSel.has(String(emp.code))) return '';
     return html;
   }).join('');
   document.getElementById('dataEntryArea').style.display = 'block';
@@ -6233,7 +6349,7 @@ function importDataFromExcel(event) {
 /* ---- Payroll calculation runs on the server (POST /api/payroll). The rules are no longer in this file. ---- */
 const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
 
-function buildPayrollRequest(year, month, skipLoanSE) {
+function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
   const key = year + '-' + month;
   const s = data.settings || {};
   const settings = {};
@@ -6257,19 +6373,20 @@ function buildPayrollRequest(year, month, skipLoanSE) {
   monthlyData[key] = data.monthlyData[key];
   return {
     year: year, month: month, skipLoanSE: !!skipLoanSE,
-    settings: settings, allowances: data.allowances || [], employees: data.employees || [],
+    settings: settings, allowances: data.allowances || [],
+    employees: selCodes ? (data.employees || []).filter(function(e) { return selCodes.has(String(e.code)); }) : (data.employees || []),
     monthlyData: monthlyData, payrolls: payrolls,
     loanDeductedMonths: loanDeductedMonths, transferredAdjustments: transferredAdjustments
   };
 }
 
-async function callPayrollServer(year, month, skipLoanSE) {
+async function callPayrollServer(year, month, skipLoanSE, selCodes) {
   let res;
   try {
     res = await fetch('/api/payroll', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildPayrollRequest(year, month, skipLoanSE))
+      body: JSON.stringify(buildPayrollRequest(year, month, skipLoanSE, selCodes))
     });
   } catch (e) {
     alert('ارتباط با سرور محاسبه برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.');
@@ -6285,7 +6402,7 @@ async function callPayrollServer(year, month, skipLoanSE) {
   return out;
 }
 
-function applyPayrollResponse(key, out) {
+function applyPayrollResponse(key, out, selCodes) {
   (out.loanUpdates || []).forEach(function(u) {
     const emp = data.employees.find(function(e) { return e.code === u.code; });
     if (!emp) return;
@@ -6296,7 +6413,22 @@ function applyPayrollResponse(key, out) {
   Object.keys(out.workDayCaps || {}).forEach(function(c) {
     if (data.monthlyData[key] && data.monthlyData[key][c]) data.monthlyData[key][c].workDays = out.workDayCaps[c];
   });
-  data.payrolls[key] = out.results;
+  if (selCodes) {
+    // محاسبه چند نفر: نتیجه همین افراد جایگزین ردیف قبلی‌شان می‌شود و نتیجه بقیه حفظ می‌شود
+    const prev = data.payrolls[key] || [];
+    const byNew = {};
+    (out.results || []).forEach(function(r) { byNew[String(r.code)] = r; });
+    const used = {};
+    const merged = [];
+    prev.forEach(function(r) {
+      const c = String(r.code);
+      if (byNew[c]) { merged.push(byNew[c]); used[c] = 1; } else merged.push(r);
+    });
+    (out.results || []).forEach(function(r) { if (!used[String(r.code)]) merged.push(r); });
+    data.payrolls[key] = merged;
+  } else {
+    data.payrolls[key] = out.results;
+  }
 }
 
 /* ---- Eid, annual tax, bonus and decree calculations run on the server (POST /api/calc). ---- */
@@ -6364,8 +6496,16 @@ async function runCalculation() {
     alert('ابتدا در تب ورود داده‌های ماهانه داده‌ها را بارگذاری و ذخیره کنید.');
     return;
   }
+  // انتخاب کارکنان (null = همه)؛ در حالت مغایرت/اجرای بی‌صدا همیشه همه
+  const selCodes = window.__calcSilent ? null : pspGetSelCodes('pay');
+  if (selCodes && selCodes.size === 0) {
+    alert('حداقل یک نفر را برای محاسبه انتخاب کنید.');
+    return;
+  }
+  const alreadyCalc = (data.payrolls[key] || []).some(function(r) { return !selCodes || selCodes.has(String(r.code)); });
+  const selNote = selCodes ? (' (' + selCodes.size + ' نفر انتخابی)') : '';
   // محاسبه مجدد: ادمین بدون رمز؛ اپراتور با رمز محاسبه (در حالت مغایرت بی‌صدا رد می‌شود)
-  if (data.payrolls[key] && data.payrolls[key].length && !window.__calcSilent) {
+  if (alreadyCalc && !window.__calcSilent) {
     if (!isAdmin()) {
       const cp = prompt('این ماه قبلاً محاسبه شده. برای محاسبه مجدد رمز محاسبه را وارد کنید:');
       if (cp === null) return;
@@ -6374,23 +6514,23 @@ async function runCalculation() {
         return;
       }
     }
-    addChangeLog('محاسبه مجدد', key, 'محاسبه مجدد توسط ' + (currentUserName || currentRole));
+    addChangeLog('محاسبه مجدد', key, 'محاسبه مجدد توسط ' + (currentUserName || currentRole) + selNote);
   } else if (!window.__calcSilent) {
-    addChangeLog('محاسبه', key, 'اجرای محاسبه توسط ' + (currentUserName || currentRole));
+    addChangeLog('محاسبه', key, 'اجرای محاسبه توسط ' + (currentUserName || currentRole) + selNote);
   }
   pruneExpiredCustomItems(year, month);
   ensureTaxBrackets();
   ensureInsuranceCeilings();
-  const out = await callPayrollServer(year, month, !!window.__skipLoanSE);
+  const out = await callPayrollServer(year, month, !!window.__skipLoanSE, selCodes);
   if (!out) return false;
-  applyPayrollResponse(key, out);
-  const results = out.results;
+  applyPayrollResponse(key, out, selCodes);
+  const results = data.payrolls[key];
   saveToCache();
   renderPayrollResult(results);
   if (!window.__calcSilent) {
     renderEmployees();
     const hasAdj = results.some(function(r) { return r.hasTransferredAdjustment; });
-    alert('محاسبه انجام شد' + (hasAdj ? '\n(اصلاحات منتقل‌شده از ماه‌های قبل در نتیجه لحاظ شد)' : ''));
+    alert('محاسبه انجام شد' + selNote + (hasAdj ? '\n(اصلاحات منتقل‌شده از ماه‌های قبل در نتیجه لحاظ شد)' : ''));
   }
   return true;
 }
