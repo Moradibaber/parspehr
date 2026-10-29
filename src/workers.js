@@ -834,6 +834,7 @@ function listEmployeesMissingContract(obj) {
 }
 
 const DECREE_ARREARS_ITEM = 'معوقه حکم';
+const DECREE_ARREARS_VAR_ITEM = 'معوقه اضافه‌کار و نوبت‌کاری حکم';
 
 function faDigitsToLatin(s) {
   return String(s == null ? '' : s)
@@ -870,22 +871,64 @@ function decreeValuesBefore(hist, dec, idx) {
   return best ? best.values : (dec.prevValues || {});
 }
 
+// کلیدهای «حقوق پایه» در مقادیر حکم (اضافه‌کار/شب‌کاری/نوبت‌کاری بر پایه همین مبلغ محاسبه می‌شوند)
+function decreeBasicKeys(headers) {
+  const keys = ['basic'];
+  (headers || []).forEach(function (h) {
+    if (!h) return;
+    const nm = String(h.name || '').replace(/[\u200c\u200f\u200e]/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
+    if (/^حقوق (و مزد )?پایه( ماهانه)?$/.test(nm) || String(h.id) === 'basic') {
+      const id = String(h.id == null ? h.name : h.id);
+      if (keys.indexOf(id) < 0) keys.push(id);
+    }
+  });
+  return keys;
+}
+
+function decreeBasicOf(values, basicKeys) {
+  values = values || {};
+  let s = 0;
+  basicKeys.forEach(function (k) { s += Number(values[k]) || 0; });
+  return s;
+}
+
 // معوقه‌ای که باید در حقوق (year, month) پرداخت شود: احکامی که تاریخ اجرایشان در همین ماه است و «با معوقه N ماه» دارند
-function computeDecreeArrears(hist, year, month) {
-  let total = 0;
+// ctx (اختیاری): { eng, emp, basicKeys } — برای محاسبه مجدد اضافه‌کار/شب‌کاری/نوبت‌کاری ماه‌های معوقه با پایه جدید
+function computeDecreeArrears(hist, year, month, ctx) {
+  let total = 0, varTotal = 0;
   const items = [];
+  const varItems = [];
   const target = year * 12 + (month - 1);
   (hist || []).forEach(function (dec) {
     if (!dec || !dec.values) return;
     const n = Math.min(12, Math.floor(Number(dec.arrearsMonths) || 0));
     if (n < 1) return;
     if (decreeEffIndex(dec) !== target) return;
-    let sub = 0;
-    for (let k = 1; k <= n; k++) sub += decreeNumDiff(dec.values, decreeValuesBefore(hist, dec, target - k));
+    let sub = 0, subVar = 0;
+    const detail = [];
+    for (let k = 1; k <= n; k++) {
+      const oldVals = decreeValuesBefore(hist, dec, target - k);
+      sub += decreeNumDiff(dec.values, oldVals);
+      if (ctx && ctx.eng && ctx.emp) {
+        const idx = target - k;
+        const py = Math.floor(idx / 12), pm = (idx % 12) + 1;
+        const oldB = decreeBasicOf(oldVals, ctx.basicKeys);
+        const newB = decreeBasicOf(dec.values, ctx.basicKeys);
+        if (oldB !== newB) {
+          const vd = ctx.eng.calcVariablePayDiff(ctx.emp, oldB, newB, py, pm);
+          if (vd.found && vd.total) {
+            subVar += vd.total;
+            detail.push({ year: py, month: pm, ot: vd.ot, night: vd.night, shift: vd.shift, total: vd.total });
+          }
+        }
+      }
+    }
     sub = Math.round(sub);
+    subVar = Math.round(subVar);
     if (sub) { total += sub; items.push({ id: dec.id || '', title: dec.title || '', months: n, amount: sub }); }
+    if (subVar) { varTotal += subVar; varItems.push({ id: dec.id || '', title: dec.title || '', months: n, amount: subVar, detail: detail }); }
   });
-  return { total: total, items: items };
+  return { total: total, items: items, varTotal: varTotal, varItems: varItems };
 }
 
 async function applyDecreeArrears(env, data, year, month) {
@@ -894,34 +937,42 @@ async function applyDecreeArrears(env, data, year, month) {
   const gd = await storeGetData(cfg);
   if (gd.fail || !gd.obj || !gd.obj.employeeExtras) return [];
   const extras = gd.obj.employeeExtras;
+  const basicKeys = decreeBasicKeys(gd.obj.decreeHeaders || data.decreeHeaders);
+  let eng = null;
+  try { eng = makeEngine(data); } catch (eEng) { eng = null; }
   const applied = [];
   (data.employees || []).forEach(function (emp) {
     if (!emp || emp.code == null) return;
     const ex = extras[String(emp.code)];
     const hist = ex && Array.isArray(ex.decreeHistory) ? ex.decreeHistory : null;
     if (!hist || !hist.length) return;
-    const res = computeDecreeArrears(hist, year, month);
-    if (!res.total) return;
+    const res = computeDecreeArrears(hist, year, month, { eng: eng, emp: emp, basicKeys: basicKeys });
     const code = String(emp.code);
     if (!Array.isArray(emp.customItems)) emp.customItems = [];
-    emp.customItems = emp.customItems.filter(function (ci) { return !(ci && ci.name === DECREE_ARREARS_ITEM); });
-    emp.customItems.push({
-      name: DECREE_ARREARS_ITEM,
-      amount: Math.abs(res.total),
-      isDeduction: res.total < 0,
-      entryType: 'quantity',
-      enabled: true,
-      active: true,
-      value: true,
-      flag: 'بلی',
-      qtyDefault: 1,
-      duration: 'always',
-      note: 'خودکار از احکام: ' + res.items.map(function (x) { return x.months + ' ماه'; }).join('، ')
-    });
+    if (!res.total && !res.varTotal) return;
+    // اجرای مجدد محاسبه، آیتم‌های خودکار قبلی را جایگزین می‌کند
+    emp.customItems = emp.customItems.filter(function (ci) { return !(ci && (ci.name === DECREE_ARREARS_ITEM || ci.name === DECREE_ARREARS_VAR_ITEM)); });
     const row = ensureEmpMonthRow(data, year, month, code);
     if (!row.qty || typeof row.qty !== 'object') row.qty = {};
-    row.qty[DECREE_ARREARS_ITEM] = 1;
-    applied.push({ code: code, total: res.total, items: res.items });
+    function pushItem(name, amount, note) {
+      emp.customItems.push({
+        name: name,
+        amount: Math.abs(amount),
+        isDeduction: amount < 0,
+        entryType: 'quantity',
+        enabled: true,
+        active: true,
+        value: true,
+        flag: 'بلی',
+        qtyDefault: 1,
+        duration: 'always',
+        note: note
+      });
+      row.qty[name] = 1;
+    }
+    if (res.total) pushItem(DECREE_ARREARS_ITEM, res.total, 'خودکار از احکام: ' + res.items.map(function (x) { return x.months + ' ماه'; }).join('، '));
+    if (res.varTotal) pushItem(DECREE_ARREARS_VAR_ITEM, res.varTotal, 'مابه‌التفاوت اضافه‌کار/شب‌کاری/نوبت‌کاری با پایه جدید: ' + res.varItems.map(function (x) { return x.months + ' ماه'; }).join('، '));
+    applied.push({ code: code, total: res.total, items: res.items, varTotal: res.varTotal, varItems: res.varItems });
   });
   return applied;
 }
