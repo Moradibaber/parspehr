@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261030v231';
+  const bootVer = '20261030v233';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -913,30 +913,36 @@ function computeDecreeArrears(hist, year, month, ctx) {
     const detail = [];
     if (dec.arrearsMode === 'items' && Array.isArray(dec.arrearsItems)) {
       // «محاسبه از آیتم‌ها»: مبلغ جدید − مبلغ فیش هر ماه معوقه (عکس لحظه صدور حکم)
+      // اضافه‌کاری/شب‌کاری/نوبت‌کاری (auto): با ساعات هر ماه معوقه و حقوق پایه جدید توسط موتور محاسبه می‌شود
+      const newB = ctx ? decreeBasicOf(dec.values, ctx.basicKeys) : 0;
       dec.arrearsItems.forEach(function (it) {
         if (!it) return;
+        if (it.auto) {
+          if (!(ctx && ctx.eng && ctx.emp) || !(newB > 0)) return;
+          (it.olds || []).forEach(function (o) {
+            if (!o || o.amount == null) return; // ماهی که فیش نداشته
+            const pm = String(o.k || '').split('-');
+            const py = Number(pm[0]), mm = Number(pm[1]);
+            if (!py || !mm) return;
+            const oldB = decreeBasicOf(decreeValuesBefore(hist, dec, py * 12 + (mm - 1)), ctx.basicKeys);
+            if (!(oldB > 0) || oldB === newB) return;
+            const vd = ctx.eng.calcVariablePayDiff(ctx.emp, oldB, newB, py, mm);
+            if (!vd || !vd.found) return;
+            const part = it.auto === 'ot' ? vd.ot : (it.auto === 'night' ? vd.night : vd.shift);
+            if (part) { subVar += part; detail.push({ year: py, month: mm, item: it.name, amount: part }); }
+          });
+          return;
+        }
         const nv = Number(it.newAmount) || 0;
         (it.olds || []).forEach(function (o) {
-          if (!o || o.amount == null) return; // ماهی که فیش نداشته
+          if (!o || o.amount == null) return;
           sub += nv - (Number(o.amount) || 0);
         });
       });
-    }
-    for (let k = 1; k <= n && !(dec.arrearsMode === 'items' && Array.isArray(dec.arrearsItems)); k++) {
-      const oldVals = decreeValuesBefore(hist, dec, target - k);
-      sub += decreeNumDiff(dec.values, oldVals);
-      if (ctx && ctx.eng && ctx.emp) {
-        const idx = target - k;
-        const py = Math.floor(idx / 12), pm = (idx % 12) + 1;
-        const oldB = decreeBasicOf(oldVals, ctx.basicKeys);
-        const newB = decreeBasicOf(dec.values, ctx.basicKeys);
-        if (oldB > 0 && newB > 0 && oldB !== newB) { // پایه باید در هر دو حکم مشترک باشد
-          const vd = ctx.eng.calcVariablePayDiff(ctx.emp, oldB, newB, py, pm);
-          if (vd.found && vd.total) {
-            subVar += vd.total;
-            detail.push({ year: py, month: pm, ot: vd.ot, night: vd.night, shift: vd.shift, total: vd.total });
-          }
-        }
+    } else {
+      // «محاسبه از حکم»: فقط تفاوت آیتم‌های مشترک مبالغ حکم (بدون اضافه‌کار/شب‌کاری/نوبت‌کاری)
+      for (let k = 1; k <= n; k++) {
+        sub += decreeNumDiff(dec.values, decreeValuesBefore(hist, dec, target - k));
       }
     }
     sub = Math.round(sub);
@@ -987,7 +993,7 @@ async function applyDecreeArrears(env, data, year, month) {
       row.qty[name] = 1;
     }
     if (res.total) pushItem(DECREE_ARREARS_ITEM, res.total, 'خودکار از احکام: ' + res.items.map(function (x) { return x.months + ' ماه'; }).join('، '));
-    if (res.varTotal) pushItem(DECREE_ARREARS_VAR_ITEM, res.varTotal, 'مابه‌التفاوت اضافه‌کار/شب‌کاری/نوبت‌کاری با پایه جدید: ' + res.varItems.map(function (x) { return x.months + ' ماه'; }).join('، '));
+    if (res.varTotal) pushItem(DECREE_ARREARS_VAR_ITEM, res.varTotal, 'اضافه‌کاری/شب‌کاری/نوبت‌کاری ماه‌های معوقه با پایه جدید: ' + res.varItems.map(function (x) { return x.months + ' ماه'; }).join('، '));
     applied.push({ code: code, total: res.total, items: res.items, varTotal: res.varTotal, varItems: res.varItems });
   });
   return applied;
