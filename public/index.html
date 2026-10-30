@@ -1056,6 +1056,18 @@
         </div>
       </div>
       <div id="deEmpPicker" class="psp-emp-picker" data-prefix="de"></div>
+      <details id="deSlipBox" ontoggle="if(this.open) populateDeSlipEmployees()" style="margin-bottom:12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;">
+        <summary style="cursor:pointer;padding:8px 12px;font-weight:700;font-size:0.82rem;color:#0f766e;">فیش حقوقی (سال و ماه همین صفحه)</summary>
+        <div style="padding:8px 12px 12px;">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px;">
+            <div class="form-group" style="min-width:220px;margin:0;"><label>کارمند</label><select id="deSlipEmp"></select></div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="showDeSlip()">نمایش فیش</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.print()">چاپ فیش</button>
+            <span style="font-size:0.72rem;color:#64748b;">فیش بعد از «اجرای محاسبه» همان ماه نمایش داده می‌شود.</span>
+          </div>
+          <div id="deSlipContainer"></div>
+        </div>
+      </details>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
         <button class="btn btn-primary" onclick="loadDataEntry()">بارگذاری ماه</button>
         <button class="btn btn-success" onclick="saveDataEntry()">ذخیره داده‌ها</button>
@@ -6047,6 +6059,7 @@ function loadDataEntry() {
   document.getElementById('dataFunctionalDays').value = fd;
   const activeEmps = getActiveEmployees();
   try { pspEmpPickerRender('de'); } catch (ePk) {}
+  try { populateDeSlipEmployees(); } catch (eSl) {}
   const deSel = pspGetSelCodes('de'); // null = همه
   const allQtyNames = getAllQuantityItemNames(y, m);
   // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
@@ -6565,27 +6578,47 @@ function applyPayFilters() {
   if (rows.length) renderPayrollResult(rows);
 }
 
+function populateDeSlipEmployees() {
+  const sel = document.getElementById('deSlipEmp');
+  if (!sel) return;
+  const cur = sel.value;
+  const picked = (typeof pspGetSelCodes === 'function') ? pspGetSelCodes('de') : null;
+  const list = getActiveEmployees().filter(function(e) { return !picked || picked.has(String(e.code)); });
+  sel.innerHTML = list.map(function(e) { return '<option value="' + e.code + '">' + e.code + ' — ' + e.fullName + '</option>'; }).join('');
+  if (cur && list.some(function(e) { return String(e.code) === cur; })) sel.value = cur;
+}
+function showDeSlip() {
+  const sel = document.getElementById('deSlipEmp');
+  if (!sel || !sel.value) { populateDeSlipEmployees(); }
+  const code = sel && sel.value;
+  if (!code) { alert('کارمندی برای نمایش فیش انتخاب نشده است.'); return; }
+  generatePayslip({ code: code, year: document.getElementById('dataYear').value, month: document.getElementById('dataMonth').value, containerId: 'deSlipContainer' });
+}
 function populateSlipEmployees() {
   document.getElementById('slipEmployee').innerHTML =
     getActiveEmployees().map(e => '<option value="' + e.code + '">' + e.fullName + '</option>').join('');
 }
-function generatePayslip() {
+function generatePayslip(opts) {
+  const o = (opts && typeof opts === 'object' && opts.code != null) ? opts : null;
+  const contEl = function() { return document.getElementById((o && o.containerId) || 'payslipContainer'); };
   if (!requirePerm('payslip', 'دسترسی مجاز نیست.')) return;
-  const code = document.getElementById('slipEmployee').value;
-  const key = document.getElementById('slipYear').value + '-' + document.getElementById('slipMonth').value;
+  const code = o ? String(o.code) : document.getElementById('slipEmployee').value;
+  const slipYearV = o ? String(o.year) : document.getElementById('slipYear').value;
+  const slipMonthV = o ? String(o.month) : document.getElementById('slipMonth').value;
+  const key = slipYearV + '-' + slipMonthV;
   const emp = data.employees.find(e => e.code === code);
-  const showAdj = document.getElementById('slipShowAdjustment') && document.getElementById('slipShowAdjustment').checked;
+  const showAdj = !o && document.getElementById('slipShowAdjustment') && document.getElementById('slipShowAdjustment').checked;
   let rec = (data.payrolls[key]||[]).find(r => r.code === code);
   if (showAdj) {
     const adj = ((data.payrollAdjustments && data.payrollAdjustments[key]) || []).find(r => r.code === code);
     if (adj) rec = adj;
   }
   if (!emp || !rec) {
-    document.getElementById('payslipContainer').innerHTML = '<p style="color:#dc2626;">ابتدا محاسبه را انجام دهید' + (showAdj ? ' و مغایرت را محاسبه کنید.' : '.') + '</p>';
+    contEl().innerHTML = '<p style="color:#dc2626;">ابتدا محاسبه را انجام دهید' + (showAdj ? ' و مغایرت را محاسبه کنید.' : '.') + '</p>';
     return;
   }
   const monthNames = ['','فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
-  const m = document.getElementById('slipMonth').value;
+  const m = slipMonthV;
   let itemsHtml = '';
   (rec.itemDetails||[]).forEach(it => {
     if (it.infoOnly) return;
@@ -6604,9 +6637,9 @@ function generatePayslip() {
     '<tr><td>شب‌کاری</td><td>' + formatNumber(rec.nightAmount) + '</td></tr>' +
     shiftRow
   );
-  document.getElementById('payslipContainer').innerHTML = `
+  contEl().innerHTML = `
     <div class="payslip">
-      <div class="payslip-header"><h2>فیش حقوقی</h2><p>${monthNames[m]} ${document.getElementById('slipYear').value}</p></div>
+      <div class="payslip-header"><h2>فیش حقوقی</h2><p>${monthNames[m]} ${slipYearV}</p></div>
       <table>
         <tr><td>کد</td><td>${emp.code}</td><td>نام</td><td>${emp.fullName}</td></tr>
         <tr><td>سمت</td><td>${emp.position||'—'}</td><td>واحد</td><td>${emp.unit||'—'}</td></tr>
