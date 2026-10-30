@@ -370,7 +370,7 @@
     <button class="tab-btn" data-tab="monthlyvars" style="display:none" data-psp-child="1">ثابت‌های ماهانه</button>
     <button class="tab-btn" data-tab="colorder">ترتیب ستون‌های ورود داده</button>
     <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
-    <button class="tab-btn" data-tab="payslip">فیش حقوقی</button>
+    <button class="tab-btn" data-tab="payslip" style="display:none" data-psp-child="1">فیش حقوقی</button>
     <button class="tab-btn" data-tab="dashboard">داشبورد هزینه‌ها</button>
     <button class="tab-btn" data-tab="decree">حکم</button>
     <button class="tab-btn" data-tab="eid">عیدی، سنوات و مرخصی</button>
@@ -1767,10 +1767,6 @@
         <span>آیتم‌های سفارشی این کارمند</span>
         <button type="button" class="btn btn-outline btn-sm" onclick="addEmployeeCustomItem()">+ افزایش آیتم</button>
       </div>
-      <div id="grp_basePayBox" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:10px;padding:10px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;">
-        <div class="form-group" id="grp_basicSalary"><label>حقوق پایه ماهانه *</label><input type="number" id="e_basicSalary" min="0" value="0"></div>
-        <div class="form-group" id="grp_seniorityBase"><label>پایه سنوات ماهانه</label><input type="number" id="e_seniorityBase" min="0" value="0" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا"></div>
-      </div>
       <div style="font-size:0.75rem;color:#64748b;margin-bottom:8px;">
         نحوه ورود:
         «بر اساس کارکرد» = مبلغ × (روز کارکرد ÷ ۳۰) — اگر تیک <b>ثابت</b> باشد مبلغ کامل بدون تناسب<br>
@@ -1778,6 +1774,14 @@
         «تعداد خالص» = مبلغ × (تعداد مؤثر ÷ کارکرد خالص) — تعداد مؤثر = تعداد واردشده؛ اگر خالی/صفر باشد از <b>روز کارکرد</b> استفاده می‌شود (تا با کارکرد کم، مبلغ صفر نشود)<br>
         تیک <b>کسر</b> = از حقوق کم می‌شود. تیک <b>ثابت</b> فقط برای «بر اساس کارکرد» معنی دارد (مبلغ ثابت).<br>
         <b>مدت:</b> همیشه = هر ماه | یک ماه = فقط همان ماه | دو ماه = همان ماه و ماه بعد | … سپس از کارکنان و محاسبه حذف می‌شود.
+      </div>
+      <div class="custom-item-row" id="grp_basicSalary">
+        <input type="text" value="حقوق پایه ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
+        <input type="number" id="e_basicSalary" min="0" value="0" placeholder="مبلغ" title="حقوق پایه ماهانه *">
+      </div>
+      <div class="custom-item-row" id="grp_seniorityBase">
+        <input type="text" value="پایه سنوات ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
+        <input type="number" id="e_seniorityBase" min="0" value="0" placeholder="مبلغ" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا">
       </div>
       <div id="employeeCustomItems"></div>
       <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
