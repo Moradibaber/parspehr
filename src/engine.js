@@ -742,7 +742,7 @@ export function makeEngine(data) {
       // حقوق پایه و پایه سنوات: مبنا ۳۰ روز
       const ratioBase = workDays / 30;
       const ratioFunc = functionalDays > 0 ? (workDays / functionalDays) : 0;
-      const basicAmount = Math.round(emp.basicSalary * ratioBase);
+      const basicAmount = Math.round(emp.basicSalary * (emp.basicFixed ? 1 : ratioBase)); // «ثابت» = مبلغ کامل بدون تناسب کارکرد
       const daily = emp.basicSalary / 30;
       const vp = calcVariablePay(emp.basicSalary, d, workDays);
       const otAmount = vp.ot;
@@ -775,7 +775,7 @@ export function makeEngine(data) {
           const baseAmt = (!isNaN(empSen) && empSen >= 0 && emp.seniorityBase !== undefined && emp.seniorityBase !== null && emp.seniorityBase !== '')
             ? empSen
             : raw;
-          const val = Math.round(baseAmt * ratioBase);
+          const val = Math.round(baseAmt * (emp.seniorityFixed ? 1 : ratioBase));
           if (val === 0) return;
           totalAllow += val;
           itemDetails.push({ name: a.name, amount: val });
