@@ -574,6 +574,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
                 })();
               }
             }
+            if (prev.obj.settings.requestWindows != null && obj.settings.requestWindows == null) obj.settings.requestWindows = prev.obj.settings.requestWindows;
             if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
               if (!obj.settings.leavePolicy) obj.settings.leavePolicy = {};
               if (!obj.settings.leavePolicy.byContractType) obj.settings.leavePolicy.byContractType = {};
@@ -1268,6 +1269,7 @@ async function handleState(request, who, env, path) {
                   })();
                 }
               }
+              if (prev.obj.settings.requestWindows != null && incoming.settings.requestWindows == null) incoming.settings.requestWindows = prev.obj.settings.requestWindows;
               if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
                 if (!incoming.settings.leavePolicy) incoming.settings.leavePolicy = {};
                 if (!incoming.settings.leavePolicy.byContractType) incoming.settings.leavePolicy.byContractType = {};
@@ -1932,6 +1934,19 @@ async function handleEmpCreateRequest(request, env) {
       let py = portalCal.realYear, pm = portalCal.realMonth - 1;
       if (pm < 1) { pm = 12; py -= 1; }
       okMonth = (pStart.y === py && pStart.m === pm);
+    }
+    // مهلت ثبت بر اساس بازه‌های تعریف‌شده توسط ادمین (settings.requestWindows)
+    const reqWins = normalizeRequestWindows(settings.requestWindows, false);
+    if (reqWins.length) {
+      const nowJ = jalaliNowTehran();
+      const wcS = checkRequestWindow(reqWins, pStart, nowJ);
+      if (wcS.handled && !wcS.ok) return jsonResponse({ ok: false, error: 'window_closed', message: wcS.message }, 400);
+      if (wcS.handled && wcS.ok) okMonth = true;
+      const pEnd0 = parseJalaliYMD(endDate);
+      if (pEnd0) {
+        const wcE = checkRequestWindow(reqWins, pEnd0, nowJ);
+        if (wcE.handled && !wcE.ok) return jsonResponse({ ok: false, error: 'window_closed', message: wcE.message }, 400);
+      }
     }
     if (!okMonth) {
       let msg = 'فقط درخواست در ماه شمسی جاری (' + portalCal.realYear + '/' + portalCal.realMonth + ') مجاز است.';
@@ -5639,6 +5654,72 @@ function gregorianToJalali(gy, gm, gd) {
   return { y: jy, m: jm, d: jd };
 }
 
+
+/** مهلت ثبت مرخصی/مأموریت: تا ۵ ردیف {from,to,deadline,nextMonth,enabled} — settings.requestWindows */
+function normalizeRequestWindows(raw, keepDisabled) {
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (let i = 0; i < raw.length && out.length < 5; i++) {
+    const x = raw[i];
+    if (!x || typeof x !== 'object') continue;
+    const from = Math.floor(Number(x.from)), to = Math.floor(Number(x.to)), dl = Math.floor(Number(x.deadline));
+    if (!(from >= 1 && from <= 31) || !(to >= from && to <= 31) || !(dl >= 1 && dl <= 31)) continue;
+    const enabled = x.enabled !== false;
+    if (!enabled && !keepDisabled) continue;
+    out.push({ from: from, to: to, deadline: dl, nextMonth: !!x.nextMonth, enabled: enabled });
+  }
+  return out;
+}
+/** تاریخ شمسی «اکنون» به وقت تهران */
+function jalaliNowTehran() {
+  const t = new Date(Date.now() + 3.5 * 3600 * 1000);
+  const j = gregorianToJalali(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+  return { y: j.y, m: j.m, d: j.d };
+}
+function jalaliCmp(a, b) { return (a.y - b.y) || (a.m - b.m) || (a.d - b.d); }
+/** handled=false → هیچ ردیفی این روز را پوشش نمی‌دهد (قانون قدیمی اجرا شود) */
+function checkRequestWindow(windows, p, nowJ) {
+  const w = windows.find(function (x) { return p.d >= x.from && p.d <= x.to; });
+  if (!w) return { handled: false };
+  if (jalaliCmp({ y: p.y, m: p.m, d: 1 }, { y: nowJ.y, m: nowJ.m, d: 1 }) > 0) return { handled: false };
+  let dy = p.y, dm = p.m + (w.nextMonth ? 1 : 0);
+  if (dm > 12) { dm = 1; dy += 1; }
+  const dl = { y: dy, m: dm, d: w.deadline };
+  if (jalaliCmp(nowJ, dl) > 0) {
+    const pad = function (n) { return n < 10 ? '0' + n : String(n); };
+    return { handled: true, ok: false, message: 'زمان ثبت مرخصی/مأموریت برای روزهای ' + w.from + ' تا ' + w.to + ' ماه ' + p.m + ' به پایان رسیده است (مهلت تا ' + dl.y + '/' + pad(dl.m) + '/' + pad(dl.d) + ').' };
+  }
+  return { handled: true, ok: true };
+}
+
+async function handleAdminRequestWindows(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const s = (gd.obj && gd.obj.settings) || {};
+    return jsonResponse({ ok: true, windows: normalizeRequestWindows(s.requestWindows, true) });
+  }
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const wins = normalizeRequestWindows(r.body.windows, true);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!gd.obj.settings) gd.obj.settings = {};
+    gd.obj.settings.requestWindows = wins;
+    const put = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, windows: wins });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
 /** ماه مجاز درخواست مرخصی/مأموریت: ماه شمسی واقعی؛ تا N روز اول ماه بعد، ماه قبل هم مجاز */
 function getPortalRequestMonth(settings) {
   settings = settings || {};
@@ -7900,6 +7981,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
+  if (path === '/api/admin/request-windows') return handleAdminRequestWindows(request, who, env);
   if (path === '/api/admin/contract-types') return handleAdminContractTypes(request, who, env);
   if (path === '/api/admin/holidays') {
     if (request.method === 'POST') return handleAdminSaveHolidays(request, who, env);
