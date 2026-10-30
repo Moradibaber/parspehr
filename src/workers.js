@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261030v230';
+  const bootVer = '20261030v231';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -854,7 +854,12 @@ function decreeNumDiff(newV, oldV) {
   Object.keys(newV).forEach(function (k) { keys[k] = 1; });
   Object.keys(oldV).forEach(function (k) { keys[k] = 1; });
   let s = 0;
-  Object.keys(keys).forEach(function (k) { s += (Number(newV[k]) || 0) - (Number(oldV[k]) || 0); });
+  // فقط آیتم‌های مشترک: در حکم قبلی و جدید هر دو مقدار غیرصفر دارند
+  // (آیتمی که قبلاً نبوده، مثل حق اولاد جدید، یا حذف شده، در مابه‌التفاوت نمی‌آید)
+  Object.keys(keys).forEach(function (k) {
+    const a = Number(oldV[k]) || 0, b = Number(newV[k]) || 0;
+    if (a !== 0 && b !== 0) s += b - a;
+  });
   return s;
 }
 
@@ -906,7 +911,18 @@ function computeDecreeArrears(hist, year, month, ctx) {
     if (decreeEffIndex(dec) !== target) return;
     let sub = 0, subVar = 0;
     const detail = [];
-    for (let k = 1; k <= n; k++) {
+    if (dec.arrearsMode === 'items' && Array.isArray(dec.arrearsItems)) {
+      // «محاسبه از آیتم‌ها»: مبلغ جدید − مبلغ فیش هر ماه معوقه (عکس لحظه صدور حکم)
+      dec.arrearsItems.forEach(function (it) {
+        if (!it) return;
+        const nv = Number(it.newAmount) || 0;
+        (it.olds || []).forEach(function (o) {
+          if (!o || o.amount == null) return; // ماهی که فیش نداشته
+          sub += nv - (Number(o.amount) || 0);
+        });
+      });
+    }
+    for (let k = 1; k <= n && !(dec.arrearsMode === 'items' && Array.isArray(dec.arrearsItems)); k++) {
       const oldVals = decreeValuesBefore(hist, dec, target - k);
       sub += decreeNumDiff(dec.values, oldVals);
       if (ctx && ctx.eng && ctx.emp) {
@@ -914,7 +930,7 @@ function computeDecreeArrears(hist, year, month, ctx) {
         const py = Math.floor(idx / 12), pm = (idx % 12) + 1;
         const oldB = decreeBasicOf(oldVals, ctx.basicKeys);
         const newB = decreeBasicOf(dec.values, ctx.basicKeys);
-        if (oldB !== newB) {
+        if (oldB > 0 && newB > 0 && oldB !== newB) { // پایه باید در هر دو حکم مشترک باشد
           const vd = ctx.eng.calcVariablePayDiff(ctx.emp, oldB, newB, py, pm);
           if (vd.found && vd.total) {
             subVar += vd.total;
