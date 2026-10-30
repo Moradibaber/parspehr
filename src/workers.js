@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261030v233';
+  const bootVer = '20261030v234';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -890,6 +890,20 @@ function decreeBasicKeys(headers) {
   return keys;
 }
 
+// کلیدهای «پایه سنوات» در مقادیر حکم
+function decreeSeniorityKeys(headers) {
+  const keys = ['seniorityBase'];
+  (headers || []).forEach(function (h) {
+    if (!h) return;
+    const nm = String(h.name || '').replace(/[\u200c\u200f\u200e]/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
+    if (/^پایه سنوات( ماهانه)?$/.test(nm) || String(h.id) === 'seniorityBase') {
+      const id = String(h.id == null ? h.name : h.id);
+      if (keys.indexOf(id) < 0) keys.push(id);
+    }
+  });
+  return keys;
+}
+
 function decreeBasicOf(values, basicKeys) {
   values = values || {};
   let s = 0;
@@ -960,6 +974,7 @@ async function applyDecreeArrears(env, data, year, month) {
   if (gd.fail || !gd.obj || !gd.obj.employeeExtras) return [];
   const extras = gd.obj.employeeExtras;
   const basicKeys = decreeBasicKeys(gd.obj.decreeHeaders || data.decreeHeaders);
+  const senKeys = decreeSeniorityKeys(gd.obj.decreeHeaders || data.decreeHeaders);
   let eng = null;
   try { eng = makeEngine(data); } catch (eEng) { eng = null; }
   const applied = [];
@@ -968,6 +983,23 @@ async function applyDecreeArrears(env, data, year, month) {
     const ex = extras[String(emp.code)];
     const hist = ex && Array.isArray(ex.decreeHistory) ? ex.decreeHistory : null;
     if (!hist || !hist.length) return;
+    // حقوق پایه / پایه سنوات کارت با حکم همگام شده است؛ برای ماه‌های قبل از اجرای حکم، مقادیر «قبل از حکم» همان حکم استفاده می‌شود
+    // (فقط احکام صادرشده با همگام‌سازی کارت: cardSynced)
+    try {
+      const tgt = year * 12 + (month - 1);
+      const synced = hist.filter(function (d) { return d && d.cardSynced && d.values && d.prevValues && typeof d.prevValues === 'object'; })
+        .map(function (d) { return { d: d, eff: decreeEffIndex(d) }; })
+        .filter(function (x) { return x.eff != null; })
+        .sort(function (a, b) { return a.eff - b.eff; });
+      const nxt = synced.find(function (x) { return x.eff > tgt; });
+      if (nxt) {
+        const pb = decreeBasicOf(nxt.d.prevValues, basicKeys);
+        if (pb > 0) emp.basicSalary = pb;
+        let hasSen = false, ps = 0;
+        senKeys.forEach(function (k) { if (nxt.d.prevValues[k] != null && nxt.d.prevValues[k] !== '') { hasSen = true; ps += Number(nxt.d.prevValues[k]) || 0; } });
+        if (hasSen) emp.seniorityBase = ps;
+      }
+    } catch (eSyn) {}
     const res = computeDecreeArrears(hist, year, month, { eng: eng, emp: emp, basicKeys: basicKeys });
     const code = String(emp.code);
     if (!Array.isArray(emp.customItems)) emp.customItems = [];
