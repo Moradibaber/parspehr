@@ -1781,7 +1781,7 @@
         <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
         <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
         <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
-        <label class="check-label" title="مبلغ ثابت"><input type="checkbox" disabled> ثابت</label>
+        <label class="check-label" title="مبلغ کامل بدون تناسب با روز کارکرد"><input type="checkbox" id="e_basicFixed"> ثابت</label>
         <select disabled title="مدت اعمال آیتم"><option>همیشه</option></select>
         <select disabled title="فعال / غیرفعال در محاسبه"><option>فعال</option></select>
         <span></span>
@@ -1792,7 +1792,7 @@
         <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
         <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
         <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
-        <label class="check-label" title="مبلغ ثابت"><input type="checkbox" disabled> ثابت</label>
+        <label class="check-label" title="مبلغ کامل بدون تناسب با روز کارکرد"><input type="checkbox" id="e_seniorityFixed"> ثابت</label>
         <select disabled title="مدت اعمال آیتم"><option>همیشه</option></select>
         <select disabled title="فعال / غیرفعال در محاسبه"><option>فعال</option></select>
         <span></span>
@@ -4901,7 +4901,7 @@ function toggleSuppInsurance() {
 }
 function onContractTypeChange() {
   const t = document.getElementById('e_contractType').value;
-  const isN = t === 'normal', isD = t === 'daily', isH = t === 'hourly';
+  const isD = t === 'daily', isH = t === 'hourly', isN = !isD && !isH;
   document.getElementById('grp_basicSalary').style.display = isN ? '' : 'none';
   var grpSen = document.getElementById('grp_seniorityBase');
   if (grpSen) grpSen.style.display = isN ? '' : 'none';
@@ -4964,6 +4964,7 @@ function openEmployeeModal(editId = null) {
   var canSalary = hasPerm('emp_basic_salary');
   document.getElementById('e_basicSalary').disabled = !canSalary;
   var esb = document.getElementById('e_seniorityBase'); if (esb) esb.disabled = !canSalary;
+  ['e_basicFixed','e_seniorityFixed'].forEach(function(id){ var c=document.getElementById(id); if (c) { c.checked = false; c.disabled = !canSalary; } });
   var dr = document.getElementById('e_dailyRate');
   var hr = document.getElementById('e_hourlyRate');
   if (dr) dr.disabled = !canSalary;
@@ -5013,6 +5014,8 @@ function openEmployeeModal(editId = null) {
       else el.value = emp[k] ?? (['basicSalary','seniorityBase','children','loanAmount','loanInstallments','loanRemaining'].includes(k) ? 0 : (k==='status'?'active':''));
     });
     document.getElementById('e_contractType').value = emp.contractType || 'normal';
+    document.getElementById('e_basicFixed').checked = !!emp.basicFixed;
+    document.getElementById('e_seniorityFixed').checked = !!emp.seniorityFixed;
     document.getElementById('e_dailyRate').value = emp.dailyRate || 0;
     document.getElementById('e_hourlyRate').value = emp.hourlyRate || 0;
     document.getElementById('e_optTax10').value = emp.optTax10 ? 'yes' : 'no';
@@ -5176,6 +5179,8 @@ function saveEmployee(e) {
     seniorityBase: (!hasPerm('emp_basic_salary') && old)
       ? (Number(old.seniorityBase) || 0)
       : (Number(document.getElementById('e_seniorityBase') && document.getElementById('e_seniorityBase').value) || 0),
+    basicFixed: (!hasPerm('emp_basic_salary') && old) ? !!old.basicFixed : !!document.getElementById('e_basicFixed').checked,
+    seniorityFixed: (!hasPerm('emp_basic_salary') && old) ? !!old.seniorityFixed : !!document.getElementById('e_seniorityFixed').checked,
     contractType: document.getElementById('e_contractType').value || 'normal',
     dailyRate: Number(document.getElementById('e_dailyRate').value) || 0,
     hourlyRate: Number(document.getElementById('e_hourlyRate').value) || 0,
