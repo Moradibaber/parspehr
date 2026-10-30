@@ -4745,7 +4745,7 @@ function renderEmployeeCustomItems() {
       <input type="number" placeholder="مبلغ" value="${ci.amount||0}" min="0" onchange="tempCustomItems[${idx}].amount=Number(this.value)||0">
       <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;">
         <input type="text" id="ciFormula_${idx}" placeholder="فرمول (اختیاری)" value="${ci.formula||''}" onchange="tempCustomItems[${idx}].formula=this.value" style="min-width:140px;">
-        <select onchange="insertFormulaVar(${idx}, this.value); this.value='';" style="font-size:0.72rem;padding:2px 4px;" title="یک متغیر انتخاب کنید تا به فرمول اضافه شود">
+        <select onchange="insertFormulaVar(${idx}, this.value); this.value='';" style="display:none;font-size:0.72rem;padding:2px 4px;" title="یک متغیر انتخاب کنید تا به فرمول اضافه شود">
           <option value="">+ افزودن متغیر…</option>
           <option value="basicSalary">basicSalary — حقوق پایه</option>
           <option value="workDays">workDays — روز کارکرد</option>
