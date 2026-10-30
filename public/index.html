@@ -366,10 +366,10 @@
     <button class="tab-btn" data-tab="allowances">آیتم‌های حقوق و مزایا</button>
     <button class="tab-btn" data-tab="customitems" style="display:none" data-psp-child="1">آیتم‌های سفارشی</button>
     <button class="tab-btn" data-tab="settings" style="display:none" data-psp-child="1">نرخ بیمه و مالیات</button>
-    <button class="tab-btn" data-tab="dataentry" style="display:none" data-psp-child="1">ورود داده‌های ماهانه</button>
+    <button class="tab-btn" data-tab="dataentry">ورود داده‌های ماهانه</button>
     <button class="tab-btn" data-tab="monthlyvars" style="display:none" data-psp-child="1">ثابت‌های ماهانه</button>
     <button class="tab-btn" data-tab="colorder">ترتیب ستون‌های ورود داده</button>
-    <button class="tab-btn" data-tab="payroll">محاسبه و نتیجه</button>
+    <button class="tab-btn" data-tab="payroll" style="display:none" data-psp-child="1">محاسبه و نتیجه</button>
     <button class="tab-btn" data-tab="payslip" style="display:none" data-psp-child="1">فیش حقوقی</button>
     <button class="tab-btn" data-tab="dashboard">داشبورد هزینه‌ها</button>
     <button class="tab-btn" data-tab="decree">حکم</button>
@@ -3995,10 +3995,10 @@ var PSP_SUBTAB_GROUPS = {
     { tab: 'pending', label: 'تایید تغییرات' },
     { tab: 'changelog', label: 'لاگ تغییرات' }
   ],
-  payroll: [
+  dataentry: [
+    { tab: 'dataentry', label: 'ورود داده‌های ماهانه' },
     { tab: 'payroll', label: 'محاسبه و نتیجه' },
-    { tab: 'payslip', label: 'فیش حقوقی' },
-    { tab: 'dataentry', label: 'ورود داده‌های ماهانه' }
+    { tab: 'payslip', label: 'فیش حقوقی' }
   ]
 };
 var PSP_CHILD_TO_PARENT = {};
