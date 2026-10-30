@@ -364,6 +364,7 @@
     <button class="tab-btn active" data-tab="employees">کارکنان فعال</button>
     <button class="tab-btn" data-tab="inactive" style="display:none" data-psp-child="1">غیر فعال‌ها</button>
     <button class="tab-btn" data-tab="allowances">آیتم‌های حقوق و مزایا</button>
+    <button class="tab-btn" data-tab="basepay" style="display:none" data-psp-child="1">حقوق پایه و سنوات</button>
     <button class="tab-btn" data-tab="customitems" style="display:none" data-psp-child="1">آیتم‌های سفارشی</button>
     <button class="tab-btn" data-tab="settings" style="display:none" data-psp-child="1">نرخ بیمه و مالیات</button>
     <button class="tab-btn" data-tab="dataentry" style="display:none" data-psp-child="1">ورود داده‌های ماهانه</button>
@@ -486,7 +487,7 @@
   <div class="panel" id="panel-allowances">
     <div class="card">
       <div class="section-title">آیتم‌های حقوق و مزایا</div>
-      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، پایه سنوات و …). <b>حقوق پایه</b> و <b>مبلغ پایه سنوات</b> در کارت هر کارمند تعریف می‌شوند؛ اینجا فقط نام و تیک بیمه/مالیات برای پایه سنوات نگه داشته می‌شود. با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، پایه سنوات و …). <b>حقوق پایه</b> و <b>مبلغ پایه سنوات</b> هر کارمند در زیرتب «حقوق پایه و سنوات» (و همچنین کارت کارمند) ویرایش می‌شوند؛ اینجا فقط نام و تیک بیمه/مالیات برای پایه سنوات نگه داشته می‌شود. با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
       <div style="font-weight:600;display:grid;grid-template-columns:2fr 1fr 80px 80px 36px;gap:7px;margin-bottom:5px;font-size:0.8rem;">
         <span>نام آیتم</span><span>مبلغ ثابت</span><span>مشمول بیمه</span><span>مشمول مالیات</span><span></span>
       </div>
@@ -494,6 +495,26 @@
       <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="addCustomAllowance()">+ افزودن آیتم</button>
       <button class="btn btn-primary btn-sm" style="margin-top:10px;margin-right:7px;" onclick="saveAllowances()">ذخیره آیتم‌ها</button>
       <p style="font-size:0.72rem;color:#64748b;margin-top:8px;">مبلغ آیتم‌های ثابت برای همه کارکنان یکسان است و با تغییر همین مبلغ اعمال می‌شود. تغییر نام آیتم در همه جا همگام می‌شود.</p>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-basepay">
+    <div class="card">
+      <div class="section-title">حقوق پایه و پایه سنوات کارکنان</div>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">مبلغ ماهانه «حقوق پایه» و «پایه سنوات» هر کارمند را اینجا کنار سایر آیتم‌های حقوق و مزایا ببینید و ویرایش کنید؛ همان مقادیر کارت کارمند است (تغییر در هر دو جا یکسان اعمال می‌شود). روزمزد و ساعتی نرخ خودشان را در کارت دارند. ویرایش نیاز به مجوز «حقوق پایه» دارد؛ اپراتور بدون «اعمال فوری» تغییرات را برای تأیید ادمین ارسال می‌کند.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;">
+        <input type="text" id="bpSearch" placeholder="جست‌وجوی نام یا کد…" oninput="renderBasePay()" style="flex:1;min-width:160px;max-width:280px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;">
+        <select id="bpType" onchange="renderBasePay()" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;"><option value="">همه انواع قرارداد</option><option value="normal">عادی</option><option value="daily">روزمزد</option><option value="hourly">ساعتی</option></select>
+        <button class="btn btn-primary btn-sm" onclick="saveBasePay()">ذخیره تغییرات</button>
+        <button class="btn btn-outline btn-sm" onclick="resetBasePay()">لغو تغییرات</button>
+        <span id="bpMsg" style="font-size:0.8rem;"></span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;">
+          <thead><tr><th>کد</th><th>نام</th><th>نوع قرارداد</th><th>حقوق پایه ماهانه (ریال)</th><th>پایه سنوات ماهانه (ریال)</th></tr></thead>
+          <tbody id="bpTableBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -1056,18 +1077,6 @@
         </div>
       </div>
       <div id="deEmpPicker" class="psp-emp-picker" data-prefix="de"></div>
-      <details id="deSlipBox" ontoggle="if(this.open) populateDeSlipEmployees()" style="margin-bottom:12px;border:1px solid #99f6e4;border-radius:8px;background:#f0fdfa;">
-        <summary style="cursor:pointer;padding:8px 12px;font-weight:700;font-size:0.82rem;color:#0f766e;">فیش حقوقی (سال و ماه همین صفحه)</summary>
-        <div style="padding:8px 12px 12px;">
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px;">
-            <div class="form-group" style="min-width:220px;margin:0;"><label>کارمند</label><select id="deSlipEmp"></select></div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="showDeSlip()">نمایش فیش</button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.print()">چاپ فیش</button>
-            <span style="font-size:0.72rem;color:#64748b;">فیش بعد از «اجرای محاسبه» همان ماه نمایش داده می‌شود.</span>
-          </div>
-          <div id="deSlipContainer"></div>
-        </div>
-      </details>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;">
         <button class="btn btn-primary" onclick="loadDataEntry()">بارگذاری ماه</button>
         <button class="btn btn-success" onclick="saveDataEntry()">ذخیره داده‌ها</button>
@@ -3990,6 +3999,7 @@ var PSP_SUBTAB_GROUPS = {
   ],
   allowances: [
     { tab: 'allowances', label: 'آیتم‌های حقوق و مزایا' },
+    { tab: 'basepay', label: 'حقوق پایه و سنوات' },
     { tab: 'customitems', label: 'آیتم‌های سفارشی' },
     { tab: 'monthlyvars', label: 'ثابت‌های ماهانه' }
   ],
@@ -4003,6 +4013,7 @@ var PSP_SUBTAB_GROUPS = {
   ],
   payroll: [
     { tab: 'payroll', label: 'محاسبه و نتیجه' },
+    { tab: 'payslip', label: 'فیش حقوقی' },
     { tab: 'dataentry', label: 'ورود داده‌های ماهانه' }
   ]
 };
@@ -4029,6 +4040,7 @@ function pspEnsureSubtabsBar(parentTab) {
     b.className = 'psp-subbtn' + (item.tab === parentTab ? ' active' : '');
     b.setAttribute('data-subtab', item.tab);
     b.textContent = item.label;
+    if (item.tab === 'payslip') b.setAttribute('data-psp-perm', 'payslip');
     b.onclick = function(ev) {
       if (ev) { ev.preventDefault(); ev.stopPropagation(); }
       pspActivateSubtab(parentTab, item.tab);
@@ -4069,6 +4081,12 @@ function pspActivateSubtab(parentTab, subTab) {
       btn.classList.toggle('active', btn.getAttribute('data-subtab') === subTab);
     });
   }
+  // زیرتب‌هایی که مجوز جدا دارند (مثل فیش حقوقی) برای کاربر بدون مجوز پنهان شوند
+  document.querySelectorAll('.psp-subbtn[data-psp-perm]').forEach(function(b) {
+    var ok = true;
+    try { ok = isAdmin() || !currentRole || hasPerm(b.getAttribute('data-psp-perm')); } catch (e) {}
+    b.style.display = ok ? '' : 'none';
+  });
   try {
     if (subTab === 'inactive' && typeof renderInactive === 'function') renderInactive();
     if (subTab === 'customitems') {
@@ -4078,6 +4096,7 @@ function pspActivateSubtab(parentTab, subTab) {
       if (typeof refreshCtApplyEmpList === 'function') refreshCtApplyEmpList();
     }
     if (subTab === 'monthlyvars' && typeof renderMonthlyVars === 'function') renderMonthlyVars();
+    if (subTab === 'basepay' && typeof renderBasePay === 'function') renderBasePay();
     if (subTab === 'settings' && typeof loadSettingsToForm === 'function') loadSettingsToForm();
     if (subTab === 'changelog') {
       if (typeof isAdmin === 'function' && !isAdmin()) {
@@ -4097,6 +4116,7 @@ function pspActivateSubtab(parentTab, subTab) {
       try { renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()'); } catch (e) {}
     }
     if (subTab === 'dataentry') { /* open panel only */ }
+    if (subTab === 'payslip' && typeof populateSlipEmployees === 'function') populateSlipEmployees();
     if (subTab === 'annualtax') {
       try {
         var yEl = document.getElementById('annualTaxYear');
@@ -5275,6 +5295,93 @@ function saveEmployee(e) {
   renderInactive();
 }
 
+/* ===== حقوق پایه و پایه سنوات (زیرتب آیتم‌های حقوق و مزایا) ===== */
+var __bpEdits = {};
+function bpEsc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function bpNum(v) {
+  var t = String(v == null ? '' : v).replace(/[٬,\s]/g, '').replace(/[۰-۹]/g, function(c) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c)); });
+  var n = Number(t);
+  return isNaN(n) ? 0 : n;
+}
+function bpMsg(ok, t) { var m = document.getElementById('bpMsg'); if (m) { m.style.color = ok ? '#0f766e' : '#b91c1c'; m.textContent = t || ''; } }
+function renderBasePay() {
+  var host = document.getElementById('bpTableBody');
+  if (!host) return;
+  var q = String((document.getElementById('bpSearch') || {}).value || '').trim().toLowerCase();
+  var ctSel = (document.getElementById('bpType') || {}).value || '';
+  var can = hasPerm('emp_basic_salary');
+  var list = getActiveEmployees().filter(function(e) {
+    var ct = e.contractType || 'normal';
+    if (ctSel && ct !== ctSel) return false;
+    if (q && (String(e.code) + ' ' + (e.fullName || '')).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  host.innerHTML = list.map(function(e) {
+    var ct = e.contractType || 'normal';
+    var ed = __bpEdits[e.code] || {};
+    var bs = ed.basicSalary != null ? ed.basicSalary : (Number(e.basicSalary) || 0);
+    var sb = ed.seniorityBase != null ? ed.seniorityBase : (Number(e.seniorityBase) || 0);
+    var rateOnly = (ct === 'daily' || ct === 'hourly');
+    var dis = (!can || rateOnly) ? ' disabled' : '';
+    var lbl = (typeof contractTypeLabel === 'function') ? contractTypeLabel(ct) : ct;
+    return '<tr' + (__bpEdits[e.code] ? ' style="background:#fefce8;"' : '') + '><td>' + bpEsc(e.code) + '</td><td>' + bpEsc(e.fullName) + '</td><td>' + bpEsc(lbl) + '</td>' +
+      '<td><input type="number" min="0" class="bp-in" data-code="' + bpEsc(e.code) + '" data-f="basicSalary" value="' + bpEsc(bs) + '"' + dis + ' style="width:160px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;"></td>' +
+      '<td><input type="number" min="0" class="bp-in" data-code="' + bpEsc(e.code) + '" data-f="seniorityBase" value="' + bpEsc(sb) + '"' + dis + ' style="width:160px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;"></td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:#64748b;">موردی یافت نشد.</td></tr>';
+  var n = Object.keys(__bpEdits).length;
+  bpMsg(true, n ? (n + ' کارمند تغییر کرده؛ «ذخیره تغییرات» را بزنید.') : '');
+}
+document.addEventListener('input', function(ev) {
+  var t = ev.target;
+  if (!t || !t.classList || !t.classList.contains('bp-in')) return;
+  var code = t.getAttribute('data-code'), f = t.getAttribute('data-f');
+  var emp = data.employees.find(function(e) { return String(e.code) === String(code); });
+  if (!emp) return;
+  var ed = __bpEdits[code] || {};
+  ed[f] = bpNum(t.value);
+  var sameB = (ed.basicSalary == null) || ed.basicSalary === (Number(emp.basicSalary) || 0);
+  var sameS = (ed.seniorityBase == null) || ed.seniorityBase === (Number(emp.seniorityBase) || 0);
+  if (sameB && sameS) delete __bpEdits[code]; else __bpEdits[code] = ed;
+  var tr = t.closest('tr'); if (tr) tr.style.background = __bpEdits[code] ? '#fefce8' : '';
+  var n = Object.keys(__bpEdits).length;
+  bpMsg(true, n ? (n + ' کارمند تغییر کرده؛ «ذخیره تغییرات» را بزنید.') : '');
+});
+function resetBasePay() { __bpEdits = {}; renderBasePay(); }
+function saveBasePay() {
+  if (!requireRole(['admin', 'operator'], 'ابتدا وارد شوید.')) return;
+  if (!hasPerm('emp_basic_salary')) { alert('شما اجازه ویرایش حقوق پایه را ندارید.'); return; }
+  if (isOperator() && !hasPerm('emp_edit')) { alert('شما اجازه ویرایش کارمند ندارید.'); return; }
+  var codes = Object.keys(__bpEdits);
+  if (!codes.length) { bpMsg(false, 'تغییری برای ذخیره نیست.'); return; }
+  var pendingMode = isOperator() && !hasPerm('emp_apply_immediate');
+  var n = 0;
+  codes.forEach(function(code) {
+    var idx = data.employees.findIndex(function(e) { return String(e.code) === String(code); });
+    if (idx < 0) return;
+    var old = data.employees[idx], ed = __bpEdits[code];
+    var oldB = Number(old.basicSalary) || 0, oldS = Number(old.seniorityBase) || 0;
+    var nb = ed.basicSalary != null ? ed.basicSalary : oldB;
+    var ns = ed.seniorityBase != null ? ed.seniorityBase : oldS;
+    var ch = [];
+    if (nb !== oldB) ch.push('حقوق پایه ماهانه از ' + formatNumber(oldB) + ' به ' + formatNumber(nb) + ' تغییر یافت');
+    if (ns !== oldS) ch.push('پایه سنوات ماهانه از ' + formatNumber(oldS) + ' به ' + formatNumber(ns) + ' تغییر یافت');
+    if (!ch.length) return;
+    var emp2 = JSON.parse(JSON.stringify(old));
+    emp2.basicSalary = nb; emp2.seniorityBase = ns;
+    if (pendingMode) {
+      pushPending('employee_save', 'ویرایش ' + (old.fullName || old.code) + ' — ' + ch.join(' / '), emp2);
+    } else {
+      data.employees[idx] = emp2;
+      addChangeLog('ویرایش', code, ch.join(' / '));
+    }
+    n++;
+  });
+  __bpEdits = {};
+  if (!pendingMode && n) saveToCache();
+  renderBasePay();
+  bpMsg(true, n ? (pendingMode ? (n + ' تغییر برای تأیید ادمین ارسال شد.') : (n + ' کارمند ذخیره شد.')) : 'تغییری اعمال نشد.');
+}
+
 function renderEmployees() {
   const list = getActiveEmployees();
   const tbody = document.getElementById('empTableBody');
@@ -6059,7 +6166,6 @@ function loadDataEntry() {
   document.getElementById('dataFunctionalDays').value = fd;
   const activeEmps = getActiveEmployees();
   try { pspEmpPickerRender('de'); } catch (ePk) {}
-  try { populateDeSlipEmployees(); } catch (eSl) {}
   const deSel = pspGetSelCodes('de'); // null = همه
   const allQtyNames = getAllQuantityItemNames(y, m);
   // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
@@ -6384,6 +6490,18 @@ function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
   if (data.transferredAdjustments && data.transferredAdjustments[key]) transferredAdjustments[key] = data.transferredAdjustments[key];
   const monthlyData = {};
   monthlyData[key] = data.monthlyData[key];
+  // ماه‌های قبل (تا ۱۲ ماه): برای محاسبه معوقه حکم (ساعات اضافه‌کار/شب‌کاری/نوبت‌کاری هر ماه معوقه)
+  const wantCodes = selCodes ? selCodes : null;
+  for (let back = 1; back <= 12; back++) {
+    let yy = year, mm = month - back;
+    while (mm < 1) { mm += 12; yy -= 1; }
+    const pk = yy + '-' + mm;
+    const src = data.monthlyData && data.monthlyData[pk];
+    if (!src) continue;
+    const part = {};
+    Object.keys(src).forEach(function(c) { if (c === '_meta' || !wantCodes || wantCodes.has(String(c))) part[c] = src[c]; });
+    monthlyData[pk] = part;
+  }
   return {
     year: year, month: month, skipLoanSE: !!skipLoanSE,
     settings: settings, allowances: data.allowances || [],
@@ -6578,22 +6696,6 @@ function applyPayFilters() {
   if (rows.length) renderPayrollResult(rows);
 }
 
-function populateDeSlipEmployees() {
-  const sel = document.getElementById('deSlipEmp');
-  if (!sel) return;
-  const cur = sel.value;
-  const picked = (typeof pspGetSelCodes === 'function') ? pspGetSelCodes('de') : null;
-  const list = getActiveEmployees().filter(function(e) { return !picked || picked.has(String(e.code)); });
-  sel.innerHTML = list.map(function(e) { return '<option value="' + e.code + '">' + e.code + ' — ' + e.fullName + '</option>'; }).join('');
-  if (cur && list.some(function(e) { return String(e.code) === cur; })) sel.value = cur;
-}
-function showDeSlip() {
-  const sel = document.getElementById('deSlipEmp');
-  if (!sel || !sel.value) { populateDeSlipEmployees(); }
-  const code = sel && sel.value;
-  if (!code) { alert('کارمندی برای نمایش فیش انتخاب نشده است.'); return; }
-  generatePayslip({ code: code, year: document.getElementById('dataYear').value, month: document.getElementById('dataMonth').value, containerId: 'deSlipContainer' });
-}
 function populateSlipEmployees() {
   document.getElementById('slipEmployee').innerHTML =
     getActiveEmployees().map(e => '<option value="' + e.code + '">' + e.fullName + '</option>').join('');
