@@ -1778,10 +1778,24 @@
       <div class="custom-item-row" id="grp_basicSalary">
         <input type="text" value="حقوق پایه ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
         <input type="number" id="e_basicSalary" min="0" value="0" placeholder="مبلغ" title="حقوق پایه ماهانه *">
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
+        <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
+        <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
+        <label class="check-label" title="مبلغ ثابت"><input type="checkbox" disabled> ثابت</label>
+        <select disabled title="مدت اعمال آیتم"><option>همیشه</option></select>
+        <select disabled title="فعال / غیرفعال در محاسبه"><option>فعال</option></select>
+        <span></span>
       </div>
       <div class="custom-item-row" id="grp_seniorityBase">
         <input type="text" value="پایه سنوات ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
         <input type="number" id="e_seniorityBase" min="0" value="0" placeholder="مبلغ" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا">
+        <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
+        <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
+        <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
+        <label class="check-label" title="مبلغ ثابت"><input type="checkbox" disabled> ثابت</label>
+        <select disabled title="مدت اعمال آیتم"><option>همیشه</option></select>
+        <select disabled title="فعال / غیرفعال در محاسبه"><option>فعال</option></select>
+        <span></span>
       </div>
       <div id="employeeCustomItems"></div>
       <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">
@@ -4098,7 +4112,8 @@ function pspActivateSubtab(parentTab, subTab) {
     if (subTab === 'payroll' && typeof renderSheetOrgFilters === 'function') {
       try { renderSheetOrgFilters('paySheetFilters', 'pay', 'applyPayFilters()'); } catch (e) {}
     }
-    if (subTab === 'dataentry') { /* open panel only */ }
+    if (subTab === 'dataentry') { try { pspEmpPickerRender('de'); } catch (e) {} }
+    if (subTab === 'payroll') { try { pspEmpPickerRender('pay'); } catch (e) {} }
     if (subTab === 'payslip' && typeof populateSlipEmployees === 'function') populateSlipEmployees();
     if (subTab === 'annualtax') {
       try {
