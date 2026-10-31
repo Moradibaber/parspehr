@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261030v234';
+  const bootVer = '20261031v235';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -2357,6 +2357,60 @@ function ensureEmpLeaveFields(emp, obj) {
 }
 
 /** دفتر سالانه مرخصی: هر سال یک ردیف (استحقاقی / استفاده‌شده / مانده / تسویه‌شده) */
+
+/** جمع مرخصی استفاده‌شده سال از درخواست‌های تأییدشده + ورود داده ماهانه */
+function sumUsedLeaveDaysForYear(obj, empCode, year) {
+  year = Number(year) || 0;
+  var code = String(empCode || '');
+  var daily = 0, hourly = 0;
+  // از درخواست‌های تأییدشده استحقاقی
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (!x || String(x.empCode) !== code) return;
+    if (x.status !== 'approved') return;
+    if (x.kind !== 'leave') return;
+    // فقط استحقاقی (کسر از مانده) — اگر فلگ نبود و نوع استحقاقی است هم حساب کن
+    var deduct = x.deductFromEntitlement;
+    if (deduct === false) return;
+    if (x.mode === 'daily') {
+      var p1 = parseJalaliYMD(x.startDate);
+      var p2 = parseJalaliYMD(x.endDate || x.startDate);
+      if (!p1) return;
+      // روزهای متعلق به این سال
+      if (p1.y === year || (p2 && p2.y === year)) {
+        try {
+          daily += countLeaveDays(x, obj, null);
+        } catch (e) {
+          // fallback: اختلاف ساده
+          if (p1.y === year && (!p2 || p2.y === year)) {
+            var a = p1.d || 1, b = (p2 && p2.d) || a;
+            if (p1.m === (p2 && p2.m) && p1.y === (p2 && p2.y)) daily += Math.max(1, b - a + 1);
+            else daily += 1;
+          }
+        }
+      }
+    } else if (x.mode === 'hourly') {
+      var ph = parseJalaliYMD(x.startDate);
+      if (ph && ph.y === year) {
+        try { hourly += hoursBetween(x.fromTime, x.toTime); } catch (e2) {}
+      }
+    }
+  });
+  // از ورود داده ماهانه (اگر بیشتر باشد)
+  var mdDaily = 0, mdHourly = 0;
+  var md = (obj && obj.monthlyData) || {};
+  for (var m = 1; m <= 12; m++) {
+    var key = year + '-' + m;
+    var row = md[key] && md[key][code];
+    if (!row) continue;
+    mdDaily += Number(row.leaveDays) || 0;
+    mdHourly += Number(row.hourlyLeave) || 0;
+  }
+  // ساعتی → روز (تقریبی ۸ ساعت کاری)
+  var fromReq = Math.round((daily + hourly / 8) * 100) / 100;
+  var fromMd = Math.round((mdDaily + mdHourly / 8) * 100) / 100;
+  return Math.max(fromReq, fromMd);
+}
+
 function ensureEmpLeaveYears(emp, obj) {
   if (!emp) return;
   const cy = Number((obj && obj.settings && obj.settings.currentYear) || 1405);
@@ -2385,6 +2439,14 @@ function ensureEmpLeaveYears(emp, obj) {
   row.entitled = getAnnualLeaveDaysForEmp(obj, emp);
   const accrued = computeAccruedLeaveDaysW(obj, emp, cy);
   row.accrued = accrued;
+  // همگام‌سازی used با مرخصی واقعی (تایم‌شیت / درخواست تأییدشده)
+  try {
+    var usedActual = sumUsedLeaveDaysForYear(obj, emp.code, cy);
+    var usedStored = Number(row.used) || 0;
+    if (usedActual > usedStored) {
+      row.used = Math.round(usedActual * 100) / 100;
+    }
+  } catch (eUsed) {}
   if (row.settled) {
     row.remaining = 0;
   } else {
@@ -3894,7 +3956,8 @@ function countLeaveDays(req, obj, contractType) {
 /** کسر از سال جاری؛ در صورت نیاز و موافقت، از سال‌های قبلِ تسویه‌نشده */
 function applyLeaveDeduction(obj, req) {
   if (!req || req.status !== 'approved') return;
-  if (!req.deductFromEntitlement) return;
+  // فقط وقتی صریحاً false باشد کسر نکن (undefined = کسر کن برای سازگاری)
+  if (req.deductFromEntitlement === false) return;
   if (req.kind !== 'leave') return;
   if (req._leaveDeducted) return;
   const emp = (obj.employees || []).find(function (e) { return String(e.code) === String(req.empCode); });
@@ -9091,7 +9154,11 @@ async function handleEmpBalances(request, env) {
   const years = listLeaveYearsSorted(emp).filter(function (r) { return Number(r.year) === cy; }).map(function (r) {
     const entitledNow = annualForEmp;
     const accruedNow = computeAccruedLeaveDaysW(gd.obj, emp, cy);
-    const usedNow = Number(r.used) || 0;
+    var usedNow = Number(r.used) || 0;
+    try {
+      var ua = sumUsedLeaveDaysForYear(gd.obj, emp.code, cy);
+      if (ua > usedNow) usedNow = ua;
+    } catch (eU) {}
     return {
       year: r.year,
       entitled: entitledNow,
