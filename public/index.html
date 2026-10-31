@@ -3045,6 +3045,8 @@ function applyEmployeePayload(emp) {
   if (idx > -1) data.employees[idx] = emp;
   else data.employees.push(emp);
   syncEmployeeCustomsToAllowances();
+  // حقوق پایه / پایه سنوات کارت → حکم
+  try { if (typeof syncCardSalaryToDecree === 'function') syncCardSalaryToDecree(emp); } catch (eSyncC) {}
 }
 
 function nowJalaliLike() {
@@ -6519,6 +6521,7 @@ function pickPayrollSettings() {
 
 async function bonusBasesFromServer(emps, baseType) {
   if (baseType !== 'basic' && emps.length) ensureDecreeHeaders();
+  try { if (typeof syncAllCardSalaryToDecree === 'function') syncAllCardSalaryToDecree(); } catch (eB) {}
   const out = await callCalcServer('bonusBases', {
     employees: emps, baseType: baseType, names: getSelectedBonusItemNames(),
     allowances: data.allowances || [], decreeHeaders: data.decreeHeaders, decreeValues: data.decreeValues
@@ -7103,6 +7106,7 @@ async function applyDecreeTransferSelected(selectedNames) {
   getActiveEmployees().forEach(function(emp) {
     if (!data.decreeValues[emp.code]) data.decreeValues[emp.code] = {};
   });
+  try { if (typeof syncAllCardSalaryToDecree === 'function') syncAllCardSalaryToDecree(); } catch (eD) {}
   const out = await callCalcServer('decreeAmounts', {
     year: year, selectedNames: selectedNames, employees: getActiveEmployees(), allowances: data.allowances || []
   });
@@ -7177,6 +7181,59 @@ function getDecreeEmpTotals(code) {
   });
   return { decreeSum: decreeSum, eidSum: eidSum };
 }
+
+function isDecreeBasicHeader(h) {
+  if (!h) return false;
+  if (String(h.id) === 'basic' || String(h.id) === 'basicSalary') return true;
+  var n = String(h.name || '').replace(/[\u200c\u200d]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^حقوق (و مزد )?پایه( ماهانه)?$/.test(n) || n === 'حقوق پایه' || n.indexOf('حقوق پایه') === 0;
+}
+function isDecreeSeniorityHeader(h) {
+  if (!h) return false;
+  if (String(h.id) === 'seniorityBase' || String(h.id) === 'seniority') return true;
+  var n = String(h.name || '').replace(/[\u200c\u200d]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^پایه سنوات( ماهانه)?$/.test(n) || n === 'پایه سنوات' || n.indexOf('پایه سنوات') === 0;
+}
+/** کارت کارمند → شیت حکم (منبع نمایش/محاسبه برای پایه و سنوات) */
+function syncCardSalaryToDecree(emp) {
+  if (!emp || emp.code == null) return;
+  if (!data.decreeValues) data.decreeValues = {};
+  var code = String(emp.code);
+  if (!data.decreeValues[code]) data.decreeValues[code] = {};
+  var vals = data.decreeValues[code];
+  var headers = typeof ensureDecreeHeaders === 'function' ? ensureDecreeHeaders() : (data.decreeHeaders || []);
+  headers.forEach(function(h) {
+    if (isDecreeBasicHeader(h)) {
+      if (emp.basicSalary != null && emp.basicSalary !== '') vals[h.id] = Number(emp.basicSalary) || 0;
+    }
+    if (isDecreeSeniorityHeader(h)) {
+      if (emp.seniorityBase != null && emp.seniorityBase !== '') vals[h.id] = Number(emp.seniorityBase) || 0;
+    }
+  });
+}
+/** مبالغ حکم برای پایه/سنوات → کارت کارمند */
+function syncDecreeSalaryToCard(code) {
+  if (code == null) return;
+  var emp = (data.employees || []).find(function(e) { return e && String(e.code) === String(code); });
+  if (!emp) return;
+  var vals = (data.decreeValues && data.decreeValues[String(code)]) || {};
+  var headers = typeof ensureDecreeHeaders === 'function' ? ensureDecreeHeaders() : (data.decreeHeaders || []);
+  var bas = null, sen = null;
+  headers.forEach(function(h) {
+    if (isDecreeBasicHeader(h) && vals[h.id] != null && vals[h.id] !== '') {
+      bas = (bas == null ? 0 : bas) + (Number(vals[h.id]) || 0);
+    }
+    if (isDecreeSeniorityHeader(h) && vals[h.id] != null && vals[h.id] !== '') {
+      sen = (sen == null ? 0 : sen) + (Number(vals[h.id]) || 0);
+    }
+  });
+  if (bas != null) emp.basicSalary = bas;
+  if (sen != null) emp.seniorityBase = sen;
+}
+function syncAllCardSalaryToDecree() {
+  (data.employees || []).forEach(function(emp) { try { syncCardSalaryToDecree(emp); } catch (e) {} });
+}
+
 function renderDecreeTable() {
   const year = Number(document.getElementById('decreeYear').value) || 1405;
   const headers = ensureDecreeHeaders();
@@ -7190,14 +7247,22 @@ function renderDecreeTable() {
   let head = '<tr><th>کد</th><th>نام</th><th>تاریخ استخدام</th>';
   headers.forEach(function(h) { head += '<th>' + h.name + '</th>'; });
   head += '<th>جمع حکم</th><th>جمع مشمول عیدی/سنوات</th></tr>';
+  // همیشه حقوق پایه و پایه سنوات از کارت کارمند به حکم همگام شود
+  try { syncAllCardSalaryToDecree(); } catch (eSync) {}
   const body = emps.map(function(emp) {
     if (!data.decreeValues[emp.code]) data.decreeValues[emp.code] = {};
+    try { syncCardSalaryToDecree(emp); } catch (e1) {}
     const vals = data.decreeValues[emp.code];
+    headers.forEach(function(h) {
+      var v = vals[h.id] != null ? vals[h.id] : 0;
+      if (isDecreeBasicHeader(h) && emp.basicSalary != null && emp.basicSalary !== '') v = Number(emp.basicSalary) || 0;
+      if (isDecreeSeniorityHeader(h) && emp.seniorityBase != null && emp.seniorityBase !== '') v = Number(emp.seniorityBase) || 0;
+      vals[h.id] = v;
+    });
     const tots = getDecreeEmpTotals(emp.code);
     let cells = '<td>' + emp.code + '</td><td>' + emp.fullName + '</td><td>' + (emp.hireDate || '—') + '</td>';
     headers.forEach(function(h) {
-      const v = vals[h.id] != null ? vals[h.id] : 0;
-      // مبالغ حکم فقط نمایشی — از حکم/آیتم‌ها می‌آید و اینجا قابل ویرایش نیست
+      var v = vals[h.id] != null ? vals[h.id] : 0;
       cells += '<td style="text-align:left;padding:6px 8px;">' + formatNumber(v) + '</td>';
     });
     cells += '<td style="font-weight:700;color:#0f766e;">' + formatNumber(tots.decreeSum) + '</td>';
@@ -7209,6 +7274,10 @@ function renderDecreeTable() {
 function setDecreeValue(code, hid, val) {
   if (!data.decreeValues[code]) data.decreeValues[code] = {};
   data.decreeValues[code][hid] = Number(val) || 0;
+  try {
+    var h = (data.decreeHeaders || []).find(function(x){ return x && String(x.id) === String(hid); });
+    if (h && (isDecreeBasicHeader(h) || isDecreeSeniorityHeader(h))) syncDecreeSalaryToCard(code);
+  } catch (eSet) {}
   // به‌روزرسانی جمع‌ها بدون رندر کامل
   const tots = getDecreeEmpTotals(code);
   const rows = document.querySelectorAll('#decreeTableWrap tbody tr');
@@ -7224,9 +7293,17 @@ function setDecreeValue(code, hid, val) {
 }
 function saveDecree() {
   if (!requireRole(['admin','operator'], 'ابتدا وارد شوید.')) return;
+  // همگام‌سازی دوطرفه پایه و سنوات: کارت ↔ حکم
+  try {
+    syncAllCardSalaryToDecree();
+    Object.keys(data.decreeValues || {}).forEach(function(code) {
+      try { syncDecreeSalaryToCard(code); } catch (e2) {}
+    });
+  } catch (eS) {}
   addChangeLog('حکم', document.getElementById('decreeYear').value, 'ذخیره شیت حکم');
   saveToCache();
-  alert('حکم ذخیره شد.');
+  try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (eR) {}
+  alert('حکم ذخیره شد. حقوق پایه و پایه سنوات با کارت کارمند همگام شد.');
 }
 
 /* ========== عیدی و سنوات ========== */
@@ -7284,6 +7361,8 @@ async function runEidCalculation() {
   }
 
   if (getActiveEmployees().length) ensureDecreeHeaders();
+  // حقوق پایه / پایه سنوات کارت → حکم قبل از محاسبه عیدی/سنوات/مرخصی
+  try { if (typeof syncAllCardSalaryToDecree === 'function') syncAllCardSalaryToDecree(); } catch (eEidSync) {}
   const eidMonthly = {};
   for (let m = 1; m <= 12; m++) {
     if (data.monthlyData[year + '-' + m]) eidMonthly[year + '-' + m] = data.monthlyData[year + '-' + m];
