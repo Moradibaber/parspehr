@@ -8792,89 +8792,269 @@ function downloadEmpFieldUpdateTemplate() {
   downloadTextFile('sample_emp_field_update.csv', csv);
 }
 
+/** نرمال‌سازی متن هدر/کد: حذف نیم‌فاصله و فاصله‌های اضافه */
+function _pspNormHdr(s) {
+  return String(s == null ? '' : s)
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+/** ارقام فارسی/عربی → انگلیسی + حذف جداکننده هزارگان */
+function _pspParseNum(raw) {
+  if (raw == null) return NaN;
+  var s = String(raw)
+    .replace(/[۰-۹]/g, function(d) { return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d); })
+    .replace(/[٠-٩]/g, function(d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); })
+    .replace(/[٬،,\s]/g, '')
+    .replace(/[^\d.\-]/g, '')
+    .trim();
+  if (s === '' || s === '-' || s === '.') return NaN;
+  var n = Number(s);
+  return isFinite(n) ? n : NaN;
+}
+function _pspSplitCsvLine(line, delim) {
+  var cols = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; continue; }
+      inQ = !inQ;
+      continue;
+    }
+    if (ch === delim && !inQ) { cols.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  cols.push(cur.trim());
+  return cols;
+}
+function _pspDetectDelim(headerLine) {
+  var s = String(headerLine || '');
+  var counts = { ',': 0, ';': 0, '\t': 0 };
+  var inQ = false;
+  for (var i = 0; i < s.length; i++) {
+    var ch = s[i];
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (!inQ && counts[ch] != null) counts[ch]++;
+  }
+  if (counts['\t'] >= counts[','] && counts['\t'] >= counts[';'] && counts['\t'] > 0) return '\t';
+  if (counts[';'] > counts[',']) return ';';
+  return ',';
+}
+function _pspFindEmpByCode(code) {
+  var c = _pspNormHdr(code);
+  if (!c) return null;
+  var list = data.employees || [];
+  var i, e, ec;
+  for (i = 0; i < list.length; i++) {
+    e = list[i];
+    if (!e) continue;
+    ec = _pspNormHdr(e.code);
+    if (ec === c) return e;
+  }
+  // تطبیق بدون صفر پیشرو (کد عددی)
+  var c2 = c.replace(/^0+/, '') || c;
+  for (i = 0; i < list.length; i++) {
+    e = list[i];
+    if (!e) continue;
+    ec = _pspNormHdr(e.code).replace(/^0+/, '') || _pspNormHdr(e.code);
+    if (ec === c2) return e;
+  }
+  return null;
+}
+
 function importEmpFieldUpdates(ev) {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
-  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) return;
+  if (!requirePerm('emp_import', 'دسترسی مجاز نیست.')) {
+    try { ev.target.value = ''; } catch (e0) {}
+    return;
+  }
   const reader = new FileReader();
   reader.onload = function(e) {
-    const text = e.target.result || '';
-    const lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
-    if (lines.length < 2) { alert('فایل خالی است'); return; }
-    // parse header
-    const headers = lines[0].split(',').map(function(h){ return h.replace(/^"|"$/g,'').trim(); });
-    function col(nameParts) {
-      for (let i = 0; i < headers.length; i++) {
-        const h = headers[i];
-        for (let p = 0; p < nameParts.length; p++) {
-          if (h.indexOf(nameParts[p]) >= 0) return i;
+    try {
+      var raw = String(e.target.result || '').replace(/^\uFEFF/, '');
+      var lines = raw.split(/\r?\n/).filter(function(l) { return l.trim(); });
+      if (lines.length < 2) { alert('فایل خالی است'); return; }
+      var delim = _pspDetectDelim(lines[0]);
+      var headersRaw = _pspSplitCsvLine(lines[0], delim);
+      var headers = headersRaw.map(function(h) { return _pspNormHdr(h.replace(/^"|"$/g, '')); });
+      function col(nameParts) {
+        var i, p, h, np;
+        for (i = 0; i < headers.length; i++) {
+          h = headers[i];
+          for (p = 0; p < nameParts.length; p++) {
+            np = _pspNormHdr(nameParts[p]);
+            if (!np) continue;
+            if (h === np || h.indexOf(np) >= 0) return i;
+          }
+        }
+        return -1;
+      }
+      var idxCode = col(['کد پرسنلی', 'کدپرسنلی', 'کد']);
+      if (idxCode < 0) {
+        alert('ستون «کد پرسنلی» یافت نشد.\nهدرهای فایل: ' + headers.join(' | '));
+        return;
+      }
+      var map = {
+        basicSalary: col(['حقوق پایه', 'حقوقپایه', 'basicSalary']),
+        seniorityBase: col(['پایه سنوات', 'پایهسنوات', 'سنوات', 'seniorityBase']),
+        dailyRate: col(['نرخ روزانه', 'مزد یک روز', 'مزد روز', 'روزانه']),
+        hourlyRate: col(['نرخ ساعتی', 'مبلغ یک ساعت', 'ساعتی']),
+        position: col(['سمت']),
+        management: col(['مدیریت/معاونت', 'مدیریت', 'معاونت']),
+        unit: col(['واحد']),
+        group: col(['گروه']),
+        workplace: col(['محل کار', 'محل']),
+        bankName: col(['نام بانک', 'بانک']),
+        accountNumber: col(['شماره حساب', 'حساب']),
+        sheba: col(['شبا', 'iban']),
+        marital: col(['وضعیت تأهل', 'وضعیت تاهل', 'تأهل', 'تاهل']),
+        children: col(['تعداد اولاد', 'اولاد', 'فرزند']),
+        nationalId: col(['کد ملی']),
+        insuranceNo: col(['شماره بیمه']),
+        leaveBalance: col(['مانده مرخصی']),
+        maxOtHours: col(['سقف اضافه‌کار', 'سقف اضافه کار', 'سقف اضافه']),
+        taxPercent: col(['درصد مالیات', 'مالیات']),
+        status: col(['وضعیت'])
+      };
+      // ستون‌های شناخته‌شده را برای آیتم‌های سفارشی کنار بگذار
+      var knownIdx = { };
+      knownIdx[idxCode] = true;
+      Object.keys(map).forEach(function(k) { if (map[k] >= 0) knownIdx[map[k]] = true; });
+      // ستون‌های باقی‌مانده = آیتم سفارشی (نام ستون = نام آیتم، مقدار = مبلغ)
+      var customCols = [];
+      headers.forEach(function(h, i) {
+        if (knownIdx[i] || !h) return;
+        // رد کردن ستون‌های کمکی/توضیح
+        if (/^نام$|^نام خانوادگی$|^توضیح|^یادداشت|^fullName/i.test(h)) return;
+        customCols.push({ idx: i, name: h });
+      });
+
+      var updated = 0, skipped = 0, unchanged = 0, fieldHits = 0;
+      var sampleChanges = [];
+      for (var li = 1; li < lines.length; li++) {
+        var cols = _pspSplitCsvLine(lines[li], delim);
+        var code = cols[idxCode];
+        if (!code) continue;
+        var emp = _pspFindEmpByCode(code);
+        if (!emp) { skipped++; continue; }
+        var changed = false;
+        var changeBits = [];
+        function setNum(field, ci, label) {
+          if (ci < 0 || cols[ci] === '' || cols[ci] == null) return;
+          var v = _pspParseNum(cols[ci]);
+          if (isNaN(v)) return;
+          fieldHits++;
+          if (Number(emp[field]) !== v) {
+            emp[field] = v;
+            changed = true;
+            changeBits.push(label || field);
+          }
+        }
+        function setStr(field, ci, label) {
+          if (ci < 0 || cols[ci] === '' || cols[ci] == null) return;
+          var v = String(cols[ci]).trim();
+          fieldHits++;
+          if (String(emp[field] || '') !== v) {
+            emp[field] = v;
+            changed = true;
+            changeBits.push(label || field);
+          }
+        }
+        setNum('basicSalary', map.basicSalary, 'حقوق پایه');
+        setNum('seniorityBase', map.seniorityBase, 'پایه سنوات');
+        setNum('dailyRate', map.dailyRate, 'نرخ روزانه');
+        setNum('hourlyRate', map.hourlyRate, 'نرخ ساعتی');
+        setStr('position', map.position, 'سمت');
+        setStr('management', map.management, 'مدیریت');
+        setStr('unit', map.unit, 'واحد');
+        setStr('group', map.group, 'گروه');
+        setStr('workplace', map.workplace, 'محل کار');
+        setStr('bankName', map.bankName, 'بانک');
+        setStr('accountNumber', map.accountNumber, 'حساب');
+        setStr('sheba', map.sheba, 'شبا');
+        if (map.sheba >= 0 && cols[map.sheba]) emp.iban = String(cols[map.sheba]).trim();
+        setStr('marital', map.marital, 'تأهل');
+        setNum('children', map.children, 'اولاد');
+        setStr('nationalId', map.nationalId, 'کد ملی');
+        setStr('insuranceNo', map.insuranceNo, 'شماره بیمه');
+        setNum('leaveBalance', map.leaveBalance, 'مانده مرخصی');
+        setNum('maxOtHours', map.maxOtHours, 'سقف اضافه‌کار');
+        setNum('taxPercent', map.taxPercent, 'مالیات');
+        if (map.status >= 0 && cols[map.status] != null && String(cols[map.status]).trim() !== '') {
+          var st = _pspNormHdr(cols[map.status]);
+          var stVal = /غیرفعال|inactive/i.test(st) ? 'inactive' : (/فعال|active/i.test(st) ? 'active' : st);
+          fieldHits++;
+          if (String(emp.status || '') !== stVal) { emp.status = stVal; changed = true; changeBits.push('وضعیت'); }
+        }
+        // آیتم‌های سفارشی
+        if (customCols.length) {
+          if (!Array.isArray(emp.customItems)) emp.customItems = [];
+          customCols.forEach(function(cc) {
+            var rawVal = cols[cc.idx];
+            if (rawVal === '' || rawVal == null) return;
+            var amt = _pspParseNum(rawVal);
+            if (isNaN(amt)) return;
+            fieldHits++;
+            var found = null;
+            for (var ci = 0; ci < emp.customItems.length; ci++) {
+              if (emp.customItems[ci] && _pspNormHdr(emp.customItems[ci].name) === _pspNormHdr(cc.name)) {
+                found = emp.customItems[ci];
+                break;
+              }
+            }
+            if (found) {
+              if (Number(found.amount) !== amt) {
+                found.amount = amt;
+                changed = true;
+                changeBits.push(cc.name);
+              }
+            } else {
+              emp.customItems.push({
+                name: cc.name,
+                amount: amt,
+                formula: '',
+                entryType: 'workdays',
+                isDeduction: false,
+                isFixed: false
+              });
+              changed = true;
+              changeBits.push(cc.name + '(جدید)');
+            }
+          });
+        }
+        if (changed) {
+          updated++;
+          if (sampleChanges.length < 5) {
+            sampleChanges.push((emp.fullName || emp.code) + ': ' + changeBits.join('، '));
+          }
+        } else {
+          unchanged++;
         }
       }
-      return -1;
+      try { if (typeof syncEmployeeCustomsToAllowances === 'function') syncEmployeeCustomsToAllowances(); } catch (eSync) {}
+      try { renderEmployees(); } catch (eR) {}
+      try { if (typeof renderInactive === 'function') renderInactive(); } catch (eI) {}
+      saveToCache();
+      var foundCols = [];
+      Object.keys(map).forEach(function(k) { if (map[k] >= 0) foundCols.push(k + '@' + headers[map[k]]); });
+      customCols.forEach(function(cc) { foundCols.push('آیتم:' + cc.name); });
+      addChangeLog('به‌روزرسانی اکسل', '-', updated + ' نفر تغییر کرد | بدون تغییر: ' + unchanged + (skipped ? ' | یافت‌نشده: ' + skipped : ''));
+      var msg = 'نتیجه بارگذاری به‌روزرسانی:\n'
+        + '• تغییر واقعی: ' + updated + ' نفر\n'
+        + '• بدون تغییر (مقدار قبلی = جدید): ' + unchanged + ' نفر\n'
+        + (skipped ? ('• کد ناموجود: ' + skipped + ' نفر\n') : '')
+        + '• جداکننده تشخیص‌داده‌شده: ' + (delim === '\t' ? 'TAB' : delim) + '\n'
+        + '• ستون‌های شناسایی‌شده: ' + (foundCols.length ? foundCols.join(' | ') : 'هیچ') + '\n'
+        + (fieldHits === 0 ? '\n⚠ هیچ مقدار عددی/متنی معتبری از ستون‌ها خوانده نشد. هدرها و ارقام را بررسی کنید.\n' : '')
+        + (sampleChanges.length ? ('\nنمونه تغییرات:\n- ' + sampleChanges.join('\n- ')) : '');
+      alert(msg);
+    } catch (err) {
+      console.error('importEmpFieldUpdates', err);
+      alert('خطا در خواندن فایل: ' + (err && err.message ? err.message : err));
     }
-    const idxCode = col(['کد']);
-    if (idxCode < 0) { alert('ستون کد پرسنلی یافت نشد'); return; }
-    const map = {
-      basicSalary: col(['حقوق پایه']),
-      seniorityBase: col(['پایه سنوات','سنوات']),
-      dailyRate: col(['نرخ روزانه','روزانه']),
-      hourlyRate: col(['نرخ ساعتی','ساعتی']),
-      position: col(['سمت']),
-      management: col(['مدیریت','معاونت']),
-      unit: col(['واحد']),
-      group: col(['گروه']),
-      workplace: col(['محل']),
-      bankName: col(['بانک']),
-      accountNumber: col(['شماره حساب','حساب']),
-      sheba: col(['شبا']),
-      marital: col(['تأهل','تاهل']),
-      children: col(['اولاد','فرزند'])
-    };
-    let updated = 0, skipped = 0;
-    for (let i = 1; i < lines.length; i++) {
-      // simple CSV split respecting quotes
-      const cols = [];
-      let cur = '', inQ = false;
-      for (let ch of lines[i]) {
-        if (ch === '"') { inQ = !inQ; continue; }
-        if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; continue; }
-        cur += ch;
-      }
-      cols.push(cur.trim());
-      const code = cols[idxCode];
-      if (!code) continue;
-      const emp = (data.employees || []).find(function(e){ return String(e.code) === String(code); });
-      if (!emp) { skipped++; continue; }
-      function setNum(field, ci) {
-        if (ci < 0 || cols[ci] === '' || cols[ci] == null) return;
-        const v = Number(String(cols[ci]).replace(/,/g,''));
-        if (!isNaN(v)) emp[field] = v;
-      }
-      function setStr(field, ci) {
-        if (ci < 0 || cols[ci] === '' || cols[ci] == null) return;
-        emp[field] = cols[ci];
-      }
-      setNum('basicSalary', map.basicSalary);
-      setNum('seniorityBase', map.seniorityBase);
-      setNum('dailyRate', map.dailyRate);
-      setNum('hourlyRate', map.hourlyRate);
-      setStr('position', map.position);
-      setStr('management', map.management);
-      setStr('unit', map.unit);
-      setStr('group', map.group);
-      setStr('workplace', map.workplace);
-      setStr('bankName', map.bankName);
-      setStr('accountNumber', map.accountNumber);
-      setStr('sheba', map.sheba);
-      setStr('marital', map.marital);
-      setNum('children', map.children);
-      updated++;
-    }
-    renderEmployees();
-    saveToCache();
-    addChangeLog('به‌روزرسانی اکسل', '-', updated + ' نفر به‌روز شد' + (skipped ? ' | ' + skipped + ' کد یافت نشد' : ''));
-    alert(updated + ' کارمند به‌روز شد.' + (skipped ? '\n' + skipped + ' کد در سیستم نبود.' : ''));
-    ev.target.value = '';
+    try { ev.target.value = ''; } catch (e1) {}
   };
   reader.readAsText(file, 'UTF-8');
 }
