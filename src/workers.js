@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261031v235';
+  const bootVer = '20261031v236';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -2456,7 +2456,18 @@ function ensureEmpLeaveYears(emp, obj) {
       const d = Number(a.delta) || 0;
       if (d > 0) adjPos += d;
     });
-    const baseForRemain = accrued;
+    // مانده = سقف قابل استفاده − مصرف
+    // استخدام قبل از امسال / بدون تاریخ: سقف کامل سالانه
+    // استخدام در همین سال: تناسب از تاریخ استخدام تا پایان سال
+    var baseForRemain = Number(row.entitled) || accrued;
+    try {
+      var hireP = parseJalaliYMD(emp && emp.hireDate);
+      if (hireP && hireP.y > cy) baseForRemain = 0;
+      else if (hireP && hireP.y === cy) baseForRemain = computeProratedLeaveDaysW(obj, emp, cy);
+      else baseForRemain = Number(row.entitled) || getAnnualLeaveDaysForEmp(obj, emp);
+    } catch (eBase) {
+      baseForRemain = Number(row.entitled) || accrued;
+    }
     row.remaining = Math.round((baseForRemain - Number(row.used || 0) + adjPos) * 100) / 100;
   }
   // فیلد سازگاری: فقط مانده سال جاری (نه تجمیع سال‌های قبل)
@@ -9159,12 +9170,20 @@ async function handleEmpBalances(request, env) {
       var ua = sumUsedLeaveDaysForYear(gd.obj, emp.code, cy);
       if (ua > usedNow) usedNow = ua;
     } catch (eU) {}
+    // مانده بر اساس سقف سال (نه فقط استحقاق تا این ماه)
+    var baseRemain = entitledNow;
+    try {
+      var hp = parseJalaliYMD(emp && emp.hireDate);
+      if (hp && hp.y > cy) baseRemain = 0;
+      else if (hp && hp.y === cy) baseRemain = computeProratedLeaveDaysW(gd.obj, emp, cy);
+      else baseRemain = entitledNow;
+    } catch (eB) { baseRemain = entitledNow; }
     return {
       year: r.year,
       entitled: entitledNow,
       accrued: accruedNow,
       used: usedNow,
-      remaining: r.settled ? 0 : Math.round((accruedNow - usedNow) * 100) / 100,
+      remaining: r.settled ? 0 : Math.round((baseRemain - usedNow) * 100) / 100,
       settled: !!r.settled,
       settledAt: r.settledAt || null,
       settledMode: r.settledMode || null
@@ -9506,7 +9525,7 @@ async function loadBalancesEmp(){
     if(!j.ok){ box.innerHTML='<div class="sub">'+(j.message||'خطا')+'</div>'; return; }
     var L=j.leave||{}, Ln=j.loan||{};
     var html='<div class="box">';
-    html+='<p class="sub" style="margin-bottom:8px;">سقف سالانه: '+(L.annualDays!=null?L.annualDays:'—')+' روز — مانده سال جاری: <b>'+(L.balance!=null?L.balance:'—')+'</b> روز (بر اساس ماه‌های کارکرد)</p>';
+    html+='<p class="sub" style="margin-bottom:8px;">سقف سالانه: '+(L.annualDays!=null?L.annualDays:'—')+' روز — مانده سال جاری: <b>'+(L.balance!=null?L.balance:'—')+'</b> روز (سقف سال − استفاده‌شده)</p>';
     html+='<table><thead><tr><th>سال</th><th>سقف سال</th><th>استحقاق تا این ماه</th><th>استفاده‌شده</th><th>مانده</th><th>وضعیت</th></tr></thead><tbody>';
     var years=L.years||[];
     if(!years.length){
