@@ -3456,7 +3456,11 @@ function computeDayTimesheet(cal, punches, opts) {
   }
   let shortfall = 0;
   const holidayFull = isHoliday || (dayMeta && dayMeta.fullDay && (dayMeta.conditional || dayMeta.type === 'conditional' || dayMeta.type === 'official' || dayMeta.type === 'weekend'));
-  if (holidayFull) {
+  // اقماری (همه روز کاری): تعطیل رسمی هم روز موظفی است → بدون حضور/پوشش = غیبت
+  // فقط تعطیل شرایطی (یا قرارداد غیر اقماری) shortfall را صفر می‌کند
+  const aqmariDutyHoliday = allWeekWork && official > 0 && isHoliday
+    && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'));
+  if (holidayFull && !aqmariDutyHoliday) {
     shortfall = 0;
   } else if (condHalf && dayMeta && dayMeta.closeFrom) {
     // موظفی فقط تا ساعت تعطیل شرایطی
@@ -3892,6 +3896,8 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
   if (toD < fromD) return 0;
 
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
+  const calR = getContractCalendar(obj, ct);
+  const allWeekWorkR = Array.isArray(calR.workWeekDays) && calR.workWeekDays.length >= 7;
   const dayInfo = {};
   for (let d = fromD; d <= toD; d++) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -3904,7 +3910,15 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
         break;
       }
     }
-    const nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    let nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    // اقماری: تعطیل رسمی = روز کاری الزامی (غیبت اگر بدون حضور/مرخصی/مأموریت)
+    // تعطیل شرایطی همچنان غیرکاری می‌ماند
+    if (allWeekWorkR && nonWork) {
+      const metaR = getDayMeta(obj, year, month, d, ct);
+      if (!(metaR && (metaR.conditional || metaR.type === 'conditional'))) {
+        nonWork = false;
+      }
+    }
     dayInfo[d] = {
       nonWork: nonWork,
       activity: hasCompletePunch,
@@ -4401,17 +4415,23 @@ async function handleEmpTimesheet(request, env) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
+    const nonWorkRaw = isHolidayOrNonWork(gd.obj, year, month, d, empCt);
+    const dayMeta = getDayMeta(gd.obj, year, month, d, empCt);
+    // isHoliday برای قوانین اضافه‌کار/تعطیل؛ isNonWork برای غیبت/رنگ ردیف
+    const allWeekEmp = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+    let nonWork = nonWorkRaw;
+    if (allWeekEmp && nonWorkRaw && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'))) {
+      nonWork = false; // اقماری: تعطیل رسمی روز موظفی است
+    }
     const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
     const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
     const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
-    const dayMeta = getDayMeta(gd.obj, year, month, d, empCt);
     const calc = computeDayTimesheet(cal, {
       in1: punch.in1 || '', out1: punch.out1 || '',
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
-    }, { year: year, month: month, day: d, isHoliday: nonWork, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
+    }, { year: year, month: month, day: d, isHoliday: nonWorkRaw, isHourly: String(empCt) === 'hourly', contractType: empCt, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt)), earlyOtFrom: (emp && emp.earlyOtFrom != null) ? timeToMinutes(emp.earlyOtFrom) : null });
     let wdName = '';
     try { wdName = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (eW) {}
     dayMap[dk] = {
@@ -4907,7 +4927,14 @@ async function handleAdminBulkHourlyCover(request, who, env) {
         const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
         const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
         const punch = punchStore[dk] || punchStore[dateFa] || {};
-        const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+        const nonWorkRawA = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+        const metaA = getDayMeta(gd.obj, year, month, d, ct);
+        const calA = getContractCalendar(gd.obj, ct);
+        const allWeekA = Array.isArray(calA.workWeekDays) && calA.workWeekDays.length >= 7;
+        let nonWork = nonWorkRawA;
+        if (allWeekA && nonWorkRawA && !(metaA && (metaA.conditional || metaA.type === 'conditional'))) {
+          nonWork = false;
+        }
         if (nonWork) continue;
         const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
         const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
@@ -4918,7 +4945,7 @@ async function handleAdminBulkHourlyCover(request, who, env) {
           in2: punch.in2 || '', out2: punch.out2 || '',
           in3: punch.in3 || '', out3: punch.out3 || '',
           in4: punch.in4 || '', out4: punch.out4 || ''
-        }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
+        }, { year: year, month: month, day: d, isHoliday: nonWorkRawA, dayMeta: metaA, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: compFlag || !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave });
         // تیک «جبران تأخیر با ماندن در پایان»: روزهایی که دیر آمده و بعد از پایان مانده‌اند علامت می‌خورند
         // تا در تایم‌شیت هم همین جبران اعمال شود
         if (compFlag && calc.hasCompletePair && calc.compensatedMinutes > 0 && punchStore[dk] && !dryRun) punchStore[dk].floatCompensate = true;
@@ -5096,18 +5123,24 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    const nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    const nonWorkRaw = isHolidayOrNonWork(obj, year, month, d, ct);
+    const dayMeta = getDayMeta(obj, year, month, d, ct);
+    const allWeekF = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+    let nonWork = nonWorkRaw;
+    if (allWeekF && nonWorkRaw && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'))) {
+      nonWork = false;
+    }
     const coveredMin = hourlyCoverMinutesOnDay(obj, code, year, month, d);
     const coveredIv = hourlyCoverIntervalsOnDay(obj, code, year, month, d);
     const dlm = dailyLeaveMissionFlags(obj, code, year, month, d);
-    const dayMeta = getDayMeta(obj, year, month, d, ct);
     const calc = computeDayTimesheet(cal, {
       in1: punch.in1 || '', out1: punch.out1 || '',
       in2: punch.in2 || '', out2: punch.out2 || '',
       in3: punch.in3 || '', out3: punch.out3 || '',
       in4: punch.in4 || '', out4: punch.out4 || ''
     }, {
-      isHoliday: nonWork,
+      year: year, month: month, day: d,
+      isHoliday: nonWorkRaw,
       coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
       fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
       unpaidLeave: dlm.unpaidLeave,
@@ -5115,12 +5148,12 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       earlyOtEnabled: !!(emp.earlyOtEnabled || emp.earlyOt)
     });
     const hasPunch = !!(punch.in1 || punch.out1 || punch.in2 || punch.out2 || punch.in3 || punch.out3 || punch.in4 || punch.out4);
-    // اضافه‌کار/شب‌کاری را همیشه از computeDayTimesheet جمع کن (تعطیل اقماری هم ممکن است OT بعد از موظفی داشته باشد)
     sumOt += Number(calc.otHours) || 0;
     sumNight += Number(calc.nightHours) || 0;
     sumEarly += Number(calc.earlyOtHours) || 0;
     if (!nonWork) {
-      // فقط روزهایی که تردد دارند در جمع کسری می‌آیند (روز بدون تردد = عدم کارکرد، نه کسری تمام‌روز)
+      // روز موظفی (از جمله تعطیل رسمی اقماری): کسری/غیبت فقط وقتی تردد هست؛
+      // روز کاملاً خالی = عدم کارکرد روزانه (نه غیبت ساعتی تمام‌روز در این جمع)
       if (hasPunch) sumAbsMin += Number(calc.hourlyAbsenceMinutes) || 0;
     }
   }
@@ -5275,20 +5308,25 @@ async function handleAdminAbsenceReport(request, who, env) {
           const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
           const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
           const punch = punchStore[dk] || punchStore[dateFa] || {};
-          const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+          const nonWorkRaw = isHolidayOrNonWork(gd.obj, year, month, d, ct);
+          const dayMeta = getDayMeta(gd.obj, year, month, d, ct);
+          const allWeek = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+          let nonWork = nonWorkRaw;
+          if (allWeek && nonWorkRaw && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'))) {
+            nonWork = false;
+          }
           const hasPunch = !!(punch.in1 || punch.out1 || punch.in2 || punch.out2 || punch.in3 || punch.out3 || punch.in4 || punch.out4);
           if (nonWork && !hasPunch) continue;
           const coveredMin = hourlyCoverMinutesOnDay(gd.obj, code, year, month, d);
           const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, code, year, month, d);
           const dlm = dailyLeaveMissionFlags(gd.obj, code, year, month, d);
-          const dayMeta = getDayMeta(gd.obj, year, month, d, ct);
           const calc = computeDayTimesheet(cal, {
             in1: punch.in1 || '', out1: punch.out1 || '',
             in2: punch.in2 || '', out2: punch.out2 || '',
             in3: punch.in3 || '', out3: punch.out3 || '',
             in4: punch.in4 || '', out4: punch.out4 || ''
           }, {
-            year: year, month: month, day: d, isHoliday: nonWork,
+            year: year, month: month, day: d, isHoliday: nonWorkRaw,
             isHourly: String(ct) === 'hourly', contractType: ct,
             coveredMinutes: coveredMin, coveredIntervals: coveredIv,
             floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
@@ -5519,17 +5557,22 @@ async function handleAdminTimesheet(request, who, env) {
       const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
       const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
       const punch = punchStore[dk] || punchStore[dateFa] || {};
-      const nonWork = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
+      const nonWorkRaw = isHolidayOrNonWork(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
+      const dayMeta = getDayMeta(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
+      const allWeekAdm = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+      let nonWork = nonWorkRaw;
+      if (allWeekAdm && nonWorkRaw && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'))) {
+        nonWork = false; // اقماری: تعطیل رسمی روز موظفی — غیبت اگر بدون حضور
+      }
       const coveredMin = hourlyCoverMinutesOnDay(gd.obj, filterCode, year, month, d);
       const coveredIv = hourlyCoverIntervalsOnDay(gd.obj, filterCode, year, month, d);
       const dlm = dailyLeaveMissionFlags(gd.obj, filterCode, year, month, d);
-      const dayMeta = getDayMeta(gd.obj, year, month, d, (emp0 && emp0.contractType) || 'normal');
       const calc = computeDayTimesheet(cal, {
         in1: punch.in1 || '', out1: punch.out1 || '',
         in2: punch.in2 || '', out2: punch.out2 || '',
         in3: punch.in3 || '', out3: punch.out3 || '',
         in4: punch.in4 || '', out4: punch.out4 || ''
-      }, { year: year, month: month, day: d, isHoliday: nonWork, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
+      }, { year: year, month: month, day: d, isHoliday: nonWorkRaw, coveredMinutes: coveredMin, coveredIntervals: coveredIv, floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate, fullDayLeaveOrMission: dlm.fullDayLeaveOrMission, unpaidLeave: dlm.unpaidLeave, dayMeta: dayMeta, earlyOtEnabled: !!(emp0 && (emp0.earlyOtEnabled || emp0.earlyOt)), earlyOtFrom: (emp0 && emp0.earlyOtFrom != null) ? timeToMinutes(emp0.earlyOtFrom) : null });
       let wd = '';
       try { wd = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'][jalaliWeekday(year, month, d)] || ''; } catch (e) {}
       dayMap[dk] = {
@@ -6774,10 +6817,17 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         if (!punch) continue;
         if (!punch.in1 && !punch.out1 && !punch.in2 && !punch.out2 && !punch.in3 && !punch.out3) continue;
         const p = parseJalaliYMD(dk.replace(/-/g, '/'));
-        const nonWork = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
+        const nonWorkRawS = p ? isHolidayOrNonWork(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : false;
+        const metaS = p ? getDayMeta(gd.obj, p.y, p.m, p.d, (emp && emp.contractType) || 'normal') : null;
+        const allWeekS = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+        let nonWork = nonWorkRawS;
+        if (allWeekS && nonWorkRawS && !(metaS && (metaS.conditional || metaS.type === 'conditional'))) {
+          nonWork = false;
+        }
         const calc = computeDayTimesheet(cal, punch, {
           year: (p && p.y) || year, month: (p && p.m) || month, day: (p && p.d) || d,
-          isHoliday: nonWork,
+          isHoliday: nonWorkRawS,
+          dayMeta: metaS,
           floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
           earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
         });
