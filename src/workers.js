@@ -3306,13 +3306,29 @@ function computeDayTimesheet(cal, punches, opts) {
   const beyondFloat = hasComplete && firstIn != null && start != null &&
     (firstIn - start) > (floatM || 0) && !compensate;
 
+  // اقماری / همه روزهای هفته کاری: در تعطیل رسمی تا سقف موظفی = کارکرد، فقط مازاد = اضافه‌کار
+  const allWeekWork = Array.isArray(cal && cal.workWeekDays) && cal.workWeekDays.length >= 7;
   if (isHoliday && present > 0 && !(dayMeta && dayMeta.conditional)) {
-    // تعطیل رسمی/هفته: تمام حضور = اضافه‌کار (شب‌کاری جدا)
-    ot = Math.max(0, present - nightMin);
-    workPresent = 0;
-    delay = 0;
-    earlyLeave = 0;
-    compensated = 0;
+    if (allWeekWork && official > 0) {
+      // مثل روز عادی: کارکرد تا موظفی، اضافه‌کار فقط بعد از پایان شیفت (منهای شب)
+      workPresent = Math.min(present, official);
+      delay = 0;
+      earlyLeave = 0;
+      compensated = 0;
+      ot = 0;
+      if (hasComplete && lastOut != null && end != null && lastOut > end) {
+        let stayedH = Math.max(0, lastOut - end);
+        const nightInAfterH = nightMinutesInPair(end, lastOut);
+        ot = Math.max(0, stayedH - nightInAfterH);
+      }
+    } else {
+      // تعطیل رسمی/هفته (قرارداد عادی): تمام حضور = اضافه‌کار (شب‌کاری جدا)
+      ot = Math.max(0, present - nightMin);
+      workPresent = 0;
+      delay = 0;
+      earlyLeave = 0;
+      compensated = 0;
+    }
   } else if (condFull && present > 0) {
     // تعطیل شرایطی تمام‌روز
     if (dayMeta.otDuringOfficial) {
@@ -3385,10 +3401,15 @@ function computeDayTimesheet(cal, punches, opts) {
     const nightInAfter = nightMinutesInPair(end, lastOut);
     ot = Math.max(0, stayed - nightInAfter);
   } else if (isHoliday && !condFull && !condHalf && present > 0) {
-    // تعطیل رسمی/هفته (نه شرایطی): کل حضور غیرشب = اضافه‌کار
-    // تعطیل شرایطی قبلاً با فلگ otDuringOfficial / otAfterOfficial محاسبه شده — اینجا بازنویسی نشود
-    ot = Math.max(0, present - nightMin);
-    workPresent = 0;
+    // تعطیل رسمی/هفته (نه شرایطی)
+    // اقماری (همه روز کاری): کارکرد تا موظفی حفظ شود؛ ot فقط بعد از پایان شیفت (بالا محاسبه شده)
+    if (allWeekWork && official > 0) {
+      // ot و workPresent از بلوک اول حفظ می‌شوند؛ بازنویسی نشود
+    } else {
+      // قرارداد عادی: کل حضور غیرشب = اضافه‌کار
+      ot = Math.max(0, present - nightMin);
+      workPresent = 0;
+    }
   }
   // condFull / condHalf: مقدار ot از بلوک بالاتر حفظ می‌شود
   ot = Math.max(0, ot || 0);
@@ -3461,8 +3482,9 @@ function computeDayTimesheet(cal, punches, opts) {
   }
 
   // کارکرد نمایشی: حضور + پوشش ساعتی (تا سقف موظفی) — وقتی کسری پر شد = موظفی کامل
-  let displayWorkMin = workPresent + (isHoliday ? 0 : covered);
-  if (!isHoliday && !opts.unpaidLeave) {
+  // اقماری در تعطیل: workPresent از قبل تا موظفی پر شده — نمایش شود
+  let displayWorkMin = workPresent + ((isHoliday && !(allWeekWork && official > 0)) ? 0 : covered);
+  if ((!isHoliday || (allWeekWork && official > 0)) && !opts.unpaidLeave) {
     if (opts.fullDayLeaveOrMission) displayWorkMin = official;
     else displayWorkMin = Math.min(official, displayWorkMin);
   }
@@ -3818,15 +3840,25 @@ function cleanTimesheetNote(note) {
   }).join('؛ ');
 }
 
-function empOtCeilingHours(emp) {
-  if (!emp) return null;
-  const v = emp.otCeilingHours != null ? emp.otCeilingHours
-    : (emp.maxOtHours != null ? emp.maxOtHours
-    : (emp.otLimit != null ? emp.otLimit
-    : (emp.otCeiling != null ? emp.otCeiling : null)));
-  if (v === '' || v == null) return null;
-  const n = Number(v);
-  return isFinite(n) && n >= 0 ? n : null;
+function empOtCeilingHours(emp, settings) {
+  // سقف فردی > پیش‌فرض تنظیمات > ۰
+  // ۰ یعنی هیچ اضافه‌کاری تأیید نمی‌شود (نه «بدون سقف»)
+  if (emp) {
+    const v = emp.otCeilingHours != null ? emp.otCeilingHours
+      : (emp.maxOtHours != null ? emp.maxOtHours
+      : (emp.otLimit != null ? emp.otLimit
+      : (emp.otCeiling != null ? emp.otCeiling : null)));
+    if (v !== '' && v != null) {
+      const n = Number(v);
+      if (isFinite(n) && n >= 0) return n;
+    }
+  }
+  const def = settings && settings.maxOtHours;
+  if (def !== '' && def != null) {
+    const n = Number(def);
+    if (isFinite(n) && n >= 0) return n;
+  }
+  return 0; // پیش‌فرض: بدون اضافه‌کار
 }
 
 function recountEmpMonthWorkDays(obj, year, month, code) {
@@ -4459,9 +4491,9 @@ async function handleEmpTimesheet(request, env) {
   });
   punchOt = Math.round(punchOt * 100) / 100;
   punchNight = Math.round(punchNight * 100) / 100;
-  const otCap = empOtCeilingHours(emp);
-  const approvedOt = (otCap != null) ? Math.min(punchOt, otCap) : punchOt;
-  const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((punchOt - otCap) * 100) / 100) : 0;
+  const otCap = empOtCeilingHours(emp, gd.obj && gd.obj.settings);
+  const approvedOt = Math.min(punchOt, otCap);
+  const unapprovedOt = Math.max(0, Math.round((punchOt - otCap) * 100) / 100);
   const workWithAtt = recountEmpMonthWorkDays(gd.obj, year, month, code);
   // همگام‌سازی با monthlyData تا ورود داده ماهانه و ادمین یکسان باشند
   try {
@@ -5083,10 +5115,11 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       earlyOtEnabled: !!(emp.earlyOtEnabled || emp.earlyOt)
     });
     const hasPunch = !!(punch.in1 || punch.out1 || punch.in2 || punch.out2 || punch.in3 || punch.out3 || punch.in4 || punch.out4);
+    // اضافه‌کار/شب‌کاری را همیشه از computeDayTimesheet جمع کن (تعطیل اقماری هم ممکن است OT بعد از موظفی داشته باشد)
+    sumOt += Number(calc.otHours) || 0;
+    sumNight += Number(calc.nightHours) || 0;
+    sumEarly += Number(calc.earlyOtHours) || 0;
     if (!nonWork) {
-      sumOt += Number(calc.otHours) || 0;
-      sumNight += Number(calc.nightHours) || 0;
-      sumEarly += Number(calc.earlyOtHours) || 0;
       // فقط روزهایی که تردد دارند در جمع کسری می‌آیند (روز بدون تردد = عدم کارکرد، نه کسری تمام‌روز)
       if (hasPunch) sumAbsMin += Number(calc.hourlyAbsenceMinutes) || 0;
     }
@@ -5096,9 +5129,9 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   const allowH = Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
   const allowMin = Math.round(allowH * 60);
   const excessMin = Math.max(0, sumAbsMin - allowMin);
-  const otCap = empOtCeilingHours(emp);
-  const approvedOt = (otCap != null) ? Math.min(sumOt, otCap) : sumOt;
-  const unapprovedOt = (otCap != null) ? Math.max(0, Math.round((sumOt - otCap) * 100) / 100) : 0;
+  const otCap = empOtCeilingHours(emp, obj && obj.settings);
+  const approvedOt = Math.min(sumOt, otCap);
+  const unapprovedOt = Math.max(0, Math.round((sumOt - otCap) * 100) / 100);
 
   let aHourly = 0, aMissionH = 0;
   (obj.attendanceRequests || []).forEach(function (x) {
@@ -5652,9 +5685,9 @@ async function handleAdminTimesheet(request, who, env) {
     const allowMin = Math.round(allowH * 60);
     const excessMin = Math.max(0, sumAbsMin - allowMin);
     computedWork = Math.max(0, Math.round(Number(computedWork) || 0));
-    const otCapA = empOtCeilingHours(emp0);
-    const approvedOtA = (otCapA != null) ? Math.min(sumOtH, otCapA) : sumOtH;
-    const unapprovedOtA = (otCapA != null) ? Math.max(0, Math.round((sumOtH - otCapA) * 100) / 100) : 0;
+    const otCapA = empOtCeilingHours(emp0, gd.obj && gd.obj.settings);
+    const approvedOtA = Math.min(sumOtH, otCapA);
+    const unapprovedOtA = Math.max(0, Math.round((sumOtH - otCapA) * 100) / 100);
     const reqList = rows[0].requests || [];
     const ct0 = (emp0 && emp0.contractType) || 'normal';
     rows[0].workDays = computedWork;
@@ -6761,19 +6794,13 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
       let otH = Math.round((sumOt / 60) * 100) / 100;
       const nightH = Math.round((sumNight / 60) * 100) / 100;
       const empOt = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(empCode); });
-      const cap = empOtCeilingHours(empOt);
+      const cap = empOtCeilingHours(empOt, gd.obj && gd.obj.settings);
       md.nightHours = nightH;
       md.earlyOtHours = Math.round((sumEarly / 60) * 100) / 100;
-      if (cap != null) {
-        md.otHoursTotal = otH;
-        md.otHoursUnapproved = Math.max(0, Math.round((otH - cap) * 100) / 100);
-        md.otHours = Math.min(otH, cap);
-        md.otCeilingHours = cap;
-      } else {
-        md.otHours = otH;
-        md.otHoursTotal = otH;
-        md.otHoursUnapproved = 0;
-      }
+      md.otHoursTotal = otH;
+      md.otHoursUnapproved = Math.max(0, Math.round((otH - cap) * 100) / 100);
+      md.otHours = Math.min(otH, cap);
+      md.otCeilingHours = cap;
       md.workMinutes = sumWorkMin;
       md.delayMinutes = sumDelay;
       // کارکرد = پانچ‌های روز عادی + مرخصی/مأموریت روزانه تأییدشده همان ماه (فقط روز کاری)
