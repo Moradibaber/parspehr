@@ -116,13 +116,22 @@
   }
   #empModal .section-title { font-size: 0.85rem !important; margin-bottom: 8px !important; margin-top: 10px !important; }
   #empModal .custom-item-row {
-    grid-template-columns: 1fr 0.55fr 0.9fr 0.55fr 0.35fr 0.35fr 0.65fr 0.55fr 26px !important;
+    grid-template-columns: 1.15fr 0.65fr 0fr 0.75fr 0.35fr 0.35fr 0.55fr 0.45fr 26px !important;
     gap: 3px !important; margin-bottom: 4px !important;
   }
   #empModal .custom-item-row input, #empModal .custom-item-row select {
     padding: 3px 4px !important; font-size: 0.72rem !important;
   }
-  #empModal .custom-item-row > div { min-width: 0 !important; }
+  /* ستون فرمول خالی حذف بصری — فضای خالی کارت از بین می‌رود */
+  #empModal .custom-item-row > div {
+    min-width: 0 !important; max-width: 0 !important; width: 0 !important;
+    overflow: hidden !important; padding: 0 !important; margin: 0 !important;
+    border: none !important;
+  }
+  #empModal #grp_basicSalary > div,
+  #empModal #grp_seniorityBase > div {
+    display: none !important;
+  }
 
   #empFilterRow th { padding: 4px; background: #f0fdfa; }
   #empFilterRow input, #empFilterRow select {
@@ -1776,9 +1785,9 @@
         <b>مدت:</b> همیشه = هر ماه | یک ماه = فقط همان ماه | دو ماه = همان ماه و ماه بعد | … سپس از کارکنان و محاسبه حذف می‌شود.
       </div>
       <div class="custom-item-row" id="grp_basicSalary">
-        <input type="text" value="حقوق پایه ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
-        <input type="number" id="e_basicSalary" min="0" value="0" placeholder="مبلغ" title="حقوق پایه ماهانه *">
-        <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
+        <input type="text" value="حقوق پایه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
+        <input type="number" id="e_basicSalary" min="0" value="0" placeholder="مبلغ" title="حقوق پایه *">
+        <div style="display:none;" aria-hidden="true"></div>
         <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
         <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
         <label class="check-label" title="مبلغ کامل بدون تناسب با روز کارکرد"><input type="checkbox" id="e_basicFixed"> ثابت</label>
@@ -1789,7 +1798,7 @@
       <div class="custom-item-row" id="grp_seniorityBase">
         <input type="text" value="پایه سنوات ماهانه" readonly tabindex="-1" style="background:#f1f5f9;font-weight:600;">
         <input type="number" id="e_seniorityBase" min="0" value="0" placeholder="مبلغ" title="مبلغ پایه سنوات این کارمند (برای کمتر از یک سال سابقه معمولاً صفر). بیمه/مالیات از شیت آیتم‌های حقوق و مزایا">
-        <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;"><input type="text" placeholder="فرمول (اختیاری)" disabled title="برای حقوق پایه فرمول ندارد" style="min-width:140px;"></div>
+        <div style="display:none;" aria-hidden="true"></div>
         <select disabled title="محاسبه: مبلغ × (روز کارکرد ÷ ۳۰)"><option>بر اساس کارکرد</option></select>
         <label class="check-label" title="از حقوق کسر می‌شود"><input type="checkbox" disabled> کسر</label>
         <label class="check-label" title="مبلغ کامل بدون تناسب با روز کارکرد"><input type="checkbox" id="e_seniorityFixed"> ثابت</label>
@@ -1877,7 +1886,7 @@ if (typeof isBasicSalaryAllowanceName === 'function') {
 } else {
   data.allowances = (data.allowances || []).filter(function(a) {
     const n = String((a && a.name) || '').trim();
-    return n !== 'حقوق پایه' && n !== 'حقوق پایه ماهانه' && n.indexOf('حقوق پایه') !== 0;
+    return n !== 'حقوق پایه' && n !== 'حقوق پایه' && n.indexOf('حقوق پایه') !== 0;
   });
 }
 if (!data.settings.adminPassword) { data.settings.adminPassword = 'admin1405'; data.settings.passwordMustChange = true; }
@@ -4267,7 +4276,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 function isBasicSalaryAllowanceName(name) {
   const n = String(name || '').trim();
-  return n === 'حقوق پایه' || n === 'حقوق پایه ماهانه' || n.indexOf('حقوق پایه') === 0;
+  return n === 'حقوق پایه' || n === 'حقوق پایه' || n.indexOf('حقوق پایه') === 0;
 }
 
 function stripBasicSalaryFromAllowances() {
@@ -5410,7 +5419,7 @@ function empBaseHeaders() {
   return [
     'کد پرسنلی','کد ملی','نام','نام خانوادگی','سمت','مدیریت/معاونت','واحد','گروه','محل کار','استان محل سکونت','شهر محل سکونت',
     'تاریخ استخدام','تاریخ پایان همکاری','دلیل پایان همکاری',
-    'نوع قرارداد','حقوق پایه ماهانه','پایه سنوات ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
+    'نوع قرارداد','حقوق پایه','پایه سنوات ماهانه','مزد یک روز','مبلغ یک ساعت','نام بانک','شماره حساب / شبا','شماره بیمه',
     'تعداد اولاد','وضعیت تأهل','معافیت','مالیات','وضعیت','کسر بیمه تکمیلی',
     'مبلغ کل وام','تعداد اقساط','باقی‌مانده وام','مانده مرخصی استحقاقی','سقف اضافه‌کار ماهانه','توضیحات'
   ];
