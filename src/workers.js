@@ -93,7 +93,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261031v236';
+  const bootVer = '20261031v238';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -865,6 +865,40 @@ function decreeNumDiff(newV, oldV) {
 }
 
 // مقادیر حکمِ معتبر در ماهِ idx، بدون حکم dec (اگر حکم قبلی نبود: مقادیر قبل از همین حکم)
+
+/** قبل از محاسبه: حقوق پایه و پایه سنوات از کارت کارمند روی decreeValues */
+function syncCardSalaryIntoDecreeData(data) {
+  if (!data || !Array.isArray(data.employees)) return data;
+  if (!data.decreeValues || typeof data.decreeValues !== 'object') data.decreeValues = {};
+  var headers = Array.isArray(data.decreeHeaders) ? data.decreeHeaders : [];
+  function isBas(h) {
+    if (!h) return false;
+    if (String(h.id) === 'basic' || String(h.id) === 'basicSalary') return true;
+    var n = String(h.name || '').replace(/[\u200c\u200d]/g, ' ').replace(/\s+/g, ' ').trim();
+    return n === 'حقوق پایه' || n.indexOf('حقوق پایه') === 0 || /^حقوق (و مزد )?پایه/.test(n);
+  }
+  function isSen(h) {
+    if (!h) return false;
+    if (String(h.id) === 'seniorityBase' || String(h.id) === 'seniority') return true;
+    var n = String(h.name || '').replace(/[\u200c\u200d]/g, ' ').replace(/\s+/g, ' ').trim();
+    return n === 'پایه سنوات' || n.indexOf('پایه سنوات') === 0;
+  }
+  data.employees.forEach(function (emp) {
+    if (!emp || emp.code == null) return;
+    var code = String(emp.code);
+    if (!data.decreeValues[code]) data.decreeValues[code] = {};
+    headers.forEach(function (h) {
+      if (isBas(h) && emp.basicSalary != null && emp.basicSalary !== '') {
+        data.decreeValues[code][h.id] = Number(emp.basicSalary) || 0;
+      }
+      if (isSen(h) && emp.seniorityBase != null && emp.seniorityBase !== '') {
+        data.decreeValues[code][h.id] = Number(emp.seniorityBase) || 0;
+      }
+    });
+  });
+  return data;
+}
+
 function decreeValuesBefore(hist, dec, idx) {
   let best = null, bestIdx = -1, bestAt = '';
   hist.forEach(function (h) {
@@ -1069,6 +1103,7 @@ async function handlePayroll(request, user, env) {
   } catch (eCw) {}
   let out;
   try {
+    try { data = syncCardSalaryIntoDecreeData(data) || data; } catch (eS2) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
   } catch (e) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
@@ -1104,6 +1139,7 @@ async function handleCalc(request, user, env) {
     return jsonResponse({ ok: false, error: 'too_many_items' }, 413);
   }
   data = await enrichCalcDataFromStore(env, data);
+  try { data = syncCardSalaryIntoDecreeData(data) || data; } catch (eSyncD) {}
   const bad = function () { return jsonResponse({ ok: false, error: 'bad_request' }, 400); };
   let result;
   try {
