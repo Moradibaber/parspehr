@@ -8768,10 +8768,24 @@ async function exportBonusBank() {
 
 
 function downloadEmpFieldUpdateTemplate() {
-  // فقط کد + فیلدهایی که اغلب به‌روز می‌شوند
-  let csv = 'کد پرسنلی,حقوق پایه,پایه سنوات,نرخ روزانه,نرخ ساعتی,سمت,مدیریت/معاونت,واحد,گروه,محل کار,بانک,شماره حساب,شبا,وضعیت تأهل,تعداد اولاد\n';
-  getActiveEmployees().forEach(function(emp) {
-    csv += [
+  // کد + فیلدهایی که اغلب به‌روز می‌شوند + آیتم‌های سفارشی هر کارمند (مبلغ و مشخصات)
+  var q = function(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+  var emps = getActiveEmployees();
+  var names = [], seen = {};
+  emps.forEach(function(e) {
+    (e.customItems || []).forEach(function(ci) {
+      var nm = ci && _pspNormHdr(ci.name);
+      if (nm && !seen[nm]) { seen[nm] = 1; names.push(nm); }
+    });
+  });
+  var etLabel = { workdays: 'بر اساس کارکرد', quantity: 'بر اساس تعداد', qty_flat: 'تعداد خالص' };
+  let csv = 'کد پرسنلی,حقوق پایه,پایه سنوات,نرخ روزانه,نرخ ساعتی,سمت,مدیریت/معاونت,واحد,گروه,محل کار,بانک,شماره حساب,شبا,وضعیت تأهل,تعداد اولاد';
+  names.forEach(function(nm) {
+    csv += ',' + [nm, nm + ' - نحوه ورود', nm + ' - کسر', nm + ' - ثابت', nm + ' - مدت', nm + ' - وضعیت', nm + ' - فرمول'].map(q).join(',');
+  });
+  csv += '\n';
+  emps.forEach(function(emp) {
+    var cells = [
       emp.code,
       emp.basicSalary || '',
       emp.seniorityBase || '',
@@ -8787,7 +8801,24 @@ function downloadEmpFieldUpdateTemplate() {
       emp.sheba || emp.iban || '',
       emp.marital || '',
       emp.children != null ? emp.children : ''
-    ].join(',') + '\n';
+    ];
+    var byName = {};
+    (emp.customItems || []).forEach(function(ci) { if (ci) byName[_pspNormHdr(ci.name)] = ci; });
+    names.forEach(function(nm) {
+      var ci = byName[nm];
+      if (!ci) { cells.push('', '', '', '', '', '', ''); return; }
+      var dur = (ci.duration == null || ci.duration === '' || ci.duration === 'always') ? 'همیشه' : String(ci.duration);
+      cells.push(
+        ci.amount == null ? 0 : ci.amount,
+        q(etLabel[ci.entryType] || etLabel.workdays),
+        ci.isDeduction ? 'بله' : 'خیر',
+        ci.isFixed ? 'بله' : 'خیر',
+        q(dur),
+        ci.enabled === false ? 'غیرفعال' : 'فعال',
+        q(ci.formula || '')
+      );
+    });
+    csv += cells.join(',') + '\n';
   });
   downloadTextFile('sample_emp_field_update.csv', csv);
 }
@@ -8863,6 +8894,90 @@ function _pspFindEmpByCode(code) {
   return null;
 }
 
+/* ===== مشخصات «آیتم‌های سفارشی این کارمند» در بارگذاری بر اساس کد پرسنلی ===== */
+var _PSP_CI_ATTR_LABELS = {
+  'نحوه ورود': 'entryType', 'نحوه': 'entryType', 'نوع ورود': 'entryType', 'نحوه محاسبه': 'entryType',
+  'کسر': 'isDeduction', 'ثابت': 'isFixed', 'مدت': 'duration', 'وضعیت': 'enabled', 'فعال': 'enabled', 'فرمول': 'formula'
+};
+function _pspCiLoose(s) {
+  return _pspNormHdr(s).replace(/ي/g, 'ی').replace(/ك/g, 'ک');
+}
+function _pspCiDigits(s) {
+  return String(s == null ? '' : s)
+    .replace(/[۰-۹]/g, function(d) { return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d); })
+    .replace(/[٠-٩]/g, function(d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); });
+}
+/** «نام آیتم - کسر» → { name, attr } ؛ در غیر این صورت null */
+function _pspCiAttrHeader(h) {
+  var s = _pspNormHdr(h);
+  var m = s.match(/^(.+)\s*[-–—|:\/]\s*([^-–—|:\/]+)$/);
+  if (!m) return null;
+  var attr = _PSP_CI_ATTR_LABELS[_pspCiLoose(m[2])];
+  var name = _pspNormHdr(m[1]);
+  return (attr && name) ? { name: name, attr: attr } : null;
+}
+function _pspCiBool(v) {
+  var s = _pspCiDigits(_pspCiLoose(v)).replace(/\s+/g, '').toLowerCase();
+  if (!s) return null;
+  if (/^(1|true|yes|y|بله|بلی|آری|دارد|✓|✔|فعال|تیک)$/.test(s)) return true;
+  if (/^(0|false|no|n|خیر|نه|ندارد|-|—|غیرفعال)$/.test(s)) return false;
+  return null;
+}
+function _pspCiEntryType(v) {
+  var s = _pspCiLoose(v).toLowerCase();
+  if (/qty_flat|خالص/.test(s)) return 'qty_flat';
+  if (/quantity|تعداد/.test(s)) return 'quantity';
+  if (/workdays|کارکرد|روز کار/.test(s)) return 'workdays';
+  return null;
+}
+function _pspCiDuration(v) {
+  var s = _pspCiDigits(_pspCiLoose(v));
+  if (!s) return null;
+  if (/همیشه|always|دائم|بدون/.test(s)) return 'always';
+  var m = s.match(/\d+/), n = m ? Number(m[0]) : 0;
+  if (!n) {
+    var words = { 'یک': 1, 'دو': 2, 'سه': 3, 'چهار': 4, 'پنج': 5 };
+    for (var w in words) { if (s.indexOf(w) === 0) { n = words[w]; break; } }
+  }
+  return (n >= 1 && n <= 5) ? String(n) : null;
+}
+function _pspCiFindItem(emp, name) {
+  if (!emp || !Array.isArray(emp.customItems)) return null;
+  var a = _pspNormHdr(name), b = _pspCiLoose(name), i, it;
+  for (i = 0; i < emp.customItems.length; i++) { it = emp.customItems[i]; if (it && _pspNormHdr(it.name) === a) return it; }
+  for (i = 0; i < emp.customItems.length; i++) { it = emp.customItems[i]; if (it && _pspCiLoose(it.name) === b) return it; }
+  return null;
+}
+/** نتیجه: 'miss' | 'bad' | 'skip' | 'same' | 'changed' */
+function _pspCiApplyAttr(emp, name, attr, raw) {
+  var it = _pspCiFindItem(emp, name);
+  if (!it) return 'miss';
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return 'skip';
+  var before = JSON.stringify(it);
+  if (attr === 'formula') {
+    it.formula = (s === '-' || s === '—') ? '' : s;
+  } else if (attr === 'entryType') {
+    var et = _pspCiEntryType(s); if (!et) return 'bad'; it.entryType = et;
+  } else if (attr === 'isDeduction' || attr === 'isFixed' || attr === 'enabled') {
+    var b = _pspCiBool(s); if (b === null) return 'bad';
+    it[attr] = b;
+    if (attr === 'enabled' && it.flag != null) it.flag = b ? 'بله' : 'خیر';
+  } else if (attr === 'duration') {
+    var d = _pspCiDuration(s); if (d === null) return 'bad';
+    var prev = (it.duration == null || it.duration === '') ? 'always' : String(it.duration);
+    it.duration = d;
+    if (d !== 'always' && (d !== prev || !it.startYear || !it.startMonth)) {
+      var yy = Number(data.settings && data.settings.currentYear) || 1405;
+      var mm = Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
+      it.startYear = yy; it.startMonth = mm;
+    }
+  } else {
+    return 'bad';
+  }
+  return JSON.stringify(it) === before ? 'same' : 'changed';
+}
+
 function importEmpFieldUpdates(ev) {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
@@ -8879,9 +8994,16 @@ function importEmpFieldUpdates(ev) {
       var delim = _pspDetectDelim(lines[0]);
       var headersRaw = _pspSplitCsvLine(lines[0], delim);
       var headers = headersRaw.map(function(h) { return _pspNormHdr(h.replace(/^"|"$/g, '')); });
+      // ستون‌های مشخصات آیتم سفارشی: «نام آیتم - نحوه ورود/کسر/ثابت/مدت/وضعیت/فرمول»
+      var attrCols = [], attrIdxSet = {};
+      headers.forEach(function(h, i) {
+        var ca = _pspCiAttrHeader(h);
+        if (ca) { attrCols.push({ idx: i, name: ca.name, attr: ca.attr, label: h }); attrIdxSet[i] = true; }
+      });
       function col(nameParts) {
         var i, p, h, np;
         for (i = 0; i < headers.length; i++) {
+          if (attrIdxSet[i]) continue;
           h = headers[i];
           for (p = 0; p < nameParts.length; p++) {
             np = _pspNormHdr(nameParts[p]);
@@ -8922,6 +9044,7 @@ function importEmpFieldUpdates(ev) {
       var knownIdx = { };
       knownIdx[idxCode] = true;
       Object.keys(map).forEach(function(k) { if (map[k] >= 0) knownIdx[map[k]] = true; });
+      Object.keys(attrIdxSet).forEach(function(k) { knownIdx[k] = true; });
       // ستون‌های باقی‌مانده = آیتم سفارشی (نام ستون = نام آیتم، مقدار = مبلغ)
       var customCols = [];
       headers.forEach(function(h, i) {
@@ -8933,6 +9056,7 @@ function importEmpFieldUpdates(ev) {
 
       var updated = 0, skipped = 0, unchanged = 0, fieldHits = 0;
       var sampleChanges = [];
+      var attrMiss = {}, attrBad = [];
       for (var li = 1; li < lines.length; li++) {
         var cols = _pspSplitCsvLine(lines[li], delim);
         var code = cols[idxCode];
@@ -9024,6 +9148,17 @@ function importEmpFieldUpdates(ev) {
             }
           });
         }
+        // مشخصات آیتم‌های سفارشی (نحوه ورود، کسر، ثابت، مدت، وضعیت، فرمول) — بعد از مبلغ‌ها
+        attrCols.forEach(function(ac) {
+          var rawV = cols[ac.idx];
+          if (rawV === '' || rawV == null) return;
+          var r = _pspCiApplyAttr(emp, ac.name, ac.attr, rawV);
+          if (r === 'miss') { attrMiss[ac.name] = (attrMiss[ac.name] || 0) + 1; return; }
+          if (r === 'bad') { var bl = ac.label; if (attrBad.length < 8 && attrBad.indexOf(bl) < 0) attrBad.push(bl); return; }
+          if (r === 'skip') return;
+          fieldHits++;
+          if (r === 'changed') { changed = true; changeBits.push(ac.label); }
+        });
         if (changed) {
           updated++;
           if (sampleChanges.length < 5) {
@@ -9040,6 +9175,7 @@ function importEmpFieldUpdates(ev) {
       var foundCols = [];
       Object.keys(map).forEach(function(k) { if (map[k] >= 0) foundCols.push(k + '@' + headers[map[k]]); });
       customCols.forEach(function(cc) { foundCols.push('آیتم:' + cc.name); });
+      attrCols.forEach(function(ac) { foundCols.push('مشخصات آیتم:' + ac.label); });
       addChangeLog('به‌روزرسانی اکسل', '-', updated + ' نفر تغییر کرد | بدون تغییر: ' + unchanged + (skipped ? ' | یافت‌نشده: ' + skipped : ''));
       var msg = 'نتیجه بارگذاری به‌روزرسانی:\n'
         + '• تغییر واقعی: ' + updated + ' نفر\n'
@@ -9048,6 +9184,8 @@ function importEmpFieldUpdates(ev) {
         + '• جداکننده تشخیص‌داده‌شده: ' + (delim === '\t' ? 'TAB' : delim) + '\n'
         + '• ستون‌های شناسایی‌شده: ' + (foundCols.length ? foundCols.join(' | ') : 'هیچ') + '\n'
         + (fieldHits === 0 ? '\n⚠ هیچ مقدار عددی/متنی معتبری از ستون‌ها خوانده نشد. هدرها و ارقام را بررسی کنید.\n' : '')
+        + (Object.keys(attrMiss).length ? ('\n⚠ این آیتم‌ها برای برخی کارمندان تعریف نشده بودند و مشخصاتشان اعمال نشد (ستون مبلغ را هم پر کنید): ' + Object.keys(attrMiss).slice(0, 6).join('، ') + '\n') : '')
+        + (attrBad.length ? ('\n⚠ مقدار نامعتبر در ستون: ' + attrBad.join(' | ') + '\n') : '')
         + (sampleChanges.length ? ('\nنمونه تغییرات:\n- ' + sampleChanges.join('\n- ')) : '');
       alert(msg);
     } catch (err) {
