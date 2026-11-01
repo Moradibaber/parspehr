@@ -6195,8 +6195,8 @@ function loadDataEntry() {
       '<td><input class="data-input" type="number" min="0" step="0.5" value="' + (row.hourlyLeave||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'hourlyLeave\',this.value)" title="ساعات مرخصی ساعتی"></td>' +
 
       '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionDays||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionDays\',this.value)" title="روز مأموریت تأییدشده"></td>' +
-      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionHours\',this.value)" title="ساعات مأموریت تأییدشده"></td>' +      '<td><input class="data-input" type="number" min="0" value="' + (row.otHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value)"></td>' +
-      '<td><input class="data-input" type="number" min="0" value="' + (row.nightHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value)"></td>' +
+      '<td><input class="data-input" type="number" min="0" step="0.01" value="' + (row.missionHours||0) + '" onchange="updateDataField(\'' + emp.code + '\',\'missionHours\',this.value)" title="ساعات مأموریت تأییدشده"></td>' +      '<td><input class="data-input" type="text" dir="ltr" value="' + (typeof formatFlexibleHours==='function'?formatFlexibleHours(row.otHours||0):(row.otHours||0)) + '" onchange="updateDataField(\'' + emp.code + '\',\'otHours\',this.value,this)" title="ساعت اضافه‌کار — مثلاً 5 یا 05:00"></td>' +
+      '<td><input class="data-input" type="text" dir="ltr" value="' + (typeof formatFlexibleHours==='function'?formatFlexibleHours(row.nightHours||0):(row.nightHours||0)) + '" onchange="updateDataField(\'' + emp.code + '\',\'nightHours\',this.value,this)" title="ساعت شب‌کاری — مثلاً 1 یا 01:00"></td>' +
       '<td><select class="data-input" style="width:68px;font-size:0.65rem;padding:1px;" onchange="updateDataField(\'' + emp.code + '\',\'shiftType\',this.value)">' +
         '<option value="none"' + ((row.shiftType||'none')==='none'?' selected':'') + '>ندارد</option>' +
         '<option value="me"' + ((row.shiftType||'')==='me'?' selected':'') + '>صبح‌عصر ۱۰٪</option>' +
@@ -6234,6 +6234,36 @@ function clampWorkDaysInput(el, maxAllowed) {
   else el.classList.remove('workdays-incomplete');
 }
 
+/** پذیرش هم عدد اعشاری (۵ یا 5.5) و هم HH:MM (05:00) */
+function parseFlexibleHours(value) {
+  if (value == null || value === '') return 0;
+  if (typeof value === 'number' && isFinite(value)) return value < 0 ? 0 : value;
+  var str = String(value).trim().replace(/[۰-۹]/g, function(d) {
+    return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)];
+  });
+  if (!str) return 0;
+  if (typeof window.parseHMtoHours === 'function') {
+    var h = window.parseHMtoHours(str);
+    return isFinite(h) && h >= 0 ? h : 0;
+  }
+  if (/^\d+(\.\d+)?$/.test(str) && str.indexOf(':') < 0) return Number(str) || 0;
+  var s = str.replace(/[^0-9:]/g, '');
+  if (/^\d{3,4}$/.test(s)) {
+    while (s.length < 4) s = '0' + s;
+    return (parseInt(s.slice(0, 2), 10) || 0) + (parseInt(s.slice(2, 4), 10) || 0) / 60;
+  }
+  var p = s.split(':');
+  if (p.length >= 2) return (parseInt(p[0], 10) || 0) + (parseInt(p[1] || '0', 10) || 0) / 60;
+  return Number(str) || 0;
+}
+function formatFlexibleHours(hours) {
+  var n = Number(hours) || 0;
+  if (n < 0) n = 0;
+  if (typeof window.hoursToHM === 'function') return window.hoursToHM(n);
+  var mins = Math.round(n * 60);
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+}
 function updateDataField(code, field, value, el) {
   const key = getDataKey();
   const parts = String(key).split('-');
@@ -6242,7 +6272,8 @@ function updateDataField(code, field, value, el) {
   const monthDays = getMonthDays(y, m) || 30;
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
-  let num = Number(value) || 0;
+  var hourFields = { otHours:1, nightHours:1, hourlyLeave:1, missionHours:1, excessAbsenceHours:1 };
+  let num = hourFields[field] ? parseFlexibleHours(value) : (Number(value) || 0);
   if (field === 'workDays') {
     const emp = (data.employees || []).find(e => e.code === code);
     const isHourly = emp && emp.contractType === 'hourly';
@@ -6263,11 +6294,16 @@ function updateDataField(code, field, value, el) {
     // سقف ۰ یعنی هیچ اضافه‌کاری مجاز نیست
     if (isFinite(maxOt) && maxOt >= 0 && num > maxOt) {
       num = maxOt;
-      if (el) el.value = maxOt;
+      if (el) el.value = formatFlexibleHours(maxOt);
       alert(maxOt === 0
         ? 'سقف اضافه‌کار این نفر ۰ است؛ اضافه‌کار مجاز نیست.'
         : ('سقف اضافه‌کار این نفر ' + maxOt + ' ساعت است. مقدار به سقف محدود شد.'));
+    } else if (el && hourFields[field]) {
+      // نمایش یکدست HH:MM در شیت (۵ → 05:00)
+      try { el.value = formatFlexibleHours(num); } catch (eFmt) {}
     }
+  } else if (el && hourFields[field]) {
+    try { el.value = formatFlexibleHours(num); } catch (eFmt2) {}
   }
   data.monthlyData[key][code][field] = num;
   refreshCountCells(code);
@@ -6393,9 +6429,15 @@ function importDataFromExcel(event) {
           row.workDays = wd;
         }
         if (idx.leaveDays >= 0) row.leaveDays = Number((cols[idx.leaveDays]||'').replace(/"/g,'')) || 0;
-        if (idx.hourlyLeave >= 0) row.hourlyLeave = Number((cols[idx.hourlyLeave]||'').replace(/"/g,'')) || 0;
-        if (idx.otHours >= 0) row.otHours = Number((cols[idx.otHours]||'').replace(/"/g,'')) || 0;
-        if (idx.nightHours >= 0) row.nightHours = Number((cols[idx.nightHours]||'').replace(/"/g,'')) || 0;
+        if (idx.hourlyLeave >= 0) row.hourlyLeave = (typeof parseFlexibleHours === 'function' ? parseFlexibleHours : function(v){return Number(String(v||'').replace(/"/g,''))||0;})((cols[idx.hourlyLeave]||'').replace(/"/g,''));
+        if (idx.otHours >= 0) {
+          var otV = (typeof parseFlexibleHours === 'function' ? parseFlexibleHours : function(v){return Number(String(v||'').replace(/"/g,''))||0;})((cols[idx.otHours]||'').replace(/"/g,''));
+          var empOtImp = emp;
+          var maxOtImp = (typeof getEmpMaxOtHours === 'function') ? getEmpMaxOtHours(empOtImp) : Number((data.settings && data.settings.maxOtHours) || 0);
+          if (isFinite(maxOtImp) && maxOtImp >= 0 && otV > maxOtImp) otV = maxOtImp;
+          row.otHours = otV;
+        }
+        if (idx.nightHours >= 0) row.nightHours = (typeof parseFlexibleHours === 'function' ? parseFlexibleHours : function(v){return Number(String(v||'').replace(/"/g,''))||0;})((cols[idx.nightHours]||'').replace(/"/g,''));
         if (idx.shiftType >= 0 && cols[idx.shiftType] !== undefined) {
           var st = String(cols[idx.shiftType]||'').replace(/"/g,'').trim();
           if (st === 'صبح و عصر' || st === 'صبح‌و‌عصر') row.shiftType = 'morning_evening';
