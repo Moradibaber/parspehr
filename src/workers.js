@@ -3866,20 +3866,18 @@ function empOtCeilingHours(emp, settings) {
 }
 
 function recountEmpMonthWorkDays(obj, year, month, code) {
-  /* کارکرد ماه:
-     - تعطیلات اول ماه (قبل از اولین حضور، اگر بعداً حضور باشد) جزو کارکرد
-     - تعطیلات آخر ماه (بعد از آخرین حضور، اگر قبلاً حضور باشد) جزو کارکرد
-     - تعطیلات فی‌مابین و پایان‌هفته در طول ماه جزو کارکرد
-     - تردد کامل / مرخصی / مأموریت (جز بدون‌حقوق و استعلاجی بلندمدت) = روز کارکرد
-     - روز کاری کاملاً خالی از کارکرد کسر می‌شود
-     - محدوده استخدام/پایان همکاری در همان ماه رعایت می‌شود
+  /* کارکرد ماه (قرارداد عادی و مشابه):
+     پایه = همه روزهای تقویمی بازه استخدام در همان ماه (مثلاً آبان ۳۰ روز).
+     فقط «روز کاری» که نه حضور دارد، نه مرخصی، نه مأموریت → غیبت و از کارکرد کم می‌شود.
+     مثال: ماه ۳۰روزه و فقط روز ۲۰ بدون حضور/مرخصی/مأموریت → کارکرد ۲۹.
+     روزهای غیرکاری (تعطیل رسمی / خارج workWeekDays) غیبت نیستند و از پایه کم نمی‌شوند.
+     اقماری: تعطیل رسمی مثل روز کاری الزامی است (بدون حضور/مرخصی/مأموریت = غیبت).
   */
   year = Number(year); month = Number(month);
   const dim = daysInJalaliMonth(year, month);
   const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
   const ct = (emp && emp.contractType) || 'normal';
 
-  // محدوده استخدام / خاتمه در این ماه
   let fromD = 1, toD = dim;
   try {
     const hire = parseJalaliYMD(emp && emp.hireDate);
@@ -3898,119 +3896,66 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) || {};
   const calR = getContractCalendar(obj, ct);
   const allWeekWorkR = Array.isArray(calR.workWeekDays) && calR.workWeekDays.length >= 7;
-  const dayInfo = {};
+
+  // جمع‌آوری فعالیت از درخواست‌های تأییدشده مرخصی/مأموریت روزانه و ساعتی
+  const dayActivity = {};
+  for (let d = fromD; d <= toD; d++) dayActivity[d] = false;
+
   for (let d = fromD; d <= toD; d++) {
     const dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
     const punch = punchStore[dk] || punchStore[dateFa] || {};
-    let hasCompletePunch = false;
     for (let pi = 1; pi <= 4; pi++) {
       if (String(punch['in' + pi] || '').trim() && String(punch['out' + pi] || '').trim()) {
-        hasCompletePunch = true;
+        dayActivity[d] = true;
         break;
       }
     }
-    let nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
-    // اقماری: تعطیل رسمی = روز کاری الزامی (غیبت اگر بدون حضور/مرخصی/مأموریت)
-    // تعطیل شرایطی همچنان غیرکاری می‌ماند
-    if (allWeekWorkR && nonWork) {
-      const metaR = getDayMeta(obj, year, month, d, ct);
-      if (!(metaR && (metaR.conditional || metaR.type === 'conditional'))) {
-        nonWork = false;
-      }
-    }
-    dayInfo[d] = {
-      nonWork: nonWork,
-      activity: hasCompletePunch,
-      punch: hasCompletePunch
-    };
   }
 
-  // مرخصی / مأموریت تأییدشده
-  (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
-    if (x.kind !== 'leave' && x.kind !== 'mission') return;
-    if (x.kind === 'leave' && isUnpaidLeaveRequest(obj, x)) return;
-    if (x.kind === 'leave' && typeof isLongTermSickLeaveRequest === 'function' && isLongTermSickLeaveRequest(obj, x)) return;
-
-    if (x.mode === 'hourly') {
-      const p = parseJalaliYMD(x.startDate);
-      if (!p || p.y !== year || p.m !== month) return;
-      if (p.d < fromD || p.d > toD) return;
-      if (!dayInfo[p.d]) return;
-      dayInfo[p.d].activity = true;
-      return;
+  (obj.attendanceRequests || []).forEach(function (req) {
+    if (!req || String(req.empCode) !== String(code)) return;
+    if (req.status !== 'approved') return;
+    // مرخصی بدون حقوق / استعلاجی بلندمدت کارت را فعالیت ندان
+    try {
+      if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, req)) return;
+    } catch (eU) {}
+    const kind = String(req.kind || '');
+    if (kind !== 'leave' && kind !== 'mission' && kind !== 'مرخصی' && kind !== 'مأموریت' && kind !== 'ماموریت') {
+      // برخی رکوردها typeName دارند
+      const tn = String(req.typeName || req.type || '');
+      if (!/مرخص|مأمور|مامور|leave|mission/i.test(tn + kind)) return;
     }
-    // روزانه
-    const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
+    const keys = (typeof listDayKeys === 'function')
+      ? listDayKeys(req.startDate, req.endDate || req.startDate)
+      : [];
     keys.forEach(function (k) {
       const parts = String(k).split(/[-\/]/);
       if (parts.length < 3) return;
       const yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
       if (yy !== year || mm !== month) return;
       if (dd < fromD || dd > toD) return;
-      if (!dayInfo[dd]) return;
-      dayInfo[dd].activity = true;
+      dayActivity[dd] = true;
     });
   });
 
-  // وضعیت استعلاجی/تعلیق بلندمدت کارت: روزهای بازه special را فعالیت نکن (کارکرد نیست)
-  try {
-    if (emp && (emp.status === 'sick' || emp.status === 'suspend')) {
-      // اگر تابع شمارش موجود باشد از همان منطق بازه استفاده می‌کنیم
-      for (let d = fromD; d <= toD; d++) {
-        if (typeof countSpecialDaysInMonth === 'function') {
-          // تقریبی: اگر کل ماه special است و تاریخ‌ها کل ماه را پوشش می‌دهد
-        }
+  // پایه تقویمی
+  const baseDays = toD - fromD + 1;
+  let absence = 0;
+  for (let d = fromD; d <= toD; d++) {
+    let nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
+    if (allWeekWorkR && nonWork) {
+      const metaR = getDayMeta(obj, year, month, d, ct);
+      if (!(metaR && (metaR.conditional || metaR.type === 'conditional'))) {
+        nonWork = false; // اقماری: تعطیل رسمی = روز موظفی
       }
     }
-  } catch (eS) {}
-
-  // اولین و آخرین روز دارای حضور/فعالیت
-  let firstAct = 0, lastAct = 0;
-  for (let d = fromD; d <= toD; d++) {
-    if (dayInfo[d] && dayInfo[d].activity) {
-      if (!firstAct) firstAct = d;
-      lastAct = d;
-    }
+    if (nonWork) continue; // روز غیرکاری → غیبت نیست
+    if (!dayActivity[d]) absence++; // روز کاری خالی = غیبت
   }
-  if (!firstAct || !lastAct) return 0;
-
-  /* کارکرد:
-     - روز کاری (داخل workWeekDays و نه تعطیل رسمی) با حضور/مرخصی/مأموریت → کارکرد
-     - روز کاری بدون حضور/مرخصی/مأموریت → غیبت (در کارکرد شمرده نمی‌شود)
-     - روز غیرکاری (خارج workWeekDays یا تعطیل رسمی):
-       اگر در همان هفته حداقل یک روز کاری با فعالیت باشد → به کارکرد هفته اضافه می‌شود
-       (مثلاً وقتی پنجشنبه/جمعه در تقویم تعطیل‌اند؛ اگر خودشان روز کاری باشند nonWork=false و مشمول غیبت‌اند)
-  */
-  function weekKey(d) {
-    const wd = jalaliWeekday(year, month, d); // 0=یکشنبه … 6=شنبه
-    const sinceSat = (wd + 1) % 7; // شنبه=0 … جمعه=6
-    return d - sinceSat;
-  }
-  const weekHasWorkdayActivity = {};
-  for (let d = fromD; d <= toD; d++) {
-    const info = dayInfo[d];
-    if (!info) continue;
-    if (!info.nonWork && info.activity) {
-      weekHasWorkdayActivity[weekKey(d)] = true;
-    }
-  }
-  let n = 0;
-  for (let d = fromD; d <= toD; d++) {
-    const info = dayInfo[d];
-    if (!info) continue;
-    if (!info.nonWork) {
-      // روز کاری تعریف‌شده در workWeekDays
-      if (info.activity) n++;
-      // بدون activity = غیبت → در کارکرد نمی‌آید
-    } else {
-      // فقط روزهای واقعاً غیرکاری (تعطیل رسمی / خارج workWeekDays)
-      if (weekHasWorkdayActivity[weekKey(d)]) n++;
-    }
-  }
-  return n;
+  return Math.max(0, baseDays - absence);
 }
+
 
 
 function countLeaveDays(req, obj, contractType) {
