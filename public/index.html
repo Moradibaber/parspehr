@@ -141,6 +141,8 @@
   .workdays-incomplete { background: #fecaca !important; color: #991b1b; }
   td.qcell-deducted { background: #fef9c3 !important; }
   td.qcell-differs { background: #ffedd5 !important; box-shadow: inset 0 0 0 2px #f97316; }
+  td.qcell-inactive { background: #f1f5f9 !important; color: #94a3b8; }
+  td.qcell-inactive input { background: #f1f5f9 !important; color: #94a3b8; cursor: not-allowed; }
   td.qcell .qnote { font-size: 0.66rem; color: #9a3412; cursor: pointer; line-height: 1.3; margin-top: 2px; }
   td.qcell .qnote:empty { display: none; }
   .sg-wrap { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 18px; }
@@ -5912,6 +5914,36 @@ function isQtyFlatItemName(name, year, month) {
   return found;
 }
 
+/** آیا این آیتم تعداد/تعداد خالص برای همین کارمند در این ماه فعال است؟
+ *  غیرفعال در کارت کارمند (enabled===false) → در ورود داده پیشنهاد/مقدار خودکار ندارد. */
+function empQtyItemActive(emp, name, year, month) {
+  if (!emp || !name) return false;
+  var nm = String(name).trim();
+  if (!nm) return false;
+  var y = year != null ? Number(year) : null;
+  var m = month != null ? Number(month) : null;
+  if (y == null || m == null) {
+    try {
+      var ctx = typeof mvDataContext === 'function' ? mvDataContext() : null;
+      if (ctx) { y = ctx.y; m = ctx.m; }
+    } catch (e0) {}
+  }
+  if (y == null) y = Number(data.settings && data.settings.currentYear) || 1405;
+  if (m == null) m = 1;
+  var list = emp.customItems || [];
+  for (var i = 0; i < list.length; i++) {
+    var ci = list[i];
+    if (!ci || !ci.name) continue;
+    if (String(ci.name).trim() !== nm) continue;
+    if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') continue;
+    if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') return false;
+    if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return false;
+    return true;
+  }
+  return false;
+}
+
+
 
 /** ---- ترتیب ستون‌های پویا در ورود داده / نمونه اکسل ---- */
 function collectDataEntryDynamicCols() {
@@ -10327,6 +10359,23 @@ function countCellView(emp, row, n, F, M) {
   if (!row.qty) row.qty = {};
   if (!row.qtyAuto) row.qtyAuto = {};
   var ctx = mvDataContext();
+  var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
+  if (!active) {
+    if (row.qtyAuto && row.qtyAuto[n] === true) {
+      delete row.qty[n];
+      delete row.qtyAuto[n];
+    }
+    var inactiveVal = (row.qty[n] !== undefined) ? row.qty[n] : '';
+    return {
+      value: inactiveVal,
+      cls: 'qcell qcell-inactive',
+      title: 'این آیتم برای این کارمند در کارت غیرفعال است — در محاسبه لحاظ نمی‌شود',
+      note: '',
+      expected: null,
+      auto: false,
+      inactive: true
+    };
+  }
   var isFlat = isQtyFlatItemName(n, ctx.y, ctx.m);
   var exp = isFlat ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
@@ -10362,11 +10411,12 @@ function countCellHtml(emp, row, n, F, M) {
   var v = countCellView(emp, row, n, F, M);
   var upd = "updateDataQty('" + mvJs(emp.code) + "','" + mvJs(n) + "',this.value)";
   var app = "applyExpectedCount('" + mvJs(emp.code) + "','" + mvJs(n) + "')";
-  return '<td class="' + v.cls + '" data-qcell="' + mvEsc(emp.code) + '\u0001' + mvEsc(n) + '"' + (v.title ? ' title="' + mvEsc(v.title) + '"' : '') + '>' +
-    '<input class="data-input" type="number" step="any" value="' + mvEsc(v.value) + '" onchange="' + mvEsc(upd) + '">' +
+  var dis = v.inactive ? ' disabled' : '';
+  var styleExtra = v.inactive ? ' style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed;"' : '';
+  return '<td class="' + v.cls + '" data-qcell="' + mvEsc(emp.code) + '' + mvEsc(n) + '"' + (v.title ? ' title="' + mvEsc(v.title) + '"' : '') + '>' +
+    '<input class="data-input" type="number" step="any" value="' + mvEsc(v.value) + '" onchange="' + mvEsc(upd) + '"' + dis + styleExtra + '>' +
     '<div class="qnote"' + (v.note ? ' onclick="' + mvEsc(app) + '"' : '') + '>' + mvEsc(v.note ? v.note + ' — اعمال' : '') + '</div></td>';
 }
-
 function mvDataContext() {
   var key = getDataKey();
   var parts = String(key).split('-');
