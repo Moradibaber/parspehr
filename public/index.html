@@ -1126,11 +1126,12 @@
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
         <button class="btn btn-success" onclick="runCalculation()">اجرای محاسبه</button>
         <button class="btn btn-outline" onclick="lockPayrollBaseline()">قفل مبنای پرداخت‌شده</button>
+        <button class="btn btn-outline" onclick="unlockPayrollBaseline()" title="حذف مبنای قفل‌شده همین ماه">بازکردن / حذف قفل مبنا</button>
         <button class="btn btn-warning" onclick="openAdjustmentWizard()">محاسبه مغایرت (اصلاح)</button>
         <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        <b>قفل مبنا:</b> بعد از پرداخت قطعی حقوق ماه، با رمز ادمین یک نسخه ثابت از محاسبه ذخیره می‌شود.
+        <b>قفل مبنا:</b> بعد از پرداخت قطعی حقوق ماه، یک نسخه ثابت از محاسبه ذخیره می‌شود (بدون نیاز به رمز جداگانه؛ همان دسترسی نقش کافی است).
         <b>مغایرت:</b> اگر پرداخت اشتباه بود، داده را درست کنید → مغایرت بگیرید (نفرات دلخواه) → ماه مقصد را انتخاب کنید تا اصلاح در فیش آن ماه (مثلاً اردیبهشت) بیاید.
       </p>
       <div id="payrollArea" style="display:none; overflow-x:auto;">
@@ -7725,7 +7726,7 @@ function requireAdminPassword(msg) {
 
 function lockPayrollBaseline() {
   if (!requirePerm('payroll_lock', 'شما اجازه قفل مبنای پرداخت را ندارید.')) return;
-  if (!requireAdminPassword('قفل مبنای پرداخت — رمز ادمین:')) return;
+  // رمز ادمین برای این عملیات غیرفعال شد — فقط دسترسی نقش کافی است
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
@@ -7735,10 +7736,30 @@ function lockPayrollBaseline() {
     return;
   }
   if (!data.payrollBaseline) data.payrollBaseline = {};
+  if (data.payrollBaseline[key] && data.payrollBaseline[key].length) {
+    if (!confirm('برای این ماه قبلاً مبنا قفل شده. جایگزین شود؟')) return;
+  }
   data.payrollBaseline[key] = JSON.parse(JSON.stringify(rows));
   addChangeLog('قفل مبنا', key, 'قفل مبنای پرداخت‌شده');
   saveToCache();
   alert('مبنای پرداخت ماه ' + month + '/' + year + ' قفل شد.\nاین همان مبلغی است که «پرداخت شده» فرض می‌شود.\nاگر بعداً اشتباهی پیدا شد، داده را اصلاح و مغایرت بگیرید.');
+}
+
+function unlockPayrollBaseline() {
+  if (!requirePerm('payroll_lock', 'شما اجازه بازکردن قفل مبنا را ندارید.')) return;
+  const year = Number(document.getElementById('payYear').value);
+  const month = Number(document.getElementById('payMonth').value);
+  const key = year + '-' + month;
+  if (!data.payrollBaseline) data.payrollBaseline = {};
+  if (!data.payrollBaseline[key] || !data.payrollBaseline[key].length) {
+    alert('برای ماه ' + month + '/' + year + ' مبنای قفل‌شده‌ای وجود ندارد.');
+    return;
+  }
+  if (!confirm('قفل مبنای پرداخت ماه ' + month + '/' + year + ' حذف شود؟')) return;
+  delete data.payrollBaseline[key];
+  addChangeLog('بازکردن قفل مبنا', key, 'حذف مبنای پرداخت‌شده');
+  saveToCache();
+  alert('قفل مبنای ماه ' + month + '/' + year + ' حذف شد.');
 }
 
 function openAdjustmentWizard() {
