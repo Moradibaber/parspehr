@@ -661,8 +661,14 @@
         <div class="form-group"><label>تغییر رمز ادمین</label><input type="password" id="newAdminPassword" placeholder="خالی = بدون تغییر"></div>
         <div class="form-group"><label>رمز اپراتور</label><input type="password" id="operatorPassword" placeholder="رمز فعلی اپراتور"></div>
         <div class="form-group"><label>تغییر رمز اپراتور</label><input type="password" id="newOperatorPassword" placeholder="خالی = بدون تغییر"></div>
-        <div class="form-group"><label>رمز محاسبه مجدد</label><input type="password" id="calcPassword" placeholder="پیش‌فرض: calc1405"></div>
-        <div class="form-group"><label>تغییر رمز محاسبه</label><input type="password" id="newCalcPassword" placeholder="رمز جدید محاسبه (بدون نیاز به رمز ادمین)"></div>
+        <div class="form-group"><label>رمز محاسبه فعلی (نمایش برای ادمین)</label>
+          <input type="text" id="calcPasswordDisplay" dir="ltr" readonly style="background:#f1f5f9;font-weight:700;" placeholder="—"></div>
+        <div class="form-group"><label>تغییر رمز محاسبه</label>
+          <input type="password" id="newCalcPassword" placeholder="رمز جدید (اختیاری)" dir="ltr"></div>
+        <div class="form-group" style="display:flex;align-items:end;">
+          <button type="button" class="btn btn-outline" onclick="resetCalcPasswordDefault()">بازنشانی رمز محاسبه به calc1405</button>
+        </div>
+        <input type="hidden" id="calcPassword" value="">
         <div class="form-group" style="grid-column:1/-1;border-top:1px dashed #cbd5e1;padding-top:10px;margin-top:4px;">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" id="baselineLockPwdEnabled"> فعال‌سازی رمز برای «بازکردن قفل مبنای پرداخت»
@@ -2687,6 +2693,26 @@ function requireRole(roles, msg) {
 }
 function isAdmin() { return currentRole === 'admin'; }
 
+
+function resetCalcPasswordDefault() {
+  if (typeof isAdmin === 'function' && !isAdmin()) {
+    alert('فقط ادمین می‌تواند رمز محاسبه را بازنشانی کند.');
+    return;
+  }
+  if (!data.settings) data.settings = {};
+  data.settings.calcPassword = 'calc1405';
+  try {
+    var cpd = document.getElementById('calcPasswordDisplay');
+    if (cpd) cpd.value = 'calc1405';
+    var nc = document.getElementById('newCalcPassword');
+    if (nc) nc.value = '';
+  } catch (e) {}
+  try { if (typeof saveToCache === 'function') saveToCache(); } catch (e2) {}
+  try { if (typeof persistSettingsRemote === 'function') persistSettingsRemote(); } catch (e3) {}
+  try { if (typeof syncSettingsToServer === 'function') syncSettingsToServer(); } catch (e4) {}
+  alert('رمز محاسبه روی calc1405 تنظیم و ذخیره شد.\nاپراتور همین را برای محاسبه مجدد بزند.');
+}
+
 function normalizeCalcPassword() {
   try {
     if (!data.settings) data.settings = {};
@@ -4650,7 +4676,13 @@ function loadSettingsToForm() {
   document.getElementById('newAdminPassword').value = '';
   document.getElementById('operatorPassword').value = '';
   document.getElementById('newOperatorPassword').value = '';
-  document.getElementById('calcPassword').value = '';
+  try {
+    var cpd = document.getElementById('calcPasswordDisplay');
+    if (cpd) {
+      if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
+      cpd.value = String(data.settings.calcPassword);
+    }
+  } catch (eCPD) {}
   try {
     var ble = document.getElementById('baselineLockPwdEnabled');
     if (ble) ble.checked = !!data.settings.baselineLockPwdEnabled;
@@ -4706,6 +4738,7 @@ function saveSettings() {
       return;
     }
     data.settings.calcPassword = String(newCalc).trim();
+    try { var cpd2 = document.getElementById('calcPasswordDisplay'); if (cpd2) cpd2.value = data.settings.calcPassword; } catch(e){}
     alert('رمز محاسبه ذخیره شد: از این پس اپراتور برای محاسبه مجدد همین رمز را بزند.');
   }
   // تغییر رمز ورود ادمین / اپراتور همچنان نیاز به رمز فعلی ادمین دارد
@@ -6719,15 +6752,16 @@ async function runCalculation() {
   // محاسبه مجدد: ادمین بدون رمز؛ اپراتور با رمز محاسبه (در حالت مغایرت بی‌صدا رد می‌شود)
   if (alreadyCalc && !window.__calcSilent) {
     if (!isAdmin()) {
+      try { normalizeCalcPassword(); } catch (eN) {}
       const cp = prompt('این ماه قبلاً محاسبه شده. برای محاسبه مجدد رمز محاسبه را وارد کنید:');
       if (cp === null) return;
-      // اگر در تنظیمات خالی/undefined باشد پیش‌فرض calc1405
       if (!data.settings) data.settings = {};
       if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
       var expectedCalc = String(data.settings.calcPassword).trim();
-      var enteredCalc = String(cp == null ? '' : cp).trim();
+      var enteredCalc = String(cp == null ? '' : cp).trim()
+        .replace(/[۰-۹]/g, function(d) { return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; });
       if (enteredCalc !== expectedCalc) {
-        alert('رمز محاسبه اشتباه است.');
+        alert('رمز محاسبه اشتباه است.\n(اگر رمز را نمی‌دانید، ادمین از تنظیمات «بازنشانی رمز محاسبه به calc1405» را بزند.)');
         return;
       }
     }
