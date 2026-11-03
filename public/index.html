@@ -661,8 +661,8 @@
         <div class="form-group"><label>تغییر رمز ادمین</label><input type="password" id="newAdminPassword" placeholder="خالی = بدون تغییر"></div>
         <div class="form-group"><label>رمز اپراتور</label><input type="password" id="operatorPassword" placeholder="رمز فعلی اپراتور"></div>
         <div class="form-group"><label>تغییر رمز اپراتور</label><input type="password" id="newOperatorPassword" placeholder="خالی = بدون تغییر"></div>
-        <div class="form-group"><label>رمز محاسبه مجدد</label><input type="password" id="calcPassword" placeholder="رمز فعلی محاسبه"></div>
-        <div class="form-group"><label>تغییر رمز محاسبه</label><input type="password" id="newCalcPassword" placeholder="خالی = بدون تغییر"></div>
+        <div class="form-group"><label>رمز محاسبه مجدد</label><input type="password" id="calcPassword" placeholder="پیش‌فرض: calc1405"></div>
+        <div class="form-group"><label>تغییر رمز محاسبه</label><input type="password" id="newCalcPassword" placeholder="رمز جدید محاسبه (بدون نیاز به رمز ادمین)"></div>
         <div class="form-group" style="grid-column:1/-1;border-top:1px dashed #cbd5e1;padding-top:10px;margin-top:4px;">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" id="baselineLockPwdEnabled"> فعال‌سازی رمز برای «بازکردن قفل مبنای پرداخت»
@@ -691,7 +691,7 @@
         <div class="form-group"><label>اسفند</label><input type="number" id="md_12" value="29" min="1" max="31"></div>
       </div>
       <button class="btn btn-primary" style="margin-top:10px;" onclick="saveSettings()">ذخیره نرخ‌ها و رمز</button>
-      <p style="font-size:0.78rem;color:#64748b;margin-top:8px;">تغییر رمزها فقط با وارد کردن رمز فعلی ادمین امکان‌پذیر است.</p>
+      <p style="font-size:0.78rem;color:#64748b;margin-top:8px;">تغییر رمز ورود ادمین/اپراتور با رمز فعلی ادمین است. <b>رمز محاسبه</b> و <b>رمز قفل مبنا</b> را ادمینِ واردشده بدون رمز قبلی می‌تواند ست کند.</p>
 
       <div class="section-title" style="margin-top:20px;">مدیریت داده — پشتیبان، بازیابی و پاک‌سازی</div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
@@ -2686,6 +2686,16 @@ function requireRole(roles, msg) {
   return true;
 }
 function isAdmin() { return currentRole === 'admin'; }
+
+function normalizeCalcPassword() {
+  try {
+    if (!data.settings) data.settings = {};
+    var p = data.settings.calcPassword;
+    if (p == null || String(p).trim() === '') data.settings.calcPassword = 'calc1405';
+    else data.settings.calcPassword = String(p).trim();
+  } catch (e) {}
+}
+
 function isOperator() { return currentRole === 'operator'; }
 
 function populateLoginAccounts() {
@@ -4685,14 +4695,27 @@ function saveSettings() {
   const newPass = document.getElementById('newAdminPassword').value.trim();
   const newOp = document.getElementById('newOperatorPassword').value.trim();
   const newCalc = document.getElementById('newCalcPassword').value.trim();
-  if (newPass || newOp || newCalc) {
+  // رمز محاسبه: ادمینِ لاگین‌شده می‌تواند بدون رمز قبلی ادمین عوض کند
+  if (newCalc) {
+    if (typeof isAdmin === 'function' && !isAdmin()) {
+      alert('فقط ادمین می‌تواند رمز محاسبه را تغییر دهد.');
+      return;
+    }
+    if (String(newCalc).trim().length < 4) {
+      alert('رمز محاسبه حداقل ۴ کاراکتر باشد.');
+      return;
+    }
+    data.settings.calcPassword = String(newCalc).trim();
+    alert('رمز محاسبه ذخیره شد: از این پس اپراتور برای محاسبه مجدد همین رمز را بزند.');
+  }
+  // تغییر رمز ورود ادمین / اپراتور همچنان نیاز به رمز فعلی ادمین دارد
+  if (newPass || newOp) {
     if (currentPass !== data.settings.adminPassword) {
-      alert('برای تغییر رمزها، ابتدا رمز فعلی ادمین را درست وارد کنید.');
+      alert('برای تغییر رمز ورود ادمین یا اپراتور، ابتدا رمز فعلی ادمین را درست وارد کنید.');
       return;
     }
     if (newPass) { data.settings.adminPassword = newPass; alert('رمز ادمین تغییر کرد.'); }
     if (newOp) { data.settings.operatorPassword = newOp; alert('رمز اپراتور تغییر کرد.'); }
-    if (newCalc) { data.settings.calcPassword = newCalc; alert('رمز محاسبه تغییر کرد.'); }
   }
   // رمز اختصاصی قفل مبنا — بدون نیاز به رمز ورود ادمین (فقط نقش ادمین در UI می‌بیند)
   try {
@@ -6698,7 +6721,12 @@ async function runCalculation() {
     if (!isAdmin()) {
       const cp = prompt('این ماه قبلاً محاسبه شده. برای محاسبه مجدد رمز محاسبه را وارد کنید:');
       if (cp === null) return;
-      if (cp !== data.settings.calcPassword) {
+      // اگر در تنظیمات خالی/undefined باشد پیش‌فرض calc1405
+      if (!data.settings) data.settings = {};
+      if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
+      var expectedCalc = String(data.settings.calcPassword).trim();
+      var enteredCalc = String(cp == null ? '' : cp).trim();
+      if (enteredCalc !== expectedCalc) {
         alert('رمز محاسبه اشتباه است.');
         return;
       }
