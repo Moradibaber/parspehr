@@ -663,6 +663,16 @@
         <div class="form-group"><label>تغییر رمز اپراتور</label><input type="password" id="newOperatorPassword" placeholder="خالی = بدون تغییر"></div>
         <div class="form-group"><label>رمز محاسبه مجدد</label><input type="password" id="calcPassword" placeholder="رمز فعلی محاسبه"></div>
         <div class="form-group"><label>تغییر رمز محاسبه</label><input type="password" id="newCalcPassword" placeholder="خالی = بدون تغییر"></div>
+        <div class="form-group" style="grid-column:1/-1;border-top:1px dashed #cbd5e1;padding-top:10px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="baselineLockPwdEnabled"> فعال‌سازی رمز برای «بازکردن قفل مبنای پرداخت»
+          </label>
+          <p style="font-size:0.75rem;color:#64748b;margin:4px 0 6px;">این رمز جدا از رمز ورود ادمین و رمز محاسبه است. فقط برای باز کردن قفل مبنا.</p>
+        </div>
+        <div class="form-group"><label>رمز باز کردن قفل مبنا (جدید)</label>
+          <input type="password" id="baselineLockPassword" placeholder="خالی = بدون تغییر / یا تعیین رمز جدید" dir="ltr"></div>
+        <div class="form-group"><label>تکرار رمز قفل مبنا</label>
+          <input type="password" id="baselineLockPassword2" placeholder="تکرار رمز جدید" dir="ltr"></div>
       </div>
       <div class="section-title" style="margin-top:16px;">تعداد روزهای ماه‌های <span id="monthDaysYearLabel">1405</span></div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:8px;">حداکثر روز قابل ثبت برای کارکرد در هر ماه (سقف روز کارکرد). حقوق پایه و پایه سنوات بر مبنای <b>۳۰ روز</b> محاسبه می‌شود: مبلغ × (روز کارکرد ÷ ۳۰). بنابراین با کارکرد کامل در ماه ۳۱روزه حدود ۱٫۰۳۳ برابر و در ماه ۲۹روزه حدود ۰٫۹۶۷ برابر مبلغ پایه پرداخت می‌شود. برای هر سال جداگانه ذخیره می‌شود.</p>
@@ -1131,7 +1141,7 @@
         <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        <b>قفل مبنا:</b> بعد از پرداخت قطعی، نسخه ثابت ذخیره می‌شود و تا «بازکردن / حذف قفل مبنا» <b>اجرای محاسبه مجدد همان ماه ممنوع</b> است. برای اصلاح اشتباه از مغایرت استفاده کنید یا ابتدا قفل را باز کنید.
+        <b>قفل مبنا:</b> بعد از پرداخت قطعی، نسخه ثابت ذخیره می‌شود و تا «بازکردن / حذف قفل مبنا» <b>اجرای محاسبه مجدد همان ماه ممنوع</b> است. در صورت فعال بودن در تنظیمات، باز کردن قفل نیاز به <b>رمز اختصاصی قفل مبنا</b> دارد (جدا از رمز ورود).
         <b>مغایرت:</b> اگر پرداخت اشتباه بود، داده را درست کنید → مغایرت بگیرید (نفرات دلخواه) → ماه مقصد را انتخاب کنید تا اصلاح در فیش آن ماه (مثلاً اردیبهشت) بیاید.
       </p>
       <div id="payrollArea" style="display:none; overflow-x:auto;">
@@ -1826,6 +1836,8 @@ let data = {
     adminPassword: 'admin1405',
     operatorPassword: 'op1405',
     calcPassword: 'calc1405',
+    baselineLockPassword: '',
+    baselineLockPwdEnabled: false,
     passwordMustChange: true,
     monthDays: {1:31,2:31,3:31,4:31,5:31,6:31,7:30,8:30,9:30,10:30,11:30,12:29},
     monthDaysByYear: {},
@@ -1896,6 +1908,10 @@ if (!data.settings.adminPassword) { data.settings.adminPassword = 'admin1405'; d
 if (!data.settings.operatorPassword) data.settings.operatorPassword = 'op1405';
 
 if (!data.settings.calcPassword) data.settings.calcPassword = 'calc1405';
+    data.settings.baselineLockPassword = '';
+    data.settings.baselineLockPwdEnabled = false;
+if (typeof data.settings.baselineLockPassword === 'undefined') data.settings.baselineLockPassword = '';
+if (typeof data.settings.baselineLockPwdEnabled === 'undefined') data.settings.baselineLockPwdEnabled = false;
 if (!data.settings.operators) data.settings.operators = [];
 if (!data.settings.operatorPermissions) data.settings.operatorPermissions = null;
 if (!data.settings.systemAccounts) data.settings.systemAccounts = {};
@@ -4625,6 +4641,15 @@ function loadSettingsToForm() {
   document.getElementById('operatorPassword').value = '';
   document.getElementById('newOperatorPassword').value = '';
   document.getElementById('calcPassword').value = '';
+  try {
+    var ble = document.getElementById('baselineLockPwdEnabled');
+    if (ble) ble.checked = !!data.settings.baselineLockPwdEnabled;
+    var blp = document.getElementById('baselineLockPassword');
+    if (blp) blp.value = '';
+    var blp2 = document.getElementById('baselineLockPassword2');
+    if (blp2) blp2.value = '';
+  } catch (eBL) {}
+
   document.getElementById('newCalcPassword').value = '';
   loadMonthDaysToForm(s.currentYear || 1405);
   syncAllYearInputs(s.currentYear || 1405);
@@ -4669,6 +4694,24 @@ function saveSettings() {
     if (newOp) { data.settings.operatorPassword = newOp; alert('رمز اپراتور تغییر کرد.'); }
     if (newCalc) { data.settings.calcPassword = newCalc; alert('رمز محاسبه تغییر کرد.'); }
   }
+  // رمز اختصاصی قفل مبنا — بدون نیاز به رمز ورود ادمین (فقط نقش ادمین در UI می‌بیند)
+  try {
+    var bleEl = document.getElementById('baselineLockPwdEnabled');
+    if (bleEl) data.settings.baselineLockPwdEnabled = !!bleEl.checked;
+    var np = document.getElementById('baselineLockPassword');
+    var np2 = document.getElementById('baselineLockPassword2');
+    var v1 = np ? String(np.value || '').trim() : '';
+    var v2 = np2 ? String(np2.value || '').trim() : '';
+    if (v1 || v2) {
+      if (v1 !== v2) { alert('رمز قفل مبنا و تکرار آن یکسان نیست.'); return; }
+      if (v1.length < 4) { alert('رمز قفل مبنا حداقل ۴ کاراکتر باشد.'); return; }
+      data.settings.baselineLockPassword = v1;
+      alert('رمز باز کردن قفل مبنا ذخیره شد.');
+    }
+    if (np) np.value = '';
+    if (np2) np2.value = '';
+  } catch (eSaveBL) {}
+
   data.settings.insEmployee = Number(document.getElementById('insEmployee').value)||7;
   data.settings.insEmployer = Number(document.getElementById('insEmployer').value)||23;
   data.settings.overtimeFactor = Number(document.getElementById('overtimeFactor').value)||1.4;
@@ -7756,7 +7799,20 @@ function lockPayrollBaseline() {
 
 function unlockPayrollBaseline() {
   if (!requirePerm('payroll_lock', 'شما اجازه بازکردن قفل مبنا را ندارید.')) return;
-  // رمز حذف شد — فقط تأیید و دسترسی نقش
+  // رمز اختصاصی قفل مبنا (جدا از رمز ورود ادمین)
+  if (data.settings && data.settings.baselineLockPwdEnabled) {
+    var need = String(data.settings.baselineLockPassword || '');
+    if (!need) {
+      alert('رمز باز کردن قفل مبنا فعال است ولی هنوز تعیین نشده.\nاز تنظیمات → نقش‌ها و رمزها آن را ست کنید، یا تیک فعال‌سازی را بردارید.');
+      return;
+    }
+    var entered = prompt('رمز باز کردن قفل مبنای پرداخت:');
+    if (entered === null) return;
+    if (String(entered) !== need) {
+      alert('رمز قفل مبنا اشتباه است.');
+      return;
+    }
+  }
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
@@ -9481,7 +9537,7 @@ function sbStripSecrets(settings) {
 function sbMergeLocalSecrets(remote, local) {
   var r = remote || {};
   local = local || {};
-  ['adminPassword', 'operatorPassword', 'calcPassword'].forEach(function(k) {
+  ['adminPassword', 'operatorPassword', 'calcPassword', 'baselineLockPassword'].forEach(function(k) {
     if (local[k]) r[k] = local[k]; else delete r[k];
   });
   if (Array.isArray(r.operators)) {
