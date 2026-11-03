@@ -1131,7 +1131,7 @@
         <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        <b>قفل مبنا:</b> بعد از پرداخت قطعی، نسخه ثابت ذخیره می‌شود و تا «بازکردن / حذف قفل مبنا» (با <b>رمز ادمین</b>) <b>اجرای محاسبه مجدد همان ماه ممنوع</b> است. برای اصلاح اشتباه از مغایرت استفاده کنید یا ابتدا قفل را باز کنید.
+        <b>قفل مبنا:</b> بعد از پرداخت قطعی، نسخه ثابت ذخیره می‌شود و تا «بازکردن / حذف قفل مبنا» <b>اجرای محاسبه مجدد همان ماه ممنوع</b> است. برای اصلاح اشتباه از مغایرت استفاده کنید یا ابتدا قفل را باز کنید.
         <b>مغایرت:</b> اگر پرداخت اشتباه بود، داده را درست کنید → مغایرت بگیرید (نفرات دلخواه) → ماه مقصد را انتخاب کنید تا اصلاح در فیش آن ماه (مثلاً اردیبهشت) بیاید.
       </p>
       <div id="payrollArea" style="display:none; overflow-x:auto;">
@@ -7756,7 +7756,7 @@ function lockPayrollBaseline() {
 
 function unlockPayrollBaseline() {
   if (!requirePerm('payroll_lock', 'شما اجازه بازکردن قفل مبنا را ندارید.')) return;
-  if (!requireAdminPassword('بازکردن قفل مبنای پرداخت — رمز ادمین:')) return;
+  // رمز حذف شد — فقط تأیید و دسترسی نقش
   const year = Number(document.getElementById('payYear').value);
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
