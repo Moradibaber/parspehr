@@ -1131,7 +1131,7 @@
         <button class="btn btn-outline" onclick="exportPayrollAccounting()">خروجی سند حسابداری (پیش‌نویس CSV)</button>
       </div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        <b>قفل مبنا:</b> بعد از پرداخت قطعی حقوق ماه، یک نسخه ثابت از محاسبه ذخیره می‌شود (بدون نیاز به رمز جداگانه؛ همان دسترسی نقش کافی است).
+        <b>قفل مبنا:</b> بعد از پرداخت قطعی، نسخه ثابت ذخیره می‌شود و تا «بازکردن / حذف قفل مبنا» <b>اجرای محاسبه مجدد همان ماه ممنوع</b> است. برای اصلاح اشتباه از مغایرت استفاده کنید یا ابتدا قفل را باز کنید.
         <b>مغایرت:</b> اگر پرداخت اشتباه بود، داده را درست کنید → مغایرت بگیرید (نفرات دلخواه) → ماه مقصد را انتخاب کنید تا اصلاح در فیش آن ماه (مثلاً اردیبهشت) بیاید.
       </p>
       <div id="payrollArea" style="display:none; overflow-x:auto;">
@@ -6629,6 +6629,15 @@ async function runCalculation() {
   const month = Number(document.getElementById('payMonth').value);
   const key = year + '-' + month;
   const monthDays = getMonthDays(year, month);
+  // قفل سخت: اگر مبنای پرداخت این ماه قفل باشد، محاسبه مجدد ممنوع
+  // (مغایرت با __calcSilent از همین تابع استفاده می‌کند — آن مسیر را باز می‌گذاریم)
+  if (!window.__calcSilent && !window.__allowCalcDespiteBaseline) {
+    if (data.payrollBaseline && data.payrollBaseline[key] && data.payrollBaseline[key].length) {
+      alert('مبنای پرداخت ماه ' + month + '/' + year + ' قفل است.\n' +
+        'تا وقتی «بازکردن / حذف قفل مبنا» زده نشود، محاسبه مجدد مجاز نیست.');
+      return false;
+    }
+  }
   if (!data.monthlyData[key]) {
     alert('ابتدا در تب ورود داده‌های ماهانه داده‌ها را بارگذاری و ذخیره کنید.');
     return;
