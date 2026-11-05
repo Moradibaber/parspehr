@@ -566,39 +566,6 @@
     <div class="card">
       <div class="section-title">نرخ بیمه و مالیات ۱۴۰۵</div>
       
-      <div class="section-title">سیاست مرخصی استحقاقی</div>
-      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
-        سقف مرخصی استحقاقی سالانه بر اساس <b>نوع قرارداد</b> و در صورت تعریف، <b>گروه کاری</b> (اولویت با گروه).
-        اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
-      </p>
-      <div class="form-grid" style="margin-bottom:12px;">
-        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
-        <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
-      </div>
-      <div style="margin-bottom:12px;overflow-x:auto;">
-        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس نوع قرارداد</div>
-        <table style="max-width:520px;" id="leavePolicyByContract">
-          <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
-          <tbody>
-            <tr><td>عادی</td><td><input type="number" class="leave-ct-days" data-ct="normal" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>روزمزد</td><td><input type="number" class="leave-ct-days" data-ct="daily" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
-            <tr><td>ساعتی</td><td><input type="number" class="leave-ct-days" data-ct="hourly" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div style="margin-bottom:14px;">
-        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس گروه کاری (اختیاری — اولویت بالاتر)</div>
-        <div id="leaveGroupPolicyList"></div>
-        <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
-      </div>
-
-      <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
-        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;">
-          <span style="font-weight:700;color:#0f766e;font-size:0.85rem;">انتقال مانده مرخصی به سال جدید</span>
-          <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده</button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی همه فعال‌ها</button>
-        </div>
-      </div>
       <div class="section-title" style="font-size:0.88rem;margin-bottom:8px;">نرخ‌ها و ضرایب</div>
       <div class="form-grid">
         <div class="form-group"><label>بیمه سهم کارمند (%)</label><input type="number" id="insEmployee" value="7" step="0.1"></div>
@@ -1505,6 +1472,45 @@
   
     <!-- پنل مأموریت/مرخصی توسط Worker تزریق می‌شود (امنیت) -->
   <div class="panel" id="panel-portalatt" data-psp-host="1"></div>
+  <!-- سیاست مرخصی: انتهای تب کارکرد؛ با ensureLeavePolicyInPortal به داخل پنل منتقل می‌شود -->
+  <div id="leavePolicyMount" style="display:none">
+    <div class="card" id="leavePolicyCard" data-psp-keep="1" style="margin-top:16px;">
+      <div class="section-title">سیاست مرخصی استحقاقی</div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
+        سقف مرخصی استحقاقی سالانه بر اساس <b>نوع قرارداد</b> و در صورت تعریف، <b>گروه کاری</b> (اولویت با گروه).
+        اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
+      </p>
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
+        <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
+      </div>
+      <div style="margin-bottom:12px;overflow-x:auto;">
+        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس نوع قرارداد</div>
+        <table style="max-width:520px;" id="leavePolicyByContract">
+          <thead><tr><th>نوع قرارداد</th><th>روز استحقاقی سالانه</th></tr></thead>
+          <tbody>
+            <tr><td>عادی</td><td><input type="number" class="leave-ct-days" data-ct="normal" id="leaveCt_normal" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>روزمزد</td><td><input type="number" class="leave-ct-days" data-ct="daily" id="leaveCt_daily" value="26" min="0" step="1" style="width:100px;"></td></tr>
+            <tr><td>ساعتی</td><td><input type="number" class="leave-ct-days" data-ct="hourly" id="leaveCt_hourly" value="0" min="0" step="1" style="width:100px;"></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:700;color:#0f766e;font-size:0.85rem;margin-bottom:6px;">سقف بر اساس گروه کاری (اختیاری — اولویت بالاتر)</div>
+        <div id="leaveGroupPolicyList"></div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addLeaveGroupPolicyRow()">+ افزودن گروه</button>
+      </div>
+
+      <div style="margin-bottom:14px;padding:10px 12px;background:#f0fdfa;border-radius:8px;border:1px solid #99f6e4;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;">
+          <span style="font-weight:700;color:#0f766e;font-size:0.85rem;">انتقال مانده مرخصی به سال جدید</span>
+          <button type="button" class="btn btn-outline btn-sm" onclick="applyLeaveYearRollover()">اعمال انتقال مانده</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="applyProratedLeaveAllActive()">محاسبه تناسبی همه فعال‌ها</button>
+        </div>
+      </div>
+    </div>
+</div>
+
   <div class="panel" id="panel-permissions">
     <div class="card">
       <div class="section-title">مدیریت کاربران و دسترسی‌ها</div>
@@ -4240,6 +4246,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     var panelEl = document.getElementById('panel-'+tabId);
     if (panelEl) panelEl.classList.add('active');
+    try { if (tabId === 'portalatt') ensureLeavePolicyInPortal(); } catch (eLP) {}
     if (PSP_SUBTAB_GROUPS[tabId]) {
       pspActivateSubtab(tabId, tabId);
       // fall through for original side effects of parent
@@ -12038,6 +12045,32 @@ function insertFormulaVar(idx, varName) {
     if (!window.__pspPortalAdmin) fail('اسکریپت پنل اجرا نشد. کنسول و Network را برای portal-boot.js ببینید.');
   }, 8000);
 })();
+
+/** انتقال سیاست مرخصی به انتهای تب کارکرد (panel-portalatt) بدون تغییر منطق ذخیره */
+function ensureLeavePolicyInPortal() {
+  try {
+    var panel = document.getElementById('panel-portalatt');
+    var card = document.getElementById('leavePolicyCard');
+    var mount = document.getElementById('leavePolicyMount');
+    if (!card && mount) card = mount.querySelector('#leavePolicyCard');
+    if (!panel || !card) return;
+    // اگر پورتال innerHTML را عوض کرده، کارت را دوباره به انتها بچسبان
+    if (card.parentElement !== panel) {
+      panel.appendChild(card);
+    } else if (panel.lastElementChild !== card) {
+      panel.appendChild(card); // همیشه آخر بماند
+    }
+    card.style.display = '';
+    if (mount && mount.contains(card) === false && mount.childNodes.length === 0) {
+      try { mount.remove(); } catch (e0) {}
+    }
+  } catch (e) {}
+}
+setTimeout(ensureLeavePolicyInPortal, 500);
+setTimeout(ensureLeavePolicyInPortal, 1500);
+setTimeout(ensureLeavePolicyInPortal, 3500);
+setInterval(ensureLeavePolicyInPortal, 4000);
+
 </script>
 
 </body>
