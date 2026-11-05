@@ -1882,7 +1882,8 @@ function reverseApprovedRequestFromTimesheet(data, req) {
   if (req.kind === 'leave' && req.mode === 'daily') {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - chunk.days) * 100) / 100;
+      const days = leaveDaysForMonthChunk(data, req, chunk);
+      row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - days) * 100) / 100;
     });
   } else if (req.kind === 'leave' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -1904,13 +1905,31 @@ function reverseApprovedRequestFromTimesheet(data, req) {
   }
 }
 
+function leaveDaysForMonthChunk(data, req, chunk) {
+  /* کسر استحقاقی فقط روزهای کاری — پنجشنبه/جمعه و تعطیل رسمی شمرده نمی‌شوند
+     مگر countNonWorkDaysAsLeave یا نوع مجاز روی غیرکاری */
+  try {
+    const emp = ((data.employees || []).find(function (e) { return String(e.code) === String(req.empCode); })) || null;
+    const ct = (emp && emp.contractType) || 'normal';
+    const ws = typeof getWorkWeekSettings === 'function' ? getWorkWeekSettings(data, ct) : { countNonWorkDaysAsLeave: false };
+    const allowNw = !!(ws.countNonWorkDaysAsLeave || req.allowNonWorkLeave ||
+      (typeof isLeaveTypeAllowedOnNonWork === 'function' && isLeaveTypeAllowedOnNonWork(data, ct, req.typeId, req.typeName)));
+    if (allowNw) return Number(chunk.days) || 0;
+    if (typeof countWorkingDaysInMonth === 'function') {
+      return countWorkingDaysInMonth(req.startDate, req.endDate || req.startDate, chunk.year, chunk.month, data, ct);
+    }
+  } catch (e) {}
+  return Number(chunk.days) || 0;
+}
+
 function applyApprovedRequestToTimesheet(data, req) {
   if (!req || req.status !== 'approved') return;
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      row.leaveDays = Math.round(((Number(row.leaveDays) || 0) + chunk.days) * 100) / 100;
+      const days = leaveDaysForMonthChunk(data, req, chunk);
+      row.leaveDays = Math.round(((Number(row.leaveDays) || 0) + days) * 100) / 100;
     });
   } else if (req.kind === 'leave' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
