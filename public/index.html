@@ -6447,6 +6447,34 @@ function updateDataField(code, field, value, el) {
     try { el.value = formatFlexibleHours(num); } catch (eFmt2) {}
   }
   data.monthlyData[key][code][field] = num;
+  // مرخصی/مأموریت روزانه جزو کارکرد است (حداقل به اندازه مجموع روزهای مرخصی+مأموریت)
+  if (field === 'leaveDays' || field === 'missionDays' || field === 'workDays') {
+    try {
+      var rowL = data.monthlyData[key][code];
+      var lv = Number(rowL.leaveDays) || 0;
+      var ms = Number(rowL.missionDays) || 0;
+      var floor = Math.round((lv + ms) * 100) / 100;
+      var wd = Number(rowL.workDays) || 0;
+      if (floor > 0 && wd < floor) {
+        rowL.workDays = floor;
+        var inp = document.querySelector('#dataEntryBody tr td input[onchange*="\'' + code + '\',\'workDays\'"]');
+        // fallback: find workDays input in same row
+        if (!inp) {
+          var rows = document.querySelectorAll('#dataEntryBody tr');
+          for (var ri = 0; ri < rows.length; ri++) {
+            if (String(rows[ri].cells[0] && rows[ri].cells[0].textContent).trim() === String(code)) {
+              var wdInp = rows[ri].querySelector('input[onchange*="workDays"]');
+              if (wdInp) { wdInp.value = floor; wdInp.classList.remove('workdays-incomplete'); }
+              break;
+            }
+          }
+        } else {
+          inp.value = floor;
+          inp.classList.remove('workdays-incomplete');
+        }
+      }
+    } catch (eFloor) {}
+  }
   refreshCountCells(code);
 }
 function updateDataQty(code, name, value) {
