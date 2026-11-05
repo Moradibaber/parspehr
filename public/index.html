@@ -6030,15 +6030,49 @@ function empQtyItemActive(emp, name, year, month) {
   }
   if (y == null) y = Number(data.settings && data.settings.currentYear) || 1405;
   if (m == null) m = 1;
+  function isOff(en) {
+    return en === false || en === 0 || en === '0' || en === 'false' || en === 'False';
+  }
+  // ۱) آیتم روی کارت کارمند (اولویت)
   var list = emp.customItems || [];
+  var foundOnCard = false;
   for (var i = 0; i < list.length; i++) {
     var ci = list[i];
     if (!ci || !ci.name) continue;
     if (String(ci.name).trim() !== nm) continue;
     if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') continue;
-    if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') return false;
+    foundOnCard = true;
+    if (isOff(ci.enabled)) return false;
     if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return false;
     return true;
+  }
+  // ۲) اگر روی کارت نبود: قالب سراسری فعال با همان نام → سلول قابل ورود باشد
+  // (قبلاً همه خاکستری می‌شدند چون ستون از قالب می‌آمد ولی فقط دارندگان کارت فعال بودند)
+  if (!foundOnCard) {
+    var tpls = data.customItemTemplates || [];
+    for (var j = 0; j < tpls.length; j++) {
+      var t = tpls[j];
+      if (!t || !t.name) continue;
+      if (String(t.name).trim() !== nm) continue;
+      if (t.entryType !== 'quantity' && t.entryType !== 'qty_flat') continue;
+      if (isOff(t.enabled)) return false;
+      if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(t, y, m)) return false;
+      return true;
+    }
+    // ۳) اگر قالب هم نبود ولی حداقل یک کارمند دیگر این آیتم تعدادی را دارد
+    // ستون در جدول هست — برای بقیه هم ورود مجاز (مگر صریحاً روی کارت غیرفعال شده باشد که بالا پوشش داده شد)
+    var anyOther = false;
+    (data.employees || []).forEach(function(e2) {
+      if (anyOther || !e2 || e2 === emp) return;
+      (e2.customItems || []).forEach(function(c2) {
+        if (!c2 || String(c2.name || '').trim() !== nm) return;
+        if (c2.entryType !== 'quantity' && c2.entryType !== 'qty_flat') return;
+        if (isOff(c2.enabled)) return;
+        if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(c2, y, m)) return;
+        anyOther = true;
+      });
+    });
+    if (anyOther) return true;
   }
   return false;
 }
