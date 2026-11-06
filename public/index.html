@@ -10570,9 +10570,7 @@ function countCellView(emp, row, n, F, M) {
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
-    // سلول غیرفعال: خالی بماند (نه صفر) و از محاسبه خارج شود
-    if (row.qty) delete row.qty[n];
-    if (row.qtyAuto) delete row.qtyAuto[n];
+    // فقط نمایش خالی — داده ذخیره‌شده پاک نمی‌شود (جلوگیری از حذف جاب و مشابه)
     return {
       value: '',
       cls: 'qcell qcell-inactive',
