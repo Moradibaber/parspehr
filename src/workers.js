@@ -4107,15 +4107,27 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   if (!md) return;
   year = Number(year); month = Number(month);
-  md.missionDays = 0;
-  md.missionHours = 0;
   if (!md.qty) md.qty = {};
   if (!md.qtyAuto) md.qtyAuto = {};
-  // جمع موقت برای انواع منطبق با تعداد — اول صفر، بعد مقدار نهایی
+  const missionReqs = (obj.attendanceRequests || []).filter(function (x) {
+    if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return false;
+    if (x.kind !== 'mission') return false;
+    const p = parseJalaliYMD(x.startDate);
+    if (p && p.y === year && p.m === month) return true;
+    if (x.mode === 'daily' && x.endDate) {
+      try {
+        const chunks = splitDaysByMonth(x.startDate, x.endDate);
+        return chunks.some(function (c) { return Number(c.year) === year && Number(c.month) === month; });
+      } catch (e) { return false; }
+    }
+    return false;
+  });
+  // بدون درخواست مأموریت این ماه — missionDays/qty فعلی را دست نزن
+  if (!missionReqs.length) return;
+  md.missionDays = 0;
+  md.missionHours = 0;
   const qtyAcc = {};
-  (obj.attendanceRequests || []).forEach(function (x) {
-    if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return;
-    if (x.kind !== 'mission') return;
+  missionReqs.forEach(function (x) {
     let tname = x.typeName || x.type || '';
     if (!tname && x.typeId) {
       try {
@@ -4149,6 +4161,7 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   md.missionDays = Math.round((Number(md.missionDays) || 0) * 100) / 100;
   md.missionHours = Math.round((Number(md.missionHours) || 0) * 100) / 100;
 }
+
 
 function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
   /* دیگر کارکرد را با leave+mission بالا نمی‌برد.
