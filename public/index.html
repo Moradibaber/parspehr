@@ -6279,6 +6279,25 @@ function loadDataEntry() {
   });
   head += '</tr>';
   thead.innerHTML = head;
+  // پر کردن تعداد جاب از روی مأموریت روزانه اگر خالی باشد
+  try {
+    activeEmps.forEach(function(emp) {
+      if (!emp) return;
+      var row = data.monthlyData[key][emp.code];
+      if (!row) return;
+      var md = Math.max(0, Number(row.missionDays) || 0);
+      if (!(md > 0)) return;
+      if (!row.qty) row.qty = {};
+      if (!row.qtyAuto) row.qtyAuto = {};
+      (qtyNames || []).forEach(function(qn) {
+        if (String(qn).indexOf('جاب') < 0) return;
+        if (row.qty[qn] === undefined || row.qty[qn] === '' || Number(row.qty[qn]) === 0) {
+          row.qty[qn] = md;
+          row.qtyAuto[qn] = false;
+        }
+      });
+    });
+  } catch (eJab) {}
   const tbody = document.getElementById('dataEntryBody');
   tbody.innerHTML = activeEmps.map(emp => {
     const maxAllowedBase = maxWorkDaysForEmployee(emp, y, m);
@@ -6447,8 +6466,8 @@ function updateDataQty(code, name, value) {
   const row = data.monthlyData[key][code];
   if (!row.qty) row.qty = {};
   if (!row.qtyAuto) row.qtyAuto = {};
-  if (String(value).trim() === '') { delete row.qty[name]; delete row.qtyAuto[name]; }
-  else { row.qty[name] = Number(value) || 0; delete row.qtyAuto[name]; }
+  if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
+  else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
   refreshCountCells(code);
 }
 function updateFunctionalDays() {
@@ -10541,44 +10560,37 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* تعداد خالص — فقط طبق تیک‌های «ثابت‌های ماهانه»:
-     پایه = روزهای تردد واقعی (punchDays) اگر از تایم‌شیت آمده باشد، وگرنه روز کارکرد
-     سپس هر آیتمی که «کسر از تعداد خالص» تیک خورده از پیشنهاد کم می‌شود. */
+  /* تعداد خالص:
+     ۱) اگر punchDays از تایم‌شیت آمده → پایه = همان (روزهای ورود/خروج واقعی)
+     ۲) وگرنه پایه = روز کارکرد و اقلام سیستمی که تیک «کسر از تعداد خالص» دارند کم می‌شوند
+     ۳) ثابت‌های کاربر با تیک «کسر از تعداد خالص» همیشه کم می‌شوند */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
   var rules = getCountRules();
   F = mvNum(F) > 0 ? mvNum(F) : 22;
-  M = mvNum(M) > 0 ? mvNum(M) : 30;
+  var H = (typeof MV_HOURS_PER_DAY === 'number') ? MV_HOURS_PER_DAY : 7.33;
   var parts = [];
-  var hasPunch = (row.punchDays !== undefined && row.punchDays !== null && row.punchDays !== '');
+  var hasPunch = (row.punchDays !== undefined && row.punchDays !== null && String(row.punchDays).trim() !== '');
   var base = hasPunch ? Math.max(0, mvNum(row.punchDays)) : Math.max(0, mvNum(row.workDays));
+  if (hasPunch) parts.push('تردد ' + mvFmt(base));
+  else parts.push('کارکرد ' + mvFmt(base));
   var total = Math.min(base, F);
-  if (hasPunch) {
-    parts.push('تردد واقعی ' + mvFmt(base) + ' روز' + (base > F ? ' (سقف ' + mvFmt(F) + ')' : ''));
-  } else if (base > 0 && base < F) {
-    parts.push('کارکرد ' + mvFmt(base) + ' روز (سقف کارکرد خالص ' + mvFmt(F) + ')');
-  } else if (base >= F) {
-    parts.push('کارکرد کامل نسبت به کارکرد خالص (' + mvFmt(F) + ')');
-  } else {
-    parts.push('بدون کارکرد/تردد');
-  }
   var take = function(label, days) {
     days = mvNum(days);
-    if (days > 0) {
-      total -= days;
-      parts.push(label + ' (−' + mvFmt(days) + ')');
-    }
+    if (days > 0) { total -= days; parts.push(label + ' (−' + mvFmt(days) + ')'); }
   };
-  // فقط آنچه تیک «کسر از تعداد خالص» دارد
-  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), row.leaveDays);
-  if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / (typeof MV_HOURS_PER_DAY === 'number' ? MV_HOURS_PER_DAY : 7.33));
-  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+  // اقلام سیستمی فقط وقتی پایه = کارکرد است (نه وقتی پایه = تردد خالص)
+  if (!hasPunch) {
+    if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), row.leaveDays);
+    if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
+    if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+  }
   getMonthlyVars(true).forEach(function(v) {
     var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
     if (!useFlat) return;
     var val = mvNum((row.vars || {})[v.id]);
-    take(v.name, v.unit === 'hour' ? val / (typeof MV_HOURS_PER_DAY === 'number' ? MV_HOURS_PER_DAY : 7.33) : val);
+    take(v.name, v.unit === 'hour' ? val / H : val);
   });
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
@@ -10605,7 +10617,7 @@ function countCellView(emp, row, n, F, M) {
   var isFlat = isQtyFlatItemName(n, ctx.y, ctx.m);
   var exp = isFlat ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
-  if (exp !== null && (row.qty[n] === undefined || row.qty[n] === '' || row.qtyAuto[n] === true)) {
+  if (exp !== null && (row.qtyAuto[n] === true || row.qty[n] === undefined || row.qty[n] === '')) {
     row.qty[n] = exp.value;
     row.qtyAuto[n] = true;
   } else if (!isFlat && row.qtyAuto && row.qtyAuto[n] === true) {
