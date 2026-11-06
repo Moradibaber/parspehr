@@ -10515,16 +10515,17 @@ function getCountRules() {
     hourlyLeave: r.hourlyLeave === true,
     workShortfallFlat: r.workShortfallFlat !== undefined ? !!r.workShortfallFlat : legacyWS,
     leaveDaysFlat: r.leaveDaysFlat !== undefined ? !!r.leaveDaysFlat : legacyLD,
-    hourlyLeaveFlat: r.hourlyLeaveFlat !== undefined ? !!r.hourlyLeaveFlat : legacyHL
+    hourlyLeaveFlat: r.hourlyLeaveFlat !== undefined ? !!r.hourlyLeaveFlat : legacyHL,
+    missionDaysFlat: r.missionDaysFlat !== undefined ? !!r.missionDaysFlat : false
   };
 }
 
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* تعداد خالص = فقط روزهای حضور/تردد واقعی
-     کارکرد ذخیره‌شده ممکن است مرخصی و مأموریت را هم شامل شود → آن‌ها کسر می‌شوند.
-     اگر این ماه فقط مرخصی/مأموریت بوده و ترددی نبوده → پیشنهاد ۰ */
+  /* پیشنهاد تعداد خالص طبق تیک‌های «ثابت‌های ماهانه»:
+     min(روز کارکرد، کارکرد خالص) − هر ستونی که «کسر از تعداد خالص» دارد
+     (روز مرخصی / مرخصی ساعتی / ثابت‌های کاربر) */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
@@ -10532,24 +10533,26 @@ function countExpected(emp, row, F, M) {
   F = mvNum(F) > 0 ? mvNum(F) : 22;
   M = mvNum(M) > 0 ? mvNum(M) : 30;
   var W = Math.max(0, mvNum(row.workDays));
-  var leaveD = Math.max(0, mvNum(row.leaveDays));
-  var missionD = Math.max(0, mvNum(row.missionDays));
-  var hourlyLeaveD = Math.max(0, mvNum(row.hourlyLeave) / (typeof MV_HOURS_PER_DAY === 'number' ? MV_HOURS_PER_DAY : 7.33));
   var parts = [];
-  // حضور واقعی = کارکرد − مرخصی − مأموریت − مرخصی ساعتی
-  var presence = Math.max(0, W - leaveD - missionD - hourlyLeaveD);
-  parts.push('حضور تقریبی ' + mvFmt(presence) + ' (کارکرد ' + mvFmt(W) +
-    (leaveD ? ' − مرخصی ' + mvFmt(leaveD) : '') +
-    (missionD ? ' − مأموریت ' + mvFmt(missionD) : '') +
-    (hourlyLeaveD ? ' − مرخصی‌س ' + mvFmt(hourlyLeaveD) : '') + ')');
-  var total = Math.min(presence, F);
+  var total = Math.min(W, F);
+  if (W > 0 && W < F) {
+    parts.push('کارکرد ' + mvFmt(W) + ' روز (سقف کارکرد خالص ' + mvFmt(F) + ')');
+  } else if (W >= F) {
+    parts.push('کارکرد کامل نسبت به کارکرد خالص (' + mvFmt(F) + ')');
+  } else {
+    parts.push('بدون کارکرد');
+  }
   var take = function(label, days) {
     if (days > 0) {
       total -= days;
       parts.push(label + ' (−' + mvFmt(days) + ')');
     }
   };
-  // مرخصی/مأموریت از قبل از حضور کم شده؛ فقط ثابت‌های ماهانه با تیک تعداد خالص
+  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), mvNum(row.leaveDays));
+  if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / (typeof MV_HOURS_PER_DAY === 'number' ? MV_HOURS_PER_DAY : 7.33));
+  // مأموریت روزانه اگر در شیت باشد و کاربر بخواهد از تعداد خالص کم شود — فقط وقتی مقدار دارد
+  // (جاب‌هایی که به ستون تعداد منتقل شده‌اند دیگر در missionDays نیستند)
+  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), mvNum(row.missionDays));
   getMonthlyVars(true).forEach(function(v) {
     var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
     if (!useFlat) return;
@@ -10567,13 +10570,11 @@ function countCellView(emp, row, n, F, M) {
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
-    if (row.qtyAuto && row.qtyAuto[n] === true) {
-      delete row.qty[n];
-      delete row.qtyAuto[n];
-    }
-    var inactiveVal = (row.qty[n] !== undefined) ? row.qty[n] : '';
+    // سلول غیرفعال: خالی بماند (نه صفر) و از محاسبه خارج شود
+    if (row.qty) delete row.qty[n];
+    if (row.qtyAuto) delete row.qtyAuto[n];
     return {
-      value: inactiveVal,
+      value: '',
       cls: 'qcell qcell-inactive',
       title: 'این آیتم برای این کارمند در کارت غیرفعال است — در محاسبه لحاظ نمی‌شود',
       note: '',
