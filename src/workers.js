@@ -1976,12 +1976,8 @@ function applyApprovedRequestToTimesheet(data, req) {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
       const days = Number(chunk.days) || 0;
-      if (qtyName) {
-        // مثل «جاب خدمات فنی» → ستون تعداد، نه مأموریت روزانه
-        addQtyDaysToMonthRow(row, qtyName, days);
-      } else {
-        row.missionDays = Math.round(((Number(row.missionDays) || 0) + days) * 100) / 100;
-      }
+      row.missionDays = Math.round(((Number(row.missionDays) || 0) + days) * 100) / 100;
+      if (qtyName) addQtyDaysToMonthRow(row, qtyName, days);
     });
   } else if (req.kind === 'mission' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -4105,6 +4101,8 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 }
 
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
+  /* مأموریت‌ها همیشه در missionDays می‌مانند.
+     اگر نام نوع با آیتم تعداد یکی باشد، همان روزها در qty هم نوشته می‌شود (حذف از مأموریت نمی‌شود). */
   if (!md) return;
   year = Number(year); month = Number(month);
   if (!md.qty) md.qty = {};
@@ -4122,10 +4120,8 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     }
     return false;
   });
-  // بدون درخواست مأموریت این ماه — missionDays/qty فعلی را دست نزن
   if (!missionReqs.length) return;
-  md.missionDays = 0;
-  md.missionHours = 0;
+  let mDays = 0, mHrs = 0;
   const qtyAcc = {};
   missionReqs.forEach(function (x) {
     let tname = x.typeName || x.type || '';
@@ -4139,27 +4135,21 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     const qtyName = matchQtyItemName(obj, code, tname);
     if (x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
-      if (p && p.y === year && p.m === month) {
-        const hrs = hoursBetween(x.fromTime, x.toTime);
-        if (!qtyName) md.missionHours += hrs;
-      }
+      if (p && p.y === year && p.m === month) mHrs += hoursBetween(x.fromTime, x.toTime);
       return;
     }
     if (x.mode === 'daily') {
       const days = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
-      if (qtyName) {
-        qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + days;
-      } else {
-        md.missionDays += days;
-      }
+      mDays += days;
+      if (qtyName) qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + days;
     }
   });
+  md.missionDays = Math.round(mDays * 100) / 100;
+  md.missionHours = Math.round(mHrs * 100) / 100;
   Object.keys(qtyAcc).forEach(function (nm) {
     md.qty[nm] = Math.round(qtyAcc[nm] * 100) / 100;
     md.qtyAuto[nm] = false;
   });
-  md.missionDays = Math.round((Number(md.missionDays) || 0) * 100) / 100;
-  md.missionHours = Math.round((Number(md.missionHours) || 0) * 100) / 100;
 }
 
 
@@ -4195,6 +4185,9 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
     }
     if (typeof recountEmpMonthWorkDays === 'function') {
       md.workDays = Math.round(recountEmpMonthWorkDays(obj, year, month, code)) || 0;
+    }
+    if (typeof countEmpMonthPunchDays === 'function') {
+      md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     }
   } catch (e) {}
 }
@@ -4714,6 +4707,7 @@ async function handleEmpTimesheet(request, env) {
     mdE.leaveDays = reLeaveDays;
     mdE.missionDays = reMissionDays;
     mdE.workDays = Math.round(workWithAtt) || 0;
+    try { mdE.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code); } catch (ePd) { mdE.punchDays = 0; }
     try { ensureWorkDaysIncludeLeaveMission(mdE, year, month, gd.obj, code); } catch (eEns2) {}
     // پاسخ پرتال از متغیرهای تازه است؛ md برای ورود داده هم‌تراز می‌شود
     mdE.otHours = approvedOt || 0;
@@ -5384,6 +5378,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   const md = obj.monthlyData[key][code];
   // انتقال کامل تایم‌شیت → ورود داده ماهانه
   md.workDays = Math.round(workDaysTs) || 0;
+  try { md.punchDays = countEmpMonthPunchDays(obj, year, month, code); } catch (ePd2) { md.punchDays = 0; }
   md.leaveDays = Math.round(aLeave * 100) / 100;
   md.missionDays = Math.round(aMission * 100) / 100;
   try { ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code); } catch (eEns) {}
