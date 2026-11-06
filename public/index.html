@@ -6024,8 +6024,10 @@ function isQtyFlatItemName(name, year, month) {
 /** آیا این آیتم تعداد/تعداد خالص برای همین کارمند در این ماه فعال است؟
  *  غیرفعال در کارت کارمند (enabled===false) → در ورود داده پیشنهاد/مقدار خودکار ندارد. */
 function empQtyItemActive(emp, name, year, month) {
-  /* فقط اگر همین آیتم روی کارت همین کارمند باشد و enabled باشد.
-     قالب سراسری ستون می‌سازد ولی سلول را برای همه فعال نمی‌کند. */
+  /* اولویت با کارت کارمند:
+     - روی کارت و غیرفعال → غیرفعال
+     - روی کارت و فعال (تعداد/تعداد خالص) → فعال
+     - روی کارت نیست → از قالب سراسری (اگر فعال باشد) */
   if (!emp || !name) return false;
   var nm = String(name).trim();
   if (!nm) return false;
@@ -6042,18 +6044,34 @@ function empQtyItemActive(emp, name, year, month) {
   function isOff(en) {
     return en === false || en === 0 || en === '0' || en === 'false' || en === 'False';
   }
+  function okDuration(ci) {
+    if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return false;
+    return true;
+  }
   var list = emp.customItems || [];
+  var seenOnCard = false;
   for (var i = 0; i < list.length; i++) {
     var ci = list[i];
     if (!ci || !ci.name) continue;
     if (String(ci.name).trim() !== nm) continue;
-    // فقط نوع تعداد / تعداد خالص
+    seenOnCard = true;
     if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') continue;
     if (isOff(ci.enabled)) return false;
-    if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return false;
+    if (!okDuration(ci)) return false;
     return true;
   }
-  // روی کارت نیست یا نوعش تعدادی نیست → غیرفعال
+  if (seenOnCard) return false;
+  // قالب سراسری
+  var tpls = data.customItemTemplates || [];
+  for (var t = 0; t < tpls.length; t++) {
+    var tp = tpls[t];
+    if (!tp || !tp.name) continue;
+    if (String(tp.name).trim() !== nm) continue;
+    if (tp.entryType !== 'quantity' && tp.entryType !== 'qty_flat') continue;
+    if (isOff(tp.enabled)) return false;
+    if (!okDuration(tp)) return false;
+    return true;
+  }
   return false;
 }
 
@@ -10523,36 +10541,39 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* پیشنهاد تعداد خالص طبق تیک‌های «ثابت‌های ماهانه»:
-     min(روز کارکرد، کارکرد خالص) − هر ستونی که «کسر از تعداد خالص» دارد
-     (روز مرخصی / مرخصی ساعتی / ثابت‌های کاربر) */
+  /* تعداد خالص — فقط طبق تیک‌های «ثابت‌های ماهانه»:
+     پایه = روزهای تردد واقعی (punchDays) اگر از تایم‌شیت آمده باشد، وگرنه روز کارکرد
+     سپس هر آیتمی که «کسر از تعداد خالص» تیک خورده از پیشنهاد کم می‌شود. */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
   var rules = getCountRules();
   F = mvNum(F) > 0 ? mvNum(F) : 22;
   M = mvNum(M) > 0 ? mvNum(M) : 30;
-  var W = Math.max(0, mvNum(row.workDays));
   var parts = [];
-  var total = Math.min(W, F);
-  if (W > 0 && W < F) {
-    parts.push('کارکرد ' + mvFmt(W) + ' روز (سقف کارکرد خالص ' + mvFmt(F) + ')');
-  } else if (W >= F) {
+  var hasPunch = (row.punchDays !== undefined && row.punchDays !== null && row.punchDays !== '');
+  var base = hasPunch ? Math.max(0, mvNum(row.punchDays)) : Math.max(0, mvNum(row.workDays));
+  var total = Math.min(base, F);
+  if (hasPunch) {
+    parts.push('تردد واقعی ' + mvFmt(base) + ' روز' + (base > F ? ' (سقف ' + mvFmt(F) + ')' : ''));
+  } else if (base > 0 && base < F) {
+    parts.push('کارکرد ' + mvFmt(base) + ' روز (سقف کارکرد خالص ' + mvFmt(F) + ')');
+  } else if (base >= F) {
     parts.push('کارکرد کامل نسبت به کارکرد خالص (' + mvFmt(F) + ')');
   } else {
-    parts.push('بدون کارکرد');
+    parts.push('بدون کارکرد/تردد');
   }
   var take = function(label, days) {
+    days = mvNum(days);
     if (days > 0) {
       total -= days;
       parts.push(label + ' (−' + mvFmt(days) + ')');
     }
   };
-  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), mvNum(row.leaveDays));
+  // فقط آنچه تیک «کسر از تعداد خالص» دارد
+  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), row.leaveDays);
   if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / (typeof MV_HOURS_PER_DAY === 'number' ? MV_HOURS_PER_DAY : 7.33));
-  // مأموریت روزانه اگر در شیت باشد و کاربر بخواهد از تعداد خالص کم شود — فقط وقتی مقدار دارد
-  // (جاب‌هایی که به ستون تعداد منتقل شده‌اند دیگر در missionDays نیستند)
-  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), mvNum(row.missionDays));
+  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
   getMonthlyVars(true).forEach(function(v) {
     var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
     if (!useFlat) return;
@@ -10584,7 +10605,7 @@ function countCellView(emp, row, n, F, M) {
   var isFlat = isQtyFlatItemName(n, ctx.y, ctx.m);
   var exp = isFlat ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
-  if (exp !== null && (row.qty[n] === undefined || row.qtyAuto[n] === true)) {
+  if (exp !== null && (row.qty[n] === undefined || row.qty[n] === '' || row.qtyAuto[n] === true)) {
     row.qty[n] = exp.value;
     row.qtyAuto[n] = true;
   } else if (!isFlat && row.qtyAuto && row.qtyAuto[n] === true) {
