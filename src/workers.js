@@ -1892,7 +1892,15 @@ function reverseApprovedRequestFromTimesheet(data, req) {
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(Math.max(0, (Number(row.hourlyLeave) || 0) - hrs) * 100) / 100;
   } else if (req.kind === 'mission' && req.mode === 'daily') {
-    const qtyName = matchQtyItemName(data, code, req.typeName || req.type || '');
+    let tname = req.typeName || req.type || '';
+    if (!tname && req.typeId) {
+      try {
+        const types = (data.attendanceTypes || []).concat(((data.settings || {}).attendanceTypes) || []);
+        const td = types.find(function (t) { return t && String(t.id) === String(req.typeId); });
+        if (td) tname = td.name || '';
+      } catch (eT) {}
+    }
+    const qtyName = matchQtyItemName(data, code, tname);
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
       const days = Number(chunk.days) || 0;
@@ -1956,7 +1964,15 @@ function applyApprovedRequestToTimesheet(data, req) {
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(((Number(row.hourlyLeave) || 0) + hrs) * 100) / 100;
   } else if (req.kind === 'mission' && req.mode === 'daily') {
-    const qtyName = matchQtyItemName(data, code, req.typeName || req.type || '');
+    let tname = req.typeName || req.type || '';
+    if (!tname && req.typeId) {
+      try {
+        const types = (data.attendanceTypes || []).concat(((data.settings || {}).attendanceTypes) || []);
+        const td = types.find(function (t) { return t && String(t.id) === String(req.typeId); });
+        if (td) tname = td.name || '';
+      } catch (eT) {}
+    }
+    const qtyName = matchQtyItemName(data, code, tname);
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
       const days = Number(chunk.days) || 0;
@@ -4047,6 +4063,47 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
 
 
 /** مأموریت‌هایی که نام‌شان با آیتم تعداد یکی است → qty؛ بقیه → missionDays */
+
+function matchQtyItemName(data, empCode, typeName) {
+  const raw = String(typeName || '').trim();
+  if (!raw) return null;
+  const candidates = [raw];
+  if (raw.indexOf('تعداد ') === 0) candidates.push(raw.slice(6).trim());
+  else {
+    candidates.push('تعداد ' + raw);
+    candidates.push(raw.replace(/^تعداد\s+/, ''));
+  }
+  // بدون پیشوند «تعداد»
+  const bare = raw.replace(/^تعداد\s+/, '').trim();
+  if (bare && candidates.indexOf(bare) < 0) candidates.push(bare);
+  const emp = ((data.employees || []).find(function (e) { return String(e.code) === String(empCode); })) || null;
+  function hitList(list) {
+    if (!list || !list.length) return null;
+    for (let i = 0; i < list.length; i++) {
+      const ci = list[i];
+      if (!ci || !ci.name) continue;
+      if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') continue;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') continue;
+      const nm = String(ci.name).trim();
+      const nmBare = nm.replace(/^تعداد\s+/, '').trim();
+      for (let c = 0; c < candidates.length; c++) {
+        const cand = candidates[c];
+        const candBare = String(cand).replace(/^تعداد\s+/, '').trim();
+        if (nm === cand || nmBare === cand || nm === candBare || nmBare === candBare) return nm;
+      }
+    }
+    return null;
+  }
+  return hitList(emp && emp.customItems) || hitList(data.customItemTemplates) || null;
+}
+function addQtyDaysToMonthRow(row, qtyName, days) {
+  if (!row || !qtyName || !(days > 0)) return;
+  if (!row.qty) row.qty = {};
+  row.qty[qtyName] = Math.round(((Number(row.qty[qtyName]) || 0) + days) * 100) / 100;
+  if (!row.qtyAuto) row.qtyAuto = {};
+  row.qtyAuto[qtyName] = false;
+}
+
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   if (!md) return;
   year = Number(year); month = Number(month);
@@ -4059,7 +4116,15 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return;
     if (x.kind !== 'mission') return;
-    const qtyName = matchQtyItemName(obj, code, x.typeName || x.type || '');
+    let tname = x.typeName || x.type || '';
+    if (!tname && x.typeId) {
+      try {
+        const types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
+        const td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
+        if (td) tname = td.name || '';
+      } catch (eT) {}
+    }
+    const qtyName = matchQtyItemName(obj, code, tname);
     if (x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
       if (p && p.y === year && p.m === month) {
