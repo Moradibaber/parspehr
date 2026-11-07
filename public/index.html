@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8">ش
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>سیستم حقوق و دستمزد پارسپهر</title>
 <style>
@@ -6315,20 +6315,33 @@ function loadDataEntry() {
       }
     });
   } catch (eJ) {}
-  // رست کاری در qty است؛ از روز مرخصی کم شود اگر اشتباهاً مانده
+  // رست اشتباهاً در روز مرخصی: به ستون تعداد رست منتقل شود
   try {
     var bucket2 = data.monthlyData[key] || {};
     Object.keys(bucket2).forEach(function(code) {
       if (code === '_meta') return;
       var row = bucket2[code];
-      if (!row || !row.qty) return;
-      var restQty = 0;
+      if (!row) return;
+      if (!row.qty) row.qty = {};
+      var restKeys = [];
+      try {
+        (allQtyNames || []).forEach(function(nm) {
+          if (String(nm).indexOf('رست') >= 0) restKeys.push(nm);
+        });
+      } catch (eN) {}
       Object.keys(row.qty).forEach(function(nm) {
-        if (String(nm).indexOf('رست') >= 0) restQty += Number(row.qty[nm]) || 0;
+        if (String(nm).indexOf('رست') >= 0 && restKeys.indexOf(nm) < 0) restKeys.push(nm);
       });
-      if (restQty > 0) {
-        var ld = Number(row.leaveDays) || 0;
-        // فقط وقتی عدد مرخصی همان رست است (یا شامل آن) اصلاح شود
+      if (!restKeys.length) restKeys = ['تعداد رست کاری'];
+      var restQty = 0;
+      restKeys.forEach(function(nm) { restQty += Number(row.qty[nm]) || 0; });
+      var ld = Number(row.leaveDays) || 0;
+      if (ld > 0 && restQty === 0 && restKeys.length) {
+        // کل عدد مرخصی را به اولین کلید رست بده و مرخصی را صفر کن
+        row.qty[restKeys[0]] = ld;
+        restKeys.slice(1).forEach(function(nm) { row.qty[nm] = 0; });
+        row.leaveDays = 0;
+      } else if (ld > 0 && restQty > 0) {
         if (Math.abs(ld - restQty) < 0.05) row.leaveDays = 0;
         else if (ld > restQty) row.leaveDays = Math.round((ld - restQty) * 100) / 100;
       }
