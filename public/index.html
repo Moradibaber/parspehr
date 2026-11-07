@@ -6315,6 +6315,25 @@ function loadDataEntry() {
       }
     });
   } catch (eJ) {}
+  // رست کاری در qty است؛ از روز مرخصی کم شود اگر اشتباهاً مانده
+  try {
+    var bucket2 = data.monthlyData[key] || {};
+    Object.keys(bucket2).forEach(function(code) {
+      if (code === '_meta') return;
+      var row = bucket2[code];
+      if (!row || !row.qty) return;
+      var restQty = 0;
+      Object.keys(row.qty).forEach(function(nm) {
+        if (String(nm).indexOf('رست') >= 0) restQty += Number(row.qty[nm]) || 0;
+      });
+      if (restQty > 0) {
+        var ld = Number(row.leaveDays) || 0;
+        // فقط وقتی عدد مرخصی همان رست است (یا شامل آن) اصلاح شود
+        if (Math.abs(ld - restQty) < 0.05) row.leaveDays = 0;
+        else if (ld > restQty) row.leaveDays = Math.round((ld - restQty) * 100) / 100;
+      }
+    });
+  } catch (eR) {}
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
