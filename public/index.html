@@ -6024,10 +6024,8 @@ function isQtyFlatItemName(name, year, month) {
 /** آیا این آیتم تعداد/تعداد خالص برای همین کارمند در این ماه فعال است؟
  *  غیرفعال در کارت کارمند (enabled===false) → در ورود داده پیشنهاد/مقدار خودکار ندارد. */
 function empQtyItemActive(emp, name, year, month) {
-  /* اولویت با کارت کارمند:
-     - روی کارت و غیرفعال → غیرفعال
-     - روی کارت و فعال (تعداد/تعداد خالص) → فعال
-     - روی کارت نیست → از قالب سراسری (اگر فعال باشد) */
+  /* ستون تعداد فقط وقتی غیرفعال است که روی کارت به‌صورت quantity/qty_flat
+     صریحاً enabled=false باشد. اگر روی کارت نوع دیگری هم‌نام باشد، مانع فعال شدن از قالب نمی‌شود. */
   if (!emp || !name) return false;
   var nm = String(name).trim();
   if (!nm) return false;
@@ -6048,32 +6046,44 @@ function empQtyItemActive(emp, name, year, month) {
     if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return false;
     return true;
   }
+  function sameName(a, b) {
+    var x = String(a || '').trim().replace(/^تعداد\s+/, '');
+    var y2 = String(b || '').trim().replace(/^تعداد\s+/, '');
+    return x === y2;
+  }
+  function isQtyType(ci) {
+    return ci && (ci.entryType === 'quantity' || ci.entryType === 'qty_flat');
+  }
+  // ۱) روی کارت — فقط رکوردهای نوع تعداد
   var list = emp.customItems || [];
-  var seenOnCard = false;
+  var foundQtyOnCard = false;
   for (var i = 0; i < list.length; i++) {
     var ci = list[i];
     if (!ci || !ci.name) continue;
-    if (String(ci.name).trim() !== nm) continue;
-    seenOnCard = true;
-    if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') continue;
+    if (!sameName(ci.name, nm)) continue;
+    if (!isQtyType(ci)) continue; // هم‌نام غیرتعدادی نادیده
+    foundQtyOnCard = true;
     if (isOff(ci.enabled)) return false;
     if (!okDuration(ci)) return false;
     return true;
   }
-  if (seenOnCard) return false;
-  // قالب سراسری
+  if (foundQtyOnCard) return false;
+  // ۲) قالب سراسری
   var tpls = data.customItemTemplates || [];
   for (var t = 0; t < tpls.length; t++) {
     var tp = tpls[t];
     if (!tp || !tp.name) continue;
-    if (String(tp.name).trim() !== nm) continue;
-    if (tp.entryType !== 'quantity' && tp.entryType !== 'qty_flat') continue;
+    if (!sameName(tp.name, nm)) continue;
+    if (!isQtyType(tp)) continue;
     if (isOff(tp.enabled)) return false;
     if (!okDuration(tp)) return false;
     return true;
   }
-  return false;
+  // ۳) اگر ستون در شیت هست و هیچ‌جا غیرفعال صریح نشده → فعال
+  // (جلوگیری از خاکستری ماندن جاب و مشابه)
+  return true;
 }
+
 
 
 
