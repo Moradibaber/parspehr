@@ -1893,23 +1893,12 @@ function reverseApprovedRequestFromTimesheet(data, req) {
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(Math.max(0, (Number(row.hourlyLeave) || 0) - hrs) * 100) / 100;
   } else if (req.kind === 'mission' && req.mode === 'daily') {
-    let tname = req.typeName || req.type || '';
-    if (!tname && req.typeId) {
-      try {
-        const types = (data.attendanceTypes || []).concat(((data.settings || {}).attendanceTypes) || []);
-        const td = types.find(function (t) { return t && String(t.id) === String(req.typeId); });
-        if (td) tname = td.name || '';
-      } catch (eT) {}
-    }
-    const qtyName = matchQtyItemName(data, code, tname);
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      const days = Number(chunk.days) || 0;
-      if (qtyName) {
+      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRb) {
         if (!row.qty) row.qty = {};
-        row.qty[qtyName] = Math.round(Math.max(0, (Number(row.qty[qtyName]) || 0) - days) * 100) / 100;
-      } else {
-        row.missionDays = Math.round(Math.max(0, (Number(row.missionDays) || 0) - days) * 100) / 100;
+        Object.keys(row.qty).forEach(function (nm) { if (/جاب/.test(String(nm))) row.qty[nm] = 0; });
+        row.missionDays = 0;
       }
     });
   } else if (req.kind === 'mission' && req.mode === 'hourly') {
@@ -1965,25 +1954,9 @@ function applyApprovedRequestToTimesheet(data, req) {
     const row = ensureEmpMonthRow(data, p.y, p.m, code);
     row.hourlyLeave = Math.round(((Number(row.hourlyLeave) || 0) + hrs) * 100) / 100;
   } else if (req.kind === 'mission' && req.mode === 'daily') {
-    let tname = req.typeName || req.type || '';
-    if (!tname && req.typeId) {
-      try {
-        const types = (data.attendanceTypes || []).concat(((data.settings || {}).attendanceTypes) || []);
-        const td = types.find(function (t) { return t && String(t.id) === String(req.typeId); });
-        if (td) tname = td.name || '';
-      } catch (eT) {}
-    }
-    const qtyName = matchQtyItemName(data, code, tname);
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      const days = Number(chunk.days) || 0;
-      if (qtyName) {
-        // جاب خدمات فنی و مشابه → فقط ستون تعداد
-        addQtyDaysToMonthRow(row, qtyName, days);
-      } else {
-        // فقط مأموریت روزانه (یا نوعی بدون آیتم تعداد)
-        row.missionDays = Math.round(((Number(row.missionDays) || 0) + days) * 100) / 100;
-      }
+      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRb) {}
     });
   } else if (req.kind === 'mission' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -4144,13 +4117,40 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 }
 
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
-  /* مأموریت با نام منطبق با آیتم تعداد (مثل جاب خدمات فنی) → فقط qty
-     مأموریت روزانه / سایر مأموریت‌ها بدون آیتم تعداد → فقط missionDays
-     هر دو با هم ثبت نمی‌شوند */
+  /* مأموریت منطبق با آیتم تعداد (جاب و …) → فقط qty
+     مأموریت روزانه معمولی → فقط missionDays
+     با حذف همه مأموریت‌ها، qty مربوطه و missionDays صفر می‌شوند */
   if (!md) return;
   year = Number(year); month = Number(month);
   if (!md.qty) md.qty = {};
   if (!md.qtyAuto) md.qtyAuto = {};
+
+  function zeroMissionLinkedQty() {
+    const types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
+    types.forEach(function (t) {
+      if (!t || !t.name) return;
+      const kind = String(t.kind || t.type || '').toLowerCase();
+      // اگر نوع مأموریت است یا نامش جاب/مأموریت
+      const nm = String(t.name);
+      if (kind && kind.indexOf('mission') < 0 && kind.indexOf('مأمور') < 0 && kind.indexOf('مامور') < 0 &&
+          nm.indexOf('جاب') < 0 && nm.indexOf('مأمور') < 0 && nm.indexOf('مامور') < 0) {
+        // هنوز ممکن است فقط نام جاب باشد بدون kind
+      }
+      const qn = matchQtyItemName(obj, code, t.name);
+      if (qn) {
+        md.qty[qn] = 0;
+        if (md.qtyAuto) md.qtyAuto[qn] = false;
+      }
+    });
+    // جاب حتی اگر در types نباشد
+    Object.keys(md.qty).forEach(function (nm) {
+      if (/جاب/.test(String(nm))) {
+        md.qty[nm] = 0;
+        if (md.qtyAuto) md.qtyAuto[nm] = false;
+      }
+    });
+  }
+
   const missionReqs = (obj.attendanceRequests || []).filter(function (x) {
     if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return false;
     if (x.kind !== 'mission') return false;
@@ -4164,10 +4164,15 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     }
     return false;
   });
+
+  zeroMissionLinkedQty();
+  md.missionDays = 0;
+  md.missionHours = 0;
+
   if (!missionReqs.length) return;
+
   let mDays = 0, mHrs = 0;
   const qtyAcc = {};
-  // صفر کردن qtyهای جاب/منطبق قبلی این بازسازی
   missionReqs.forEach(function (x) {
     let tname = x.typeName || x.type || '';
     if (!tname && x.typeId) {
