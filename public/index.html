@@ -6289,25 +6289,6 @@ function loadDataEntry() {
   });
   head += '</tr>';
   thead.innerHTML = head;
-  // پر کردن تعداد جاب از روی مأموریت روزانه اگر خالی باشد
-  try {
-    activeEmps.forEach(function(emp) {
-      if (!emp) return;
-      var row = data.monthlyData[key][emp.code];
-      if (!row) return;
-      var md = Math.max(0, Number(row.missionDays) || 0);
-      if (!(md > 0)) return;
-      if (!row.qty) row.qty = {};
-      if (!row.qtyAuto) row.qtyAuto = {};
-      (qtyNames || []).forEach(function(qn) {
-        if (String(qn).indexOf('جاب') < 0) return;
-        if (row.qty[qn] === undefined || row.qty[qn] === '' || Number(row.qty[qn]) === 0) {
-          row.qty[qn] = md;
-          row.qtyAuto[qn] = false;
-        }
-      });
-    });
-  } catch (eJab) {}
   const tbody = document.getElementById('dataEntryBody');
   tbody.innerHTML = activeEmps.map(emp => {
     const maxAllowedBase = maxWorkDaysForEmployee(emp, y, m);
