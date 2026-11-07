@@ -1933,7 +1933,25 @@ function applyApprovedRequestToTimesheet(data, req) {
   if (!req || req.status !== 'approved') return;
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
-    if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req))) {
+    if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req)) {
+      // رست کاری و مشابه → ستون تعداد، نه روز مرخصی
+      let tname = req.typeName || req.type || '';
+      if (!tname && req.typeId) {
+        try {
+          const types = (data.attendanceTypes || []).concat(((data.settings || {}).attendanceTypes) || []);
+          const td = types.find(function (t) { return t && String(t.id) === String(req.typeId); });
+          if (td) tname = td.name || '';
+        } catch (eT) {}
+      }
+      const qtyName = matchQtyItemName(data, code, tname) || (tname ? ('تعداد ' + tname) : null);
+      if (qtyName) {
+        splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+          const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+          const days = leaveDaysForMonthChunk(data, req, chunk);
+          addQtyDaysToMonthRow(row, qtyName, days);
+        });
+      }
+    } else {
       splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
         const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
         const days = leaveDaysForMonthChunk(data, req, chunk);
@@ -3775,16 +3793,21 @@ function isUnpaidLeaveRequest(obj, req) {
 
 function isRestOrNonLeaveColumnType(obj, req) {
   if (!req) return false;
-  const name = String(req.typeName || req.type || '');
+  function hasRestWord(s) {
+    s = String(s || '');
+    return s.indexOf('رست') >= 0 || /rest/i.test(s);
+  }
+  const name = String(req.typeName || req.type || req.name || '');
   const id = String(req.typeId || '').toLowerCase();
-  if (name.indexOf('رست') >= 0) return true;
-  if (id.indexOf('rest') >= 0 || id.indexOf('work_rest') >= 0 || id.indexOf('workrest') >= 0) return true;
+  if (hasRestWord(name) || hasRestWord(id)) return true;
   try {
-    const types = (obj && obj.settings && obj.settings.attendanceTypes) || (obj && obj.attendanceTypes) || [];
-    const t = types.find(function (x) { return x && (String(x.id) === String(req.typeId) || String(x.name || '') === name); });
+    const types = [].concat((obj && obj.settings && obj.settings.attendanceTypes) || [], (obj && obj.attendanceTypes) || []);
+    const t = types.find(function (x) {
+      return x && (String(x.id) === String(req.typeId) || String(x.name || '') === name || hasRestWord(x.name));
+    });
     if (t) {
       if (t.excludeFromLeaveDays === true || t.countAsLeave === false || t.showInLeaveDays === false) return true;
-      if (String(t.name || '').indexOf('رست') >= 0) return true;
+      if (hasRestWord(t.name) || hasRestWord(t.id)) return true;
     }
   } catch (e) {}
   return false;
@@ -4657,8 +4680,26 @@ async function handleEmpTimesheet(request, env) {
   let reLeaveDays = 0, reHourlyLeave = 0, reMissionDays = 0, reMissionHours = 0;
   reqs.forEach(function (x) {
     if (x.kind === 'leave' && x.mode === 'daily') {
-      if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)))
+      if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) {
+        // رست → qty
+        try {
+          let tn = x.typeName || x.type || '';
+          if (!tn && x.typeId) {
+            const types = (gd.obj.attendanceTypes || []).concat(((gd.obj.settings || {}).attendanceTypes) || []);
+            const td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
+            if (td) tn = td.name || '';
+          }
+          const qn = matchQtyItemName(gd.obj, code, tn) || (tn ? ('تعداد ' + tn) : null);
+          if (qn) {
+            const days = countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
+            const row = ensureEmpMonthRow(gd.obj, year, month, code);
+            if (!row.qty) row.qty = {};
+            row.qty[qn] = Math.round(((Number(row.qty[qn]) || 0) + days) * 100) / 100;
+          }
+        } catch (eRest) {}
+      } else {
         reLeaveDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
+      }
     } else if (x.kind === 'leave' && x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
       if (p && p.y === year && p.m === month) reHourlyLeave += hoursBetween(x.fromTime, x.toTime);
@@ -5454,6 +5495,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== code || x.status !== 'approved') return;
     if (x.kind === 'leave' && x.mode === 'daily') {
+      if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x)) return;
       aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
     } else if (x.kind === 'mission' && x.mode === 'daily') {
       aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
