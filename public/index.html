@@ -1894,6 +1894,7 @@ let data = {
 
 const saved = localStorage.getItem('payroll_iran_v12');
 if (saved) { try { data = JSON.parse(saved); } catch(e){} }
+try { restoreMonthlyVarsBackup(); } catch (eMv0) {}
 if (!data.changeLog) data.changeLog = [];
 if (!data.pendingChanges) data.pendingChanges = [];
 if (!data.decreeHeaders) data.decreeHeaders = [];
@@ -2681,6 +2682,7 @@ function formatDecimal(n, digits) {
   return Number(n).toLocaleString('fa-IR', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 function saveToCache() {
+  try { persistMonthlyVarsBackup(); } catch (eB) {}
   localStorage.setItem('payroll_iran_v12', JSON.stringify(data));
   if (typeof syncNoteChange === 'function') syncNoteChange();
 }
@@ -10967,6 +10969,7 @@ function updateMonthlyVar(id, field, value) {
 
 
 function forcePushSettingsNow() {
+  try { persistMonthlyVarsBackup(); } catch (eB) {}
   try {
     if (typeof syncOn === 'undefined' || !syncOn) return;
     if (typeof syncPush !== 'function' || typeof syncDocsNow !== 'function') return;
@@ -11263,12 +11266,18 @@ async function syncPull(name) {
   var before = JSON.stringify(syncDocsNow()[name]);
   var rd = await syncGetDoc(name);
   if (!rd || rd.obj === null) return false;
-  // if this computer changed something while we were waiting, do not overwrite it: it is merged on the next round
   if (JSON.stringify(syncDocsNow()[name]) !== before) return false;
   syncBackupLocal();
+  var remoteSnap = rd.obj;
   syncApply(name, rd.obj);
   syncApplied = true;
-  syncSetBase(name, rd.version, syncDocsNow()[name]);
+  var merged = syncDocsNow()[name];
+  if (name === 'settings' && typeof settingsHasExtraMonthlyVars === 'function' && settingsHasExtraMonthlyVars(merged, remoteSnap)) {
+    try { persistMonthlyVarsBackup(); } catch (eB) {}
+    await syncPush(name, rd.version, merged);
+  } else {
+    syncSetBase(name, rd.version, merged);
+  }
   return true;
 }
 
@@ -11334,13 +11343,19 @@ async function syncDoc(name, remoteV, editing) {
       return;
     }
     if ((name === 'data' || name === 'settings') && isAdmin && syncHasContent(name, cur) && syncCanon(cur) !== syncCanon(rd.obj)) {
-      // همیشه نسخه سرور (اصلی) — پشتیبان محلی قبل از اعمال
       try { syncBackupLocal(); } catch (e) {}
     }
     syncBackupLocal();
+    var remoteSnap2 = rd.obj;
     syncApply(name, rd.obj);
     syncApplied = true;
-    syncSetBase(name, rd.version, syncDocsNow()[name]);
+    var merged2 = syncDocsNow()[name];
+    if (name === 'settings' && typeof settingsHasExtraMonthlyVars === 'function' && settingsHasExtraMonthlyVars(merged2, remoteSnap2)) {
+      try { persistMonthlyVarsBackup(); } catch (eB) {}
+      await syncPush(name, rd.version, merged2);
+    } else {
+      syncSetBase(name, rd.version, merged2);
+    }
     return;
   }
 
@@ -11407,6 +11422,7 @@ function syncNoteChange() {
 
 function syncAfterApply() {
   syncApplied = false;
+  try { restoreMonthlyVarsBackup(); } catch (eMv1) {}
   try { localStorage.setItem('payroll_iran_v12', JSON.stringify(data)); } catch (e) {}
   try { if (typeof renderEmployees === 'function') renderEmployees(); } catch (e) {}
   try { if (typeof renderInactive === 'function') renderInactive(); } catch (e) {}
