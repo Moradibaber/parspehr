@@ -4113,7 +4113,7 @@ function matchQtyItemName(data, empCode, typeName) {
   const bare = raw.replace(/^تعداد\s+/, '').trim();
   if (bare && candidates.indexOf(bare) < 0) candidates.push(bare);
   // «ماموریت روزانه» فیلد سیستمی است — هرگز به ستون تعداد نرود
-  if (/^مأم?وریت\s*روزانه$/.test(bare) || bare === 'مأموریت' || bare === 'ماموریت') return null;
+  if (((/ماموریت/.test(bare)||/مأموریت/.test(bare))&&/روزانه/.test(bare)) || bare === 'مأموریت' || bare === 'ماموریت') return null;
   const emp = ((data.employees || []).find(function (e) { return String(e.code) === String(empCode); })) || null;
   function hitList(list) {
     if (!list || !list.length) return null;
