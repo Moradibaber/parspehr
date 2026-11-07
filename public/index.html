@@ -10533,7 +10533,9 @@ function mvFmt(x) {
 }
 
 function getMonthlyVars(onlyActive) {
-  var list = (data.settings && data.settings.monthlyVars) || [];
+  if (!data.settings) data.settings = {};
+  if (!Array.isArray(data.settings.monthlyVars)) data.settings.monthlyVars = [];
+  var list = data.settings.monthlyVars;
   return list.filter(function(v) {
     return v && String(v.name || '').trim() && (!onlyActive || v.active !== false);
   });
@@ -10844,9 +10846,11 @@ function renderMonthlyVars() {
 
 function setCountRule(rule, checked) {
   if (!isAdmin() && !hasPerm('monthly_vars')) return;
+  if (!data.settings) data.settings = {};
   data.settings.countRules = Object.assign({}, data.settings.countRules || {});
   data.settings.countRules[rule] = !!checked;
   saveToCache();
+  try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
 }
 
 function mvFind(id) {
@@ -10890,20 +10894,32 @@ function updateMonthlyVar(id, field, value) {
     }
   }
   saveToCache();
+  try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
 }
 
 function addMonthlyVar(presetName) {
   if (!isAdmin() && !hasPerm('monthly_vars')) { alert('دسترسی مدیریت ثابت‌های ماهانه را ندارید.'); return; }
+  if (!data.settings) data.settings = {};
+  if (!Array.isArray(data.settings.monthlyVars)) data.settings.monthlyVars = [];
   var name = presetName || prompt('نام ثابت ماهانه جدید را وارد کنید (مثلاً مرخصی استعلاجی):');
   name = String(name || '').trim();
   if (!name) return;
-  var list = data.settings.monthlyVars = data.settings.monthlyVars || [];
-  var clash = MV_BUILTINS.some(function(b) { return b.name === name; }) || list.some(function(o) { return o && String(o.name).trim() === name; });
+  var list = data.settings.monthlyVars;
+  var clash = MV_BUILTINS.some(function(b) {
+    return b.name === name || (typeof getBuiltinLabel === 'function' && getBuiltinLabel(b.key, b.name) === name);
+  }) || list.some(function(o) { return o && String(o.name).trim() === name; });
   if (clash) { alert('این نام قبلاً وجود دارد.'); return; }
-  list.push({ id: 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36), name: name, unit: 'day', deductCounts: false, deductQtyFlat: true, active: true });
+  var id = 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+  list.push({ id: id, name: name, unit: 'day', deductCounts: false, deductQtyFlat: true, active: true });
   try { addChangeLog('ثابت ماهانه', '-', 'افزودن ثابت: ' + name); } catch (e) {}
   saveToCache();
+  try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
   renderMonthlyVars();
+  try {
+    if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
+      loadDataEntry();
+  } catch (eL) {}
+  alert('ثابت «' + name + '» اضافه و ذخیره شد.\nستون آن در ورود داده ظاهر می‌شود.\nتیک «کسر از تعداد خالص» در پیشنهاد تعداد خالص اثر دارد.');
 }
 
 function deleteMonthlyVar(id) {
