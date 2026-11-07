@@ -9686,6 +9686,35 @@ function sbMergeLocalSecrets(remote, local) {
       return o;
     });
   }
+  // ثابت‌های ماهانه / قوانین کسر / برچسب‌ها: اتحاد با اولویت محلی تا با همگام پاک نشوند
+  try {
+    var byId = {};
+    (Array.isArray(r.monthlyVars) ? r.monthlyVars : []).forEach(function(v) {
+      if (v && v.id) byId[String(v.id)] = Object.assign({}, v);
+    });
+    (Array.isArray(local.monthlyVars) ? local.monthlyVars : []).forEach(function(v) {
+      if (!v || !v.id) return;
+      var id = String(v.id);
+      byId[id] = Object.assign({}, byId[id] || {}, v);
+    });
+    // آیتم‌های فقط‌محلی بدون id معتبر
+    (Array.isArray(local.monthlyVars) ? local.monthlyVars : []).forEach(function(v) {
+      if (!v || v.id) return;
+      if (!v.name) return;
+      var exists = Object.keys(byId).some(function(k) { return byId[k] && byId[k].name === v.name; });
+      if (!exists) {
+        var nid = 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 999).toString(36);
+        byId[nid] = Object.assign({}, v, { id: nid });
+      }
+    });
+    r.monthlyVars = Object.keys(byId).map(function(k) { return byId[k]; });
+  } catch (eMv) {}
+  try {
+    r.countRules = Object.assign({}, r.countRules || {}, local.countRules || {});
+  } catch (eCr) {}
+  try {
+    r.builtinLabels = Object.assign({}, r.builtinLabels || {}, local.builtinLabels || {});
+  } catch (eBl) {}
   return r;
 }
 
@@ -10924,6 +10953,18 @@ function updateMonthlyVar(id, field, value) {
   }
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
+  try { forcePushSettingsNow(); } catch (eP) {}
+}
+
+
+function forcePushSettingsNow() {
+  try {
+    if (typeof syncOn === 'undefined' || !syncOn) return;
+    if (typeof syncPush !== 'function' || typeof syncDocsNow !== 'function') return;
+    var base = (typeof syncBase !== 'undefined' && syncBase.settings) ? syncBase.settings : null;
+    var ver = base && base.version != null ? Number(base.version) : 0;
+    Promise.resolve(syncPush('settings', ver, syncDocsNow().settings)).catch(function() {});
+  } catch (e) {}
 }
 
 function addMonthlyVar(presetName) {
@@ -10943,11 +10984,7 @@ function addMonthlyVar(presetName) {
   try { addChangeLog('ثابت ماهانه', '-', 'افزودن ثابت: ' + name); } catch (e) {}
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
-  try {
-    if (typeof syncOn !== 'undefined' && syncOn && typeof syncTick === 'function') {
-      setTimeout(function() { try { syncTick('manual'); } catch (e2) {} }, 300);
-    }
-  } catch (eP) {}
+  try { forcePushSettingsNow(); } catch (eP) {}
   renderMonthlyVars();
   try {
     if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
@@ -10965,6 +11002,8 @@ function deleteMonthlyVar(id) {
   data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
   try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
   saveToCache();
+  try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
+  try { forcePushSettingsNow(); } catch (eP) {}
   renderMonthlyVars();
   try {
     if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
