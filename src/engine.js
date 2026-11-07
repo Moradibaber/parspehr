@@ -783,13 +783,14 @@ export function makeEngine(data) {
           if (a.tax) taxBase += val;
           return;
         }
-        // حق تأهل، حق مسکن، بن خواربار، حق اولاد و سایر مزایای ثابت: مبلغ کامل بدون تناسب
+        // حق تأهل، مسکن، خواربار، اولاد و سایر مزایا:
+        // اگر isFixed باشد مبلغ کامل؛ وگرنه بر اساس کارکرد: مبلغ × (کارکرد ÷ ۳۰)
         if (a.id === 'child' || (a.name && String(a.name).indexOf('اولاد') >= 0)) raw = getEligibleChildrenCount(emp) * (Number(a.amount) || 0);
         if (a.id === 'marital') raw = (emp.marital === 'married' || emp.marital === 'provider') ? raw : 0;
-        const val = Math.round(raw);
+        const val = Math.round(raw * (a.isFixed ? 1 : ratioBase));
         if (val === 0) return;
         totalAllow += val;
-        itemDetails.push({ name: a.name, amount: val });
+        itemDetails.push({ name: a.name, amount: val, qty: a.isFixed ? null : workDays });
         if (a.ins) insBase += val;
         if (a.tax) taxBase += val;
       });
