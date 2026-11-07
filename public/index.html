@@ -5977,7 +5977,11 @@ function getAllQuantityItemNames(year, month) {
       if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') return;
       // ستون ورود داده بر اساس مدت؛ غیرفعال فقط از محاسبه حذف می‌شود
       if (!isCustomItemInDuration(ci, y, m)) return;
-      names.add(String(ci.name).trim());
+      var nm = String(ci.name).trim();
+      var bare = nm.replace(/^تعداد\s+/, '');
+      // تکراری با فیلد سیستمی «روز مأموریت» نباشد
+      if (/^مأم?وریت\s*روزانه$/.test(bare) || /^مأم?وریت\s*روزانه$/.test(nm)) return;
+      names.add(nm);
     });
   });
   return Array.from(names).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
@@ -6106,6 +6110,8 @@ function collectDataEntryDynamicCols() {
   function addQty(name, entryType, isDed) {
     var n = String(name || '').trim();
     if (!n || seen[n]) return;
+    var bare = n.replace(/^تعداد\s+/, '');
+    if (/^مأم?وریت\s*روزانه$/.test(bare) || /^مأم?وریت\s*روزانه$/.test(n)) return;
     seen[n] = true;
     var tLabel = 'سفارشی';
     if (isDed || /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'کسورات';
