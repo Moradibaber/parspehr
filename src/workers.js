@@ -1881,11 +1881,13 @@ function reverseApprovedRequestFromTimesheet(data, req) {
   if (!req) return;
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
-    splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
-      const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      const days = leaveDaysForMonthChunk(data, req, chunk);
-      row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - days) * 100) / 100;
-    });
+    if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req))) {
+      splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+        const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+        const days = leaveDaysForMonthChunk(data, req, chunk);
+        row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - days) * 100) / 100;
+      });
+    }
   } else if (req.kind === 'leave' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
     if (!p) return;
@@ -1931,11 +1933,13 @@ function applyApprovedRequestToTimesheet(data, req) {
   if (!req || req.status !== 'approved') return;
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
-    splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
-      const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      const days = leaveDaysForMonthChunk(data, req, chunk);
-      row.leaveDays = Math.round(((Number(row.leaveDays) || 0) + days) * 100) / 100;
-    });
+    if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req))) {
+      splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+        const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+        const days = leaveDaysForMonthChunk(data, req, chunk);
+        row.leaveDays = Math.round(((Number(row.leaveDays) || 0) + days) * 100) / 100;
+      });
+    }
     // کارکرد را مثل پرتال از نو حساب کن
     try {
       const p0 = parseJalaliYMD(req.startDate);
@@ -3769,6 +3773,30 @@ function isUnpaidLeaveRequest(obj, req) {
   return false;
 }
 
+function isRestOrNonLeaveColumnType(obj, req) {
+  if (!req) return false;
+  const name = String(req.typeName || req.type || '');
+  const id = String(req.typeId || '').toLowerCase();
+  if (name.indexOf('رست') >= 0) return true;
+  if (id.indexOf('rest') >= 0 || id.indexOf('work_rest') >= 0 || id.indexOf('workrest') >= 0) return true;
+  try {
+    const types = (obj && obj.settings && obj.settings.attendanceTypes) || (obj && obj.attendanceTypes) || [];
+    const t = types.find(function (x) { return x && (String(x.id) === String(req.typeId) || String(x.name || '') === name); });
+    if (t) {
+      if (t.excludeFromLeaveDays === true || t.countAsLeave === false || t.showInLeaveDays === false) return true;
+      if (String(t.name || '').indexOf('رست') >= 0) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function shouldSkipLeaveDaysColumn(obj, req) {
+  if (!req || req.kind !== 'leave') return true;
+  if (isUnpaidLeaveRequest(obj, req)) return true;
+  if (isRestOrNonLeaveColumnType(obj, req)) return true;
+  return false;
+}
+
 /** مرخصی استعلاجی بلندمدت — در کارکرد شمرده نمی‌شود */
 function isLongTermSickLeaveRequest(obj, req) {
   if (!req) return false;
@@ -4014,7 +4042,8 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     // تأیید شده / سطح ۱ / نهایی
     if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
     try {
-      if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, req)) return;
+      if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, req)) return;
+      else if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, req)) return;
     } catch (eU) {}
     const kind = String(req.kind || '');
     const tn = String(req.typeName || req.type || '');
@@ -4220,7 +4249,8 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
     (obj.attendanceRequests || []).forEach(function (x) {
       if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return;
       if (x.kind === 'leave' && x.mode === 'daily') {
-        lv += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
+        if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x)))
+          lv += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
       } else if (x.kind === 'leave' && x.mode === 'hourly') {
         const p = parseJalaliYMD(x.startDate);
         if (p && p.y === year && p.m === month) hl += hoursBetween(x.fromTime, x.toTime);
