@@ -3791,7 +3791,7 @@ function isRestOrNonLeaveColumnType(obj, req) {
 }
 
 function shouldSkipLeaveDaysColumn(obj, req) {
-  if (!req || req.kind !== 'leave') return true;
+  if (!req || req.kind !== 'leave') return false;
   if (isUnpaidLeaveRequest(obj, req)) return true;
   if (isRestOrNonLeaveColumnType(obj, req)) return true;
   return false;
@@ -4042,8 +4042,8 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     // تأیید شده / سطح ۱ / نهایی
     if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
     try {
-      if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, req)) return;
-      else if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, req)) return;
+      // فقط مرخصی بدون حقوق از کل حلقه حذف می‌شود؛ رست فقط از ستون روز مرخصی حذف می‌شود
+      if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, req)) return;
     } catch (eU) {}
     const kind = String(req.kind || '');
     const tn = String(req.typeName || req.type || '');
@@ -4069,9 +4069,13 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     });
     try {
       if (isLeave) {
-        leaveDaysFromReq += (typeof countWorkingDaysInMonth === 'function')
-          ? countWorkingDaysInMonth(req.startDate, req.endDate || req.startDate, year, month, obj, ct)
-          : keys.length;
+        var skipCol = false;
+        try { skipCol = (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, req)); } catch (eS) {}
+        if (!skipCol) {
+          leaveDaysFromReq += (typeof countWorkingDaysInMonth === 'function')
+            ? countWorkingDaysInMonth(req.startDate, req.endDate || req.startDate, year, month, obj, ct)
+            : keys.length;
+        }
       }
       if (isMission) {
         missionDaysFromReq += (typeof countAllDaysInMonth === 'function')
@@ -4653,7 +4657,8 @@ async function handleEmpTimesheet(request, env) {
   let reLeaveDays = 0, reHourlyLeave = 0, reMissionDays = 0, reMissionHours = 0;
   reqs.forEach(function (x) {
     if (x.kind === 'leave' && x.mode === 'daily') {
-      reLeaveDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
+      if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)))
+        reLeaveDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
     } else if (x.kind === 'leave' && x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
       if (p && p.y === year && p.m === month) reHourlyLeave += hoursBetween(x.fromTime, x.toTime);
