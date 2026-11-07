@@ -6281,6 +6281,29 @@ function loadDataEntry() {
   const allQtyNames = getAllQuantityItemNames(y, m);
   // پاک‌سازی کلیدهای qty قدیمی که دیگر آیتم تعدادی فعالی ندارند (بعد از rename/حذف)
   pruneOrphanQtyKeys(key, allQtyNames);
+  // اگر جاب + مرخصی از کارکرد بیشتر است → جاب ماندهٔ حذف‌نشده است؛ صفر کن
+  try {
+    var bucket = data.monthlyData[key] || {};
+    Object.keys(bucket).forEach(function(code) {
+      if (code === '_meta') return;
+      var row = bucket[code];
+      if (!row || !row.qty) return;
+      var wd = Number(row.workDays) || 0;
+      var lv = Number(row.leaveDays) || 0;
+      var jab = 0;
+      Object.keys(row.qty).forEach(function(nm) {
+        if (/جاب/.test(String(nm))) jab += Number(row.qty[nm]) || 0;
+      });
+      if (jab > 0 && lv > 0 && (jab + lv > wd + 0.5)) {
+        Object.keys(row.qty).forEach(function(nm) {
+          if (/جاب/.test(String(nm))) {
+            row.qty[nm] = 0;
+            if (row.qtyAuto) row.qtyAuto[nm] = true;
+          }
+        });
+      }
+    });
+  } catch (eJ) {}
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
