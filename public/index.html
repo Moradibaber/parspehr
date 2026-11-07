@@ -6024,8 +6024,8 @@ function isQtyFlatItemName(name, year, month) {
 /** آیا این آیتم تعداد/تعداد خالص برای همین کارمند در این ماه فعال است؟
  *  غیرفعال در کارت کارمند (enabled===false) → در ورود داده پیشنهاد/مقدار خودکار ندارد. */
 function empQtyItemActive(emp, name, year, month) {
-  /* ستون تعداد فقط وقتی غیرفعال است که روی کارت به‌صورت quantity/qty_flat
-     صریحاً enabled=false باشد. اگر روی کارت نوع دیگری هم‌نام باشد، مانع فعال شدن از قالب نمی‌شود. */
+  /* غیرفعال روی کارت (enabled=false) → در ورود داده هم غیرفعال.
+     فقط quantity / qty_flat. بدون return true پیش‌فرض. */
   if (!emp || !name) return false;
   var nm = String(name).trim();
   if (!nm) return false;
@@ -6054,21 +6054,21 @@ function empQtyItemActive(emp, name, year, month) {
   function isQtyType(ci) {
     return ci && (ci.entryType === 'quantity' || ci.entryType === 'qty_flat');
   }
-  // ۱) روی کارت — فقط رکوردهای نوع تعداد
   var list = emp.customItems || [];
-  var foundQtyOnCard = false;
+  var sawQtyOnCard = false;
   for (var i = 0; i < list.length; i++) {
     var ci = list[i];
     if (!ci || !ci.name) continue;
     if (!sameName(ci.name, nm)) continue;
-    if (!isQtyType(ci)) continue; // هم‌نام غیرتعدادی نادیده
-    foundQtyOnCard = true;
+    // هر نوع هم‌نام روی کارت که صریحاً خاموش باشد → ستون تعداد این نام غیرفعال
     if (isOff(ci.enabled)) return false;
+    if (!isQtyType(ci)) continue;
+    sawQtyOnCard = true;
     if (!okDuration(ci)) return false;
     return true;
   }
-  if (foundQtyOnCard) return false;
-  // ۲) قالب سراسری
+  if (sawQtyOnCard) return false;
+  // قالب فقط وقتی روی کارت این نام به‌صورت تعداد نیست
   var tpls = data.customItemTemplates || [];
   for (var t = 0; t < tpls.length; t++) {
     var tp = tpls[t];
@@ -6079,10 +6079,9 @@ function empQtyItemActive(emp, name, year, month) {
     if (!okDuration(tp)) return false;
     return true;
   }
-  // ۳) اگر ستون در شیت هست و هیچ‌جا غیرفعال صریح نشده → فعال
-  // (جلوگیری از خاکستری ماندن جاب و مشابه)
-  return true;
+  return false;
 }
+
 
 
 
@@ -10594,7 +10593,11 @@ function countCellView(emp, row, n, F, M) {
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
-    // غیرفعال در محاسبه نمی‌آید؛ اگر مقداری ذخیره شده نمایش بده وگرنه خالی
+    // غیرفعال: پیشنهاد خودکار پاک شود؛ مقدار دستی کاربر نگه داشته می‌شود
+    if (row.qtyAuto && row.qtyAuto[n] === true) {
+      delete row.qty[n];
+      delete row.qtyAuto[n];
+    }
     var kept = (row.qty && row.qty[n] !== undefined && row.qty[n] !== '') ? row.qty[n] : '';
     return {
       value: kept,
