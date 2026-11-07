@@ -6096,6 +6096,15 @@ function collectDataEntryDynamicCols() {
   // ثابت‌های ماهانه
   getMonthlyVars(true).forEach(function(v) {
     if (!v || !v.name) return;
+    var bareV = String(v.name).trim().replace(/^تعداد\s+/, '');
+    var clashQty = false;
+    try {
+      (getAllQuantityItemNames() || []).forEach(function(qn) {
+        var bq = String(qn).trim().replace(/^تعداد\s+/, '');
+        if (bq === bareV || String(qn).trim() === String(v.name).trim()) clashQty = true;
+      });
+    } catch (eC) {}
+    if (clashQty) return;
     cols.push({
       key: 'mv:' + v.id,
       type: 'monthly_fixed',
@@ -10615,9 +10624,8 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* تعداد خالص — فقط تیک‌های ثابت ماهانه:
-     پایه = min(روز کارکرد، کارکرد خالص)
-     هر مرخصی/مأموریت/ثابتی که «کسر از تعداد خالص» تیک دارد کم می‌شود؛ بدون تیک کسر نمی‌شود. */
+  /* پایه = min(کارکرد، کارکرد خالص)
+     کسر با تیک کسر از تعداد خالص؛ اگر ثابت هم‌نام ستون تعداد باشد از qty کم می‌شود */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
@@ -10631,32 +10639,33 @@ function countExpected(emp, row, F, M) {
   else parts.push('بدون کارکرد');
   var take = function(label, days) {
     days = mvNum(days);
-    if (days > 0) {
-      total -= days;
-      parts.push(label + ' (−' + mvFmt(days) + ')');
-    }
+    if (days > 0) { total -= days; parts.push(label + ' (−' + mvFmt(days) + ')'); }
   };
   if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), row.leaveDays);
   if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
-  if (rules.missionDaysFlat) {
-    take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
-    // مأموریت‌هایی که در ستون تعداد ثبت شده‌اند (مثل جاب خدمات فنی)
+  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+  function qtyByName(name) {
+    var bare = String(name || '').trim().replace(/^تعداد\s+/, '');
+    var best = 0;
     Object.keys(row.qty || {}).forEach(function(nm) {
-      if (/جاب/.test(String(nm)) || ((/ماموریت|مأموریت/.test(String(nm))) && /روزانه/.test(String(nm)))) {
-        take(nm, row.qty[nm]);
-      }
+      var b2 = String(nm).trim().replace(/^تعداد\s+/, '');
+      if (String(nm).trim() === String(name).trim() || b2 === bare) best = Math.max(best, mvNum(row.qty[nm]));
     });
+    return best;
   }
   getMonthlyVars(true).forEach(function(v) {
     if (!v) return;
     var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
     if (!useFlat) return;
-    var val = mvNum((row.vars || {})[v.id]);
+    var fromVar = mvNum((row.vars || {})[v.id]);
+    var fromQty = qtyByName(v.name);
+    var val = fromQty > 0 ? fromQty : fromVar;
     take(v.name, v.unit === 'hour' ? val / H : val);
   });
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
 }
+
 
 // One "تعداد" cell. Auto-suggest ONLY for «تعداد خالص» (qty_flat); «بر اساس تعداد» stays manual.
 function countCellView(emp, row, n, F, M) {
