@@ -5977,11 +5977,7 @@ function getAllQuantityItemNames(year, month) {
       if (ci.entryType !== 'quantity' && ci.entryType !== 'qty_flat') return;
       // ستون ورود داده بر اساس مدت؛ غیرفعال فقط از محاسبه حذف می‌شود
       if (!isCustomItemInDuration(ci, y, m)) return;
-      var nm = String(ci.name).trim();
-      var bare = nm.replace(/^تعداد\s+/, '');
-      // تکراری با فیلد سیستمی «روز مأموریت» نباشد
-      if (/^مأم?وریت\s*روزانه$/.test(bare) || /^مأم?وریت\s*روزانه$/.test(nm)) return;
-      names.add(nm);
+      names.add(String(ci.name).trim());
     });
   });
   return Array.from(names).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
@@ -6028,8 +6024,8 @@ function isQtyFlatItemName(name, year, month) {
 /** آیا این آیتم تعداد/تعداد خالص برای همین کارمند در این ماه فعال است؟
  *  غیرفعال در کارت کارمند (enabled===false) → در ورود داده پیشنهاد/مقدار خودکار ندارد. */
 function empQtyItemActive(emp, name, year, month) {
-  /* غیرفعال روی کارت (enabled=false) → در ورود داده هم غیرفعال.
-     فقط quantity / qty_flat. بدون return true پیش‌فرض. */
+  /* ستون تعداد فقط وقتی غیرفعال است که روی کارت به‌صورت quantity/qty_flat
+     صریحاً enabled=false باشد. اگر روی کارت نوع دیگری هم‌نام باشد، مانع فعال شدن از قالب نمی‌شود. */
   if (!emp || !name) return false;
   var nm = String(name).trim();
   if (!nm) return false;
@@ -6058,21 +6054,21 @@ function empQtyItemActive(emp, name, year, month) {
   function isQtyType(ci) {
     return ci && (ci.entryType === 'quantity' || ci.entryType === 'qty_flat');
   }
+  // ۱) روی کارت — فقط رکوردهای نوع تعداد
   var list = emp.customItems || [];
-  var sawQtyOnCard = false;
+  var foundQtyOnCard = false;
   for (var i = 0; i < list.length; i++) {
     var ci = list[i];
     if (!ci || !ci.name) continue;
     if (!sameName(ci.name, nm)) continue;
-    // هر نوع هم‌نام روی کارت که صریحاً خاموش باشد → ستون تعداد این نام غیرفعال
+    if (!isQtyType(ci)) continue; // هم‌نام غیرتعدادی نادیده
+    foundQtyOnCard = true;
     if (isOff(ci.enabled)) return false;
-    if (!isQtyType(ci)) continue;
-    sawQtyOnCard = true;
     if (!okDuration(ci)) return false;
     return true;
   }
-  if (sawQtyOnCard) return false;
-  // قالب فقط وقتی روی کارت این نام به‌صورت تعداد نیست
+  if (foundQtyOnCard) return false;
+  // ۲) قالب سراسری
   var tpls = data.customItemTemplates || [];
   for (var t = 0; t < tpls.length; t++) {
     var tp = tpls[t];
@@ -6083,9 +6079,10 @@ function empQtyItemActive(emp, name, year, month) {
     if (!okDuration(tp)) return false;
     return true;
   }
-  return false;
+  // ۳) اگر ستون در شیت هست و هیچ‌جا غیرفعال صریح نشده → فعال
+  // (جلوگیری از خاکستری ماندن جاب و مشابه)
+  return true;
 }
-
 
 
 
@@ -6110,8 +6107,6 @@ function collectDataEntryDynamicCols() {
   function addQty(name, entryType, isDed) {
     var n = String(name || '').trim();
     if (!n || seen[n]) return;
-    var bare = n.replace(/^تعداد\s+/, '');
-    if (/^مأم?وریت\s*روزانه$/.test(bare) || /^مأم?وریت\s*روزانه$/.test(n)) return;
     seen[n] = true;
     var tLabel = 'سفارشی';
     if (isDed || /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'کسورات';
@@ -6294,6 +6289,25 @@ function loadDataEntry() {
   });
   head += '</tr>';
   thead.innerHTML = head;
+  // پر کردن تعداد جاب از روی مأموریت روزانه اگر خالی باشد
+  try {
+    activeEmps.forEach(function(emp) {
+      if (!emp) return;
+      var row = data.monthlyData[key][emp.code];
+      if (!row) return;
+      var md = Math.max(0, Number(row.missionDays) || 0);
+      if (!(md > 0)) return;
+      if (!row.qty) row.qty = {};
+      if (!row.qtyAuto) row.qtyAuto = {};
+      (qtyNames || []).forEach(function(qn) {
+        if (String(qn).indexOf('جاب') < 0) return;
+        if (row.qty[qn] === undefined || row.qty[qn] === '' || Number(row.qty[qn]) === 0) {
+          row.qty[qn] = md;
+          row.qtyAuto[qn] = false;
+        }
+      });
+    });
+  } catch (eJab) {}
   const tbody = document.getElementById('dataEntryBody');
   tbody.innerHTML = activeEmps.map(emp => {
     const maxAllowedBase = maxWorkDaysForEmployee(emp, y, m);
@@ -10599,11 +10613,7 @@ function countCellView(emp, row, n, F, M) {
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
-    // غیرفعال: پیشنهاد خودکار پاک شود؛ مقدار دستی کاربر نگه داشته می‌شود
-    if (row.qtyAuto && row.qtyAuto[n] === true) {
-      delete row.qty[n];
-      delete row.qtyAuto[n];
-    }
+    // غیرفعال در محاسبه نمی‌آید؛ اگر مقداری ذخیره شده نمایش بده وگرنه خالی
     var kept = (row.qty && row.qty[n] !== undefined && row.qty[n] !== '') ? row.qty[n] : '';
     return {
       value: kept,
