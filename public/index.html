@@ -10597,6 +10597,9 @@ function mvFmt(x) {
 
 function getMonthlyVars(onlyActive) {
   if (!data.settings) data.settings = {};
+  if (!Array.isArray(data.settings.monthlyVars) || data.settings.monthlyVars.length === 0) {
+    try { restoreMonthlyVarsBackup(); } catch (eR) {}
+  }
   if (!Array.isArray(data.settings.monthlyVars)) data.settings.monthlyVars = [];
   var list = data.settings.monthlyVars;
   return list.filter(function(v) {
@@ -10884,6 +10887,7 @@ function setBuiltinLabel(key, value) {
 function renderMonthlyVars() {
   var box = document.getElementById('monthlyVarsList');
   if (!box) return;
+  try { restoreMonthlyVarsBackup(); } catch (eR) {}
   var rules = getCountRules();
   var html = '<div style="' + MV_GRID + 'font-weight:600;"><span>نام</span><span>واحد</span><span>نوع</span><span>اثر روی بر اساس تعداد</span><span>اثر روی تعداد خالص</span><span>فعال</span><span></span></div>';
   MV_BUILTINS.forEach(function(b) {
@@ -10968,6 +10972,55 @@ function updateMonthlyVar(id, field, value) {
 }
 
 
+
+var MV_LS_KEY = 'parssepehr_monthly_vars_v1';
+function persistMonthlyVarsBackup() {
+  try {
+    if (!data.settings) data.settings = {};
+    var list = Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : [];
+    localStorage.setItem(MV_LS_KEY, JSON.stringify(list));
+    localStorage.setItem(MV_LS_KEY + '_rules', JSON.stringify(data.settings.countRules || {}));
+  } catch (e) {}
+}
+function restoreMonthlyVarsBackup() {
+  try {
+    if (!data.settings) data.settings = {};
+    var raw = localStorage.getItem(MV_LS_KEY);
+    if (!raw) return;
+    var list = JSON.parse(raw);
+    if (!Array.isArray(list) || !list.length) return;
+    var byId = {};
+    (Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : []).forEach(function(v) {
+      if (v && v.id) byId[String(v.id)] = Object.assign({}, v);
+    });
+    list.forEach(function(v) {
+      if (!v || !v.id) return;
+      byId[String(v.id)] = Object.assign({}, byId[String(v.id)] || {}, v);
+    });
+    data.settings.monthlyVars = Object.keys(byId).map(function(k) { return byId[k]; });
+    var rr = localStorage.getItem(MV_LS_KEY + '_rules');
+    if (rr) {
+      try {
+        var rules = JSON.parse(rr);
+        data.settings.countRules = Object.assign({}, rules || {}, data.settings.countRules || {});
+      } catch (e2) {}
+    }
+  } catch (e) {}
+}
+function settingsHasExtraMonthlyVars(localSettings, remoteSettings) {
+  try {
+    var loc = (localSettings && localSettings.monthlyVars) || [];
+    var rem = (remoteSettings && remoteSettings.monthlyVars) || [];
+    if (!Array.isArray(loc) || !loc.length) return false;
+    var remIds = {};
+    (Array.isArray(rem) ? rem : []).forEach(function(v) { if (v && v.id) remIds[String(v.id)] = true; });
+    for (var i = 0; i < loc.length; i++) {
+      if (loc[i] && loc[i].id && !remIds[String(loc[i].id)]) return true;
+    }
+    return loc.length > (rem && rem.length ? rem.length : 0);
+  } catch (e) { return false; }
+}
+
 function forcePushSettingsNow() {
   try { persistMonthlyVarsBackup(); } catch (eB) {}
   try {
@@ -10993,6 +11046,7 @@ function addMonthlyVar(presetName) {
   if (clash) { alert('این نام قبلاً وجود دارد.'); return; }
   var id = 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
   list.push({ id: id, name: name, unit: 'day', deductCounts: false, deductQtyFlat: true, active: true });
+  try { persistMonthlyVarsBackup(); } catch (eB0) {}
   try { addChangeLog('ثابت ماهانه', '-', 'افزودن ثابت: ' + name); } catch (e) {}
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
@@ -11012,6 +11066,7 @@ function deleteMonthlyVar(id) {
   if (!v) return;
   if (!confirm('ثابت «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
   data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
+  try { persistMonthlyVarsBackup(); } catch (eB0) {}
   try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
@@ -11181,6 +11236,8 @@ function syncDocsNow() {
 function syncApply(name, obj) {
   if (name === 'settings') {
     data.settings = sbMergeLocalSecrets(syncClone(obj), data.settings);
+    // ثابت‌های ماهانه: بعد از هر اعمال سرور، پشتیبان محلی دوباره اعمال می‌شود تا پاک نشوند
+    try { restoreMonthlyVarsBackup(); } catch (eR) {}
   } else if (name === 'log') {
     data.changeLog = (obj && obj.changeLog) || [];
   } else {
