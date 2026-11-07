@@ -3921,6 +3921,40 @@ function empOtCeilingHours(emp, settings) {
   return 0; // پیش‌فرض: بدون اضافه‌کار
 }
 
+
+function countEmpMonthPunchDays(obj, year, month, code) {
+  year = Number(year); month = Number(month);
+  const dim = daysInJalaliMonth(year, month);
+  const punchStore = ((obj.dailyAttendance || {})[String(code)]) ||
+    ((obj.dailyAttendance || {})[code]) || {};
+  let n = 0;
+  for (let d = 1; d <= dim; d++) {
+    const pad = String(d).padStart(2, '0');
+    const mpad = String(month).padStart(2, '0');
+    const keys = [
+      year + '-' + mpad + '-' + pad,
+      year + '/' + mpad + '/' + pad,
+      year + '-' + month + '-' + d,
+      year + '/' + month + '/' + d,
+      year + '/' + mpad + '/' + d,
+      year + '-' + mpad + '-' + d
+    ];
+    let punch = null;
+    for (let i = 0; i < keys.length; i++) {
+      if (punchStore[keys[i]]) { punch = punchStore[keys[i]]; break; }
+    }
+    if (!punch) continue;
+    let has = false;
+    for (let pi = 1; pi <= 4; pi++) {
+      if (String(punch['in' + pi] || '').trim() || String(punch['out' + pi] || '').trim()) {
+        has = true; break;
+      }
+    }
+    if (has) n++;
+  }
+  return n;
+}
+
 function recountEmpMonthWorkDays(obj, year, month, code) {
   /* کارکرد ماه:
      پایه = روزهای تقویمی بازه استخدام در ماه.
@@ -4086,6 +4120,7 @@ function matchQtyItemName(data, empCode, typeName) {
         const cand = candidates[c];
         const candBare = String(cand).replace(/^تعداد\s+/, '').trim();
         if (nm === cand || nmBare === cand || nm === candBare || nmBare === candBare) return nm;
+        if (nmBare && candBare && (nmBare.indexOf(candBare) >= 0 || candBare.indexOf(nmBare) >= 0)) return nm;
       }
     }
     return null;
