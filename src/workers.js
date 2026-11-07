@@ -1976,8 +1976,13 @@ function applyApprovedRequestToTimesheet(data, req) {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
       const days = Number(chunk.days) || 0;
-      row.missionDays = Math.round(((Number(row.missionDays) || 0) + days) * 100) / 100;
-      if (qtyName) addQtyDaysToMonthRow(row, qtyName, days);
+      if (qtyName) {
+        // جاب خدمات فنی و مشابه → فقط ستون تعداد
+        addQtyDaysToMonthRow(row, qtyName, days);
+      } else {
+        // فقط مأموریت روزانه (یا نوعی بدون آیتم تعداد)
+        row.missionDays = Math.round(((Number(row.missionDays) || 0) + days) * 100) / 100;
+      }
     });
   } else if (req.kind === 'mission' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -4136,8 +4141,9 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 }
 
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
-  /* مأموریت‌ها همیشه در missionDays می‌مانند.
-     اگر نام نوع با آیتم تعداد یکی باشد، همان روزها در qty هم نوشته می‌شود (حذف از مأموریت نمی‌شود). */
+  /* مأموریت با نام منطبق با آیتم تعداد (مثل جاب خدمات فنی) → فقط qty
+     مأموریت روزانه / سایر مأموریت‌ها بدون آیتم تعداد → فقط missionDays
+     هر دو با هم ثبت نمی‌شوند */
   if (!md) return;
   year = Number(year); month = Number(month);
   if (!md.qty) md.qty = {};
@@ -4158,6 +4164,7 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   if (!missionReqs.length) return;
   let mDays = 0, mHrs = 0;
   const qtyAcc = {};
+  // صفر کردن qtyهای جاب/منطبق قبلی این بازسازی
   missionReqs.forEach(function (x) {
     let tname = x.typeName || x.type || '';
     if (!tname && x.typeId) {
@@ -4170,13 +4177,18 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     const qtyName = matchQtyItemName(obj, code, tname);
     if (x.mode === 'hourly') {
       const p = parseJalaliYMD(x.startDate);
-      if (p && p.y === year && p.m === month) mHrs += hoursBetween(x.fromTime, x.toTime);
+      if (p && p.y === year && p.m === month) {
+        if (!qtyName) mHrs += hoursBetween(x.fromTime, x.toTime);
+      }
       return;
     }
     if (x.mode === 'daily') {
       const days = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
-      mDays += days;
-      if (qtyName) qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + days;
+      if (qtyName) {
+        qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + days;
+      } else {
+        mDays += days;
+      }
     }
   });
   md.missionDays = Math.round(mDays * 100) / 100;
