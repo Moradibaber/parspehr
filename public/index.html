@@ -6341,6 +6341,18 @@ function loadDataEntry() {
     });
   } catch (eJ) {}
   // اگر عدد مرخصی دقیقاً برابر رست ثبت‌شده در qty است، مرخصی را صفر نکن مگر رست واقعاً پر باشد و نام نوع رست باشد — حذف انتقال تهاجمی
+  // نرمال‌سازی punchDays: صفر/خالی = ناموجود (پایه از کارکرد)
+  try {
+    var bkt = data.monthlyData[key] || {};
+    Object.keys(bkt).forEach(function(code) {
+      if (code === '_meta') return;
+      var row = bkt[code];
+      if (!row) return;
+      if (row.punchDays === 0 || row.punchDays === '0') {
+        /* نگه دار؛ اگر واقعاً صفر تردد باشد درست است */
+      }
+    });
+  } catch (ePD) {}
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
   let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','مرخصی استحقاقی روزانه')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
@@ -10667,10 +10679,6 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* پایه: punchDays اگر عدد معتبر باشد، وگرنه min(workDays, F)
-     تیک کسر از تعداد خالص:
-       - اگر پایه = تردد → فقط ثابت‌های سفارشی تیک‌خورده (مرخصی/مأموریت سیستمی دوباره کم نمی‌شود؛ در تردد نیستند)
-       - اگر پایه = کارکرد → همه تیک‌های سیستمی + سفارشی */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
@@ -10679,14 +10687,15 @@ function countExpected(emp, row, F, M) {
   var H = (typeof MV_HOURS_PER_DAY === 'number') ? MV_HOURS_PER_DAY : 7.33;
   var parts = [];
   var punchN = mvNum(row.punchDays);
-  var hasPunch = isFinite(punchN) && punchN > 0;
   var workD = Math.max(0, mvNum(row.workDays));
-  var total;
-  if (hasPunch) {
-    total = Math.min(Math.max(0, punchN), F);
+  var total, usedPunch;
+  if (isFinite(punchN) && punchN > 0) {
+    total = Math.min(punchN, F);
+    usedPunch = true;
     parts.push('تردد ' + mvFmt(total));
   } else {
     total = Math.min(workD, F);
+    usedPunch = false;
     if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
     else parts.push('بدون کارکرد');
   }
@@ -10696,7 +10705,8 @@ function countExpected(emp, row, F, M) {
     total -= days;
     parts.push(label + ' (−' + mvFmt(days) + ')');
   };
-  if (!hasPunch) {
+  // با پایه تردد: مرخصی/مأموریت سیستمی دوباره کم نشود
+  if (!usedPunch) {
     if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
     if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
     if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
@@ -10723,6 +10733,7 @@ function countExpected(emp, row, F, M) {
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
 }
+
 
 
 
