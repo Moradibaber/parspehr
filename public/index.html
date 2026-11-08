@@ -6039,14 +6039,18 @@ function isQtyFlatItemName(name, year, month) {
   const m = month != null ? Number(month) : Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
   const nm = String(name || '').trim();
   if (!nm) return false;
+  const bare = nm.replace(/^تعداد\s+/, '');
   let found = false;
   (data.employees || []).forEach(function(emp) {
     (emp.customItems || []).forEach(function(ci) {
       if (!ci || !ci.name) return;
-      if (String(ci.name).trim() !== nm) return;
-      if (ci.entryType !== 'qty_flat') return;
+      var cn = String(ci.name).trim();
+      var cb = cn.replace(/^تعداد\s+/, '');
+      if (cn !== nm && cb !== bare && cn !== bare && cb !== nm) return;
       if (!isCustomItemInDuration(ci, y, m)) return;
-      found = true;
+      if (ci.entryType === 'qty_flat') { found = true; return; }
+      // ناهار/غذا حتی اگر quantity باشد مثل تعداد خالص پیشنهاد شود
+      if (ci.entryType === 'quantity' && /ناهار|غذا|خوراک|غذایی/.test(cn + bare)) found = true;
     });
   });
   return found;
@@ -6341,16 +6345,26 @@ function loadDataEntry() {
     });
   } catch (eJ) {}
   // اگر عدد مرخصی دقیقاً برابر رست ثبت‌شده در qty است، مرخصی را صفر نکن مگر رست واقعاً پر باشد و نام نوع رست باشد — حذف انتقال تهاجمی
-  // نرمال‌سازی punchDays: صفر/خالی = ناموجود (پایه از کارکرد)
   try {
     var bkt = data.monthlyData[key] || {};
     Object.keys(bkt).forEach(function(code) {
       if (code === '_meta') return;
       var row = bkt[code];
       if (!row) return;
-      if (row.punchDays === 0 || row.punchDays === '0') {
-        /* نگه دار؛ اگر واقعاً صفر تردد باشد درست است */
-      }
+      if (!row.qty) row.qty = {};
+      if (!row.qtyAuto) row.qtyAuto = {};
+      // مقادیر صفر خودکارِ تعداد خالص را دوباره پیشنهاد بده (قفل اشتباه روی ۰)
+      Object.keys(row.qty).forEach(function(nm) {
+        if (/جاب|رست/.test(String(nm))) return;
+        try {
+          if (typeof isQtyFlatItemName === 'function' && isQtyFlatItemName(nm, y, m)) {
+            if (row.qty[nm] === 0 || row.qty[nm] === '0' || row.qty[nm] === '') {
+              row.qtyAuto[nm] = true;
+              delete row.qty[nm];
+            }
+          }
+        } catch (e0) {}
+      });
     });
   } catch (ePD) {}
   const monthDays = getMonthDays(y, m) || 30;
@@ -10687,6 +10701,12 @@ function countExpected(emp, row, F, M) {
   var H = (typeof MV_HOURS_PER_DAY === 'number') ? MV_HOURS_PER_DAY : 7.33;
   var parts = [];
   var punchN = mvNum(row.punchDays);
+  if (!(punchN > 0)) punchN = mvNum(row.punch_days);
+  if (!(punchN > 0) && row.vars) {
+    Object.keys(row.vars).forEach(function(k) {
+      if (/punch|تردد/i.test(String(k))) punchN = Math.max(punchN, mvNum(row.vars[k]));
+    });
+  }
   var workD = Math.max(0, mvNum(row.workDays));
   var total, usedPunch;
   if (isFinite(punchN) && punchN > 0) {
@@ -10694,6 +10714,7 @@ function countExpected(emp, row, F, M) {
     usedPunch = true;
     parts.push('تردد ' + mvFmt(total));
   } else {
+    // بدون تردد ثبت‌شده: کارکرد منهای مرخصی/مأموریت تیک‌خورده
     total = Math.min(workD, F);
     usedPunch = false;
     if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
@@ -10768,8 +10789,6 @@ function countCellView(emp, row, n, F, M) {
   var skipAutoName = /جاب|رست/.test(String(n || ''));
   var exp = (isFlat && !skipAutoName) ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
-  // پیشنهاد: سلول خالی یا هنوز «خودکار» — تا تغییر تیک ثابت‌ها اعمال شود
-  // اگر کاربر دستی عدد زده (qtyAuto !== true) دست نزن
   if (exp !== null && (row.qty[n] === undefined || row.qty[n] === '' || row.qtyAuto[n] === true)) {
     row.qty[n] = exp.value;
     row.qtyAuto[n] = true;
