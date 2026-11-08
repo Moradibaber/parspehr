@@ -10667,12 +10667,10 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* قانون واحد:
-     پایه = روز تردد (اگر هست) وگرنه min(روز کارکرد، کارکرد خالص F)
-     کسر = فقط آیتم‌هایی که در ثابت‌های ماهانه تیک «کسر از تعداد خالص» دارند
-       (سیستمی: leaveDaysFlat / hourlyLeaveFlat / missionDaysFlat
-        سفارشی: monthlyVars[].deductQtyFlat)
-     هیچ کسر سخت‌کد برای جاب/رست/… وجود ندارد. */
+  /* پایه: punchDays اگر عدد معتبر باشد، وگرنه min(workDays, F)
+     تیک کسر از تعداد خالص:
+       - اگر پایه = تردد → فقط ثابت‌های سفارشی تیک‌خورده (مرخصی/مأموریت سیستمی دوباره کم نمی‌شود؛ در تردد نیستند)
+       - اگر پایه = کارکرد → همه تیک‌های سیستمی + سفارشی */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
@@ -10680,41 +10678,35 @@ function countExpected(emp, row, F, M) {
   F = mvNum(F) > 0 ? mvNum(F) : 22;
   var H = (typeof MV_HOURS_PER_DAY === 'number') ? MV_HOURS_PER_DAY : 7.33;
   var parts = [];
-  var hasPunch = (row.punchDays !== undefined && row.punchDays !== null && String(row.punchDays).trim() !== '');
-  var punchN = hasPunch ? Math.max(0, mvNum(row.punchDays)) : 0;
+  var punchN = mvNum(row.punchDays);
+  var hasPunch = isFinite(punchN) && punchN > 0;
   var workD = Math.max(0, mvNum(row.workDays));
-  var total = hasPunch ? Math.min(punchN, F) : Math.min(workD, F);
-  if (hasPunch) parts.push('تردد ' + mvFmt(total));
-  else if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
-  else parts.push('بدون کارکرد');
-
+  var total;
+  if (hasPunch) {
+    total = Math.min(Math.max(0, punchN), F);
+    parts.push('تردد ' + mvFmt(total));
+  } else {
+    total = Math.min(workD, F);
+    if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
+    else parts.push('بدون کارکرد');
+  }
   var take = function(label, days) {
     days = mvNum(days);
     if (!(days > 0)) return;
     total -= days;
     parts.push(label + ' (−' + mvFmt(days) + ')');
   };
-
-  // —— سیستمی (تیک در ثابت‌های ماهانه)
-  if (rules.leaveDaysFlat) {
-    take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
+  if (!hasPunch) {
+    if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
+    if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
+    if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
   }
-  if (rules.hourlyLeaveFlat) {
-    take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
-  }
-  if (rules.missionDaysFlat) {
-    take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
-  }
-
-  // —— سفارشی: هر ثابت ماهانه با تیک کسر از تعداد خالص
   function qtyByName(name) {
     var bare = String(name || '').trim().replace(/^تعداد\s+/, '');
     var best = 0;
     Object.keys(row.qty || {}).forEach(function(nm) {
       var b2 = String(nm).trim().replace(/^تعداد\s+/, '');
-      if (String(nm).trim() === String(name).trim() || b2 === bare) {
-        best = Math.max(best, mvNum(row.qty[nm]));
-      }
+      if (String(nm).trim() === String(name).trim() || b2 === bare) best = Math.max(best, mvNum(row.qty[nm]));
     });
     return best;
   }
@@ -10728,10 +10720,10 @@ function countExpected(emp, row, F, M) {
     if (v.unit === 'hour') val = val / H;
     take(v.name, val);
   });
-
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
 }
+
 
 
 
