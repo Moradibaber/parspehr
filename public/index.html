@@ -5986,6 +5986,31 @@ function getAllQuantityItemNames(year, month) {
       names.add(nm);
     });
   });
+  // ستون‌هایی که در داده ماه هست (مثلاً رست از تایم‌شیت) حتی اگر روی کارت quantity نباشد
+  try {
+    var key = y + '-' + m;
+    var bucket = (data.monthlyData && data.monthlyData[key]) || {};
+    Object.keys(bucket).forEach(function(code) {
+      if (code === '_meta') return;
+      var q = bucket[code] && bucket[code].qty;
+      if (!q) return;
+      Object.keys(q).forEach(function(nm) {
+        if (!nm || !String(nm).trim()) return;
+        names.add(String(nm).trim());
+      });
+    });
+  } catch (eQ) {}
+  // نوع حضور/مرخصی با نام رست از تنظیمات
+  try {
+    var types = ((data.settings && data.settings.attendanceTypes) || []).concat(data.attendanceTypes || []);
+    types.forEach(function(t) {
+      if (!t || !t.name) return;
+      if (String(t.name).indexOf('رست') >= 0) {
+        names.add(String(t.name).trim());
+        names.add('تعداد ' + String(t.name).trim());
+      }
+    });
+  } catch (eT) {}
   return Array.from(names).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
 }
 
@@ -10725,7 +10750,8 @@ function countCellView(emp, row, n, F, M) {
   var skipAutoName = /جاب|رست/.test(String(n || ''));
   var exp = (isFlat && !skipAutoName) ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
-  if (exp !== null && (row.qtyAuto[n] === true || row.qty[n] === undefined || row.qty[n] === '')) {
+  // فقط وقتی سلول خالی است پیشنهاد بزن — دوباره محاسبه نکن (ثبات)
+  if (exp !== null && (row.qty[n] === undefined || row.qty[n] === '')) {
     row.qty[n] = exp.value;
     row.qtyAuto[n] = true;
   } else if (!isFlat && row.qtyAuto && row.qtyAuto[n] === true) {
