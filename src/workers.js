@@ -4180,57 +4180,122 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   if (!row) return;
   if (!row.qty) row.qty = {};
+  // پاک کردن مقادیر قبلی رست
   Object.keys(row.qty).forEach(function (k) {
     if (String(k).indexOf('رست') >= 0) delete row.qty[k];
   });
+  function isRestName(s) {
+    s = String(s || '');
+    if (s.indexOf('استحقاق') >= 0) return false;
+    return s.indexOf('رست') >= 0 || /rest/i.test(s);
+  }
+  function approved(st) {
+    st = String(st || '').toLowerCase();
+    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+      st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
+      st === 'accept' || st === 'ok' || st === 'done';
+  }
   var total = 0;
-  var outName = null;
+  var outName = 'رست کاری';
   var ct = 'normal';
   try {
     var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
     if (emp && emp.contractType) ct = emp.contractType;
   } catch (e0) {}
+
+  // ۱) درخواست‌های مرخصی/حضور
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== String(code)) return;
-    var st = String(x.status || '').toLowerCase();
-    if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
-    if (x.kind !== 'leave' || x.mode !== 'daily') return;
-    if (typeof isRestOrNonLeaveColumnType !== 'function' || !isRestOrNonLeaveColumnType(obj, x)) return;
-    if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, x)) return;
-    var days = 0;
-    try {
-      days = (typeof countWorkingDaysInMonth === 'function')
-        ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
-        : 0;
-    } catch (e1) { days = 0; }
-    if (!(days > 0)) return;
-    total += days;
-    var tn = x.typeName || x.type || '';
-    if (!tn && x.typeId) {
+    if (!approved(x.status)) return;
+    var tn = String(x.typeName || x.type || x.name || '');
+    var tid = String(x.typeId || '');
+    if (!tn && tid) {
       try {
         var types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
-        var td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
-        if (td) tn = td.name || '';
-      } catch (e2) {}
+        var td = types.find(function (t) { return t && String(t.id) === tid; });
+        if (td) tn = String(td.name || '');
+      } catch (e1) {}
     }
-    if (!tn) tn = 'رست کاری';
-    var qn = null;
-    try { qn = matchQtyItemName(obj, code, tn); } catch (e3) {}
-    if (!qn) qn = tn;
-    outName = qn;
+    if (!isRestName(tn) && !isRestName(tid)) return;
+    // روزانه
+    if (x.mode === 'hourly') return;
+    var days = 0;
+    try {
+      if (x.startDate) {
+        days = (typeof countWorkingDaysInMonth === 'function')
+          ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+          : 0;
+      }
+    } catch (e2) { days = 0; }
+    if (!(days > 0) && x.startDate) {
+      try {
+        // fallback: همه روزهای تقویمی در ماه
+        days = (typeof countAllDaysInMonth === 'function')
+          ? countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month)
+          : 0;
+      } catch (e3) {}
+    }
+    if (days > 0) {
+      total += days;
+      if (tn) outName = tn;
+    }
   });
-  if (total > 0 && outName) {
-    row.qty[outName] = Math.round(total * 100) / 100;
-    if (!row.qtyAuto) row.qtyAuto = {};
-    row.qtyAuto[outName] = false;
-    // alias برای ستون «تعداد رست کاری»
-    var alt = (String(outName).indexOf('تعداد ') === 0) ? String(outName).slice(6).trim() : ('تعداد ' + outName);
-    if (alt && alt !== outName && row.qty[alt] == null) {
-      row.qty[alt] = row.qty[outName];
-      row.qtyAuto[alt] = false;
-    }
+
+  // ۲) از سلول‌های تایم‌شیت (leaveDaily حاوی رست)
+  if (!(total > 0)) {
+    try {
+      var store = (obj.dailyAttendance && obj.dailyAttendance[String(code)]) || {};
+      var seen = {};
+      Object.keys(store).forEach(function (dk) {
+        var cell = store[dk];
+        if (!cell) return;
+        var label = String(cell.leaveDaily || cell.note || cell.status || cell.type || '');
+        if (!isRestName(label)) return;
+        var parts = String(dk).split(/[-/]/);
+        if (parts.length < 3) return;
+        var yy = Number(parts[0]), mm = Number(parts[1]);
+        if (yy !== year || mm !== month) return;
+        if (seen[dk]) return;
+        seen[dk] = true;
+        total += 1;
+      });
+    } catch (e4) {}
   }
+
+  // ۳) از درخواست‌هایی که kindشان rest است
+  if (!(total > 0)) {
+    (obj.attendanceRequests || []).forEach(function (x) {
+      if (!x || String(x.empCode) !== String(code)) return;
+      if (!approved(x.status)) return;
+      var k = String(x.kind || '').toLowerCase();
+      if (k !== 'rest' && k !== 'work_rest' && k.indexOf('rest') < 0 && String(x.kind || '').indexOf('رست') < 0) return;
+      var days = 0;
+      try {
+        days = (typeof countWorkingDaysInMonth === 'function')
+          ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+          : 0;
+      } catch (e5) {}
+      if (days > 0) total += days;
+    });
+  }
+
+  if (!(total > 0)) return;
+
+  var qn = null;
+  try { qn = matchQtyItemName(obj, code, outName); } catch (e6) {}
+  if (!qn) qn = outName;
+  row.qty[qn] = Math.round(total * 100) / 100;
+  if (!row.qtyAuto) row.qtyAuto = {};
+  row.qtyAuto[qn] = false;
+  // هر دو نام رایج
+  var names = [qn, 'رست کاری', 'تعداد رست کاری', 'تعداد ' + outName, outName];
+  names.forEach(function (nm) {
+    if (!nm) return;
+    row.qty[nm] = Math.round(total * 100) / 100;
+    row.qtyAuto[nm] = false;
+  });
 }
+
 
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   /* مأموریت منطبق با آیتم تعداد (جاب و …) → فقط qty
