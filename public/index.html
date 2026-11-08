@@ -9734,16 +9734,30 @@ function sbMergeLocalSecrets(remote, local) {
       var id = String(v.id);
       byId[id] = Object.assign({}, byId[id] || {}, v);
     });
-    // آیتم‌های فقط‌محلی بدون id معتبر
+    // هم‌نام محلی بدون id یکسان
     (Array.isArray(local.monthlyVars) ? local.monthlyVars : []).forEach(function(v) {
-      if (!v || v.id) return;
-      if (!v.name) return;
+      if (!v || !v.name) return;
+      if (v.id && byId[String(v.id)]) return;
       var exists = Object.keys(byId).some(function(k) { return byId[k] && byId[k].name === v.name; });
       if (!exists) {
-        var nid = 'mv_' + Date.now().toString(36) + Math.floor(Math.random() * 999).toString(36);
-        byId[nid] = Object.assign({}, v, { id: nid });
+        var nid = v.id || ('mv_' + Date.now().toString(36) + Math.floor(Math.random() * 999).toString(36));
+        byId[String(nid)] = Object.assign({}, v, { id: nid });
       }
     });
+    // پشتیبان localStorage هم ادغام شود
+    try {
+      var rawB = localStorage.getItem(typeof MV_LS_KEY !== 'undefined' ? MV_LS_KEY : 'parssepehr_monthly_vars_v1');
+      if (rawB) {
+        var listB = JSON.parse(rawB);
+        if (Array.isArray(listB)) {
+          listB.forEach(function(v) {
+            if (!v || !v.id) return;
+            if (!byId[String(v.id)]) byId[String(v.id)] = Object.assign({}, v);
+            else byId[String(v.id)] = Object.assign({}, byId[String(v.id)], v);
+          });
+        }
+      }
+    } catch (eB) {}
     r.monthlyVars = Object.keys(byId).map(function(k) { return byId[k]; });
   } catch (eMv) {}
   try {
@@ -10623,9 +10637,7 @@ function mvFmt(x) {
 
 function getMonthlyVars(onlyActive) {
   if (!data.settings) data.settings = {};
-  if (!Array.isArray(data.settings.monthlyVars) || data.settings.monthlyVars.length === 0) {
-    try { restoreMonthlyVarsBackup(); } catch (eR) {}
-  }
+  try { restoreMonthlyVarsBackup(); } catch (eR) {}
   if (!Array.isArray(data.settings.monthlyVars)) data.settings.monthlyVars = [];
   var list = data.settings.monthlyVars;
   return list.filter(function(v) {
@@ -11077,11 +11089,30 @@ function settingsHasExtraMonthlyVars(localSettings, remoteSettings) {
 function forcePushSettingsNow() {
   try { persistMonthlyVarsBackup(); } catch (eB) {}
   try {
+    if (typeof syncNoteChange === 'function') syncNoteChange();
+  } catch (eN) {}
+  try {
     if (typeof syncOn === 'undefined' || !syncOn) return;
     if (typeof syncPush !== 'function' || typeof syncDocsNow !== 'function') return;
     var base = (typeof syncBase !== 'undefined' && syncBase.settings) ? syncBase.settings : null;
     var ver = base && base.version != null ? Number(base.version) : 0;
-    Promise.resolve(syncPush('settings', ver, syncDocsNow().settings)).catch(function() {});
+    var payload = syncDocsNow().settings;
+    Promise.resolve(syncPush('settings', ver, payload)).then(function(ok) {
+      // در صورت تعارض نسخه، یک‌بار دیگر با نسخهٔ جدید تلاش
+      if (ok === false || ok === null) {
+        try {
+          var b2 = (syncBase && syncBase.settings) ? syncBase.settings : null;
+          var v2 = b2 && b2.version != null ? Number(b2.version) : ver;
+          return syncPush('settings', v2, syncDocsNow().settings);
+        } catch (e2) {}
+      }
+    }).catch(function() {
+      try {
+        var b3 = (syncBase && syncBase.settings) ? syncBase.settings : null;
+        var v3 = b3 && b3.version != null ? Number(b3.version) : 0;
+        syncPush('settings', v3, syncDocsNow().settings);
+      } catch (e3) {}
+    });
   } catch (e) {}
 }
 
@@ -11105,6 +11136,10 @@ function addMonthlyVar(presetName) {
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
   try { forcePushSettingsNow(); } catch (eP) {}
   renderMonthlyVars();
+  try {
+    var n = (data.settings.monthlyVars || []).length;
+    console.log('[monthlyVars] saved count=' + n);
+  } catch (eL) {}
   try {
     if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
       loadDataEntry();
