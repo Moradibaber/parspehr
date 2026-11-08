@@ -3795,6 +3795,7 @@ function isRestOrNonLeaveColumnType(obj, req) {
   if (!req) return false;
   function hasRestWord(s) {
     s = String(s || '');
+    if (s.indexOf('استحقاق') >= 0) return false;
     return s.indexOf('رست') >= 0 || /rest/i.test(s);
   }
   const name = String(req.typeName || req.type || req.name || '');
@@ -3815,6 +3816,9 @@ function isRestOrNonLeaveColumnType(obj, req) {
 
 function shouldSkipLeaveDaysColumn(obj, req) {
   if (!req || req.kind !== 'leave') return false;
+  var nm = String(req.typeName || req.type || req.name || '');
+  // مرخصی استحقاقی روزانه همیشه در ستون مرخصی می‌آید
+  if (nm.indexOf('استحقاق') >= 0) return false;
   if (isUnpaidLeaveRequest(obj, req)) return true;
   if (isRestOrNonLeaveColumnType(obj, req)) return true;
   return false;
