@@ -10630,8 +10630,11 @@ function getCountRules() {
 // Suggested count for «تعداد خالص» (qty_flat) only — never for «بر اساس تعداد».
 // Returns null when no suggestion: hourly/daily staff, or non-flat items.
 function countExpected(emp, row, F, M) {
-  /* پایه = min(کارکرد، کارکرد خالص)
-     کسر با تیک کسر از تعداد خالص؛ اگر ثابت هم‌نام ستون تعداد باشد از qty کم می‌شود */
+  /* تعداد خالص:
+     پایه ترجیحی = روزهای تردد (punchDays) اگر موجود باشد
+     وگرنه = min(روز کارکرد، کارکرد خالص)
+     سپس فقط تیک‌های «کسر از تعداد خالص» کم می‌شود.
+     اگر پایه = تردد باشد، مرخصی/مأموریت دوباره کم نمی‌شوند. */
   var contract = (emp && emp.contractType) || 'normal';
   if (contract === 'hourly' || contract === 'daily') return null;
   row = row || {};
@@ -10639,17 +10642,34 @@ function countExpected(emp, row, F, M) {
   F = mvNum(F) > 0 ? mvNum(F) : 22;
   var H = (typeof MV_HOURS_PER_DAY === 'number') ? MV_HOURS_PER_DAY : 7.33;
   var parts = [];
+  var hasPunch = (row.punchDays !== undefined && row.punchDays !== null && String(row.punchDays).trim() !== '');
+  var punchN = hasPunch ? Math.max(0, mvNum(row.punchDays)) : 0;
   var workD = Math.max(0, mvNum(row.workDays));
-  var total = Math.min(workD, F);
-  if (workD > 0) parts.push('کارکرد ' + mvFmt(Math.min(workD, F)));
-  else parts.push('بدون کارکرد');
+  var total, base;
+  if (hasPunch) {
+    base = punchN;
+    total = Math.min(base, F);
+    parts.push('تردد ' + mvFmt(total));
+  } else {
+    base = workD;
+    total = Math.min(base, F);
+    if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
+    else parts.push('بدون کارکرد');
+  }
   var take = function(label, days) {
     days = mvNum(days);
     if (days > 0) { total -= days; parts.push(label + ' (−' + mvFmt(days) + ')'); }
   };
-  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
-  if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
-  if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+  if (!hasPunch) {
+    if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
+    if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
+    if (rules.missionDaysFlat) {
+      take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+      Object.keys(row.qty || {}).forEach(function(nm) {
+        if (/جاب/.test(String(nm))) take(nm, row.qty[nm]);
+      });
+    }
+  }
   function qtyByName(name) {
     var bare = String(name || '').trim().replace(/^تعداد\s+/, '');
     var best = 0;
@@ -10659,10 +10679,13 @@ function countExpected(emp, row, F, M) {
     });
     return best;
   }
+  // ثابت ماهانه با تیک کسر — اگر پایه تردد است، جاب/رست را از روی qty دوباره کم نکن (قبلاً در تردد نیستند)
   getMonthlyVars(true).forEach(function(v) {
     if (!v) return;
     var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
     if (!useFlat) return;
+    var nm = String(v.name || '');
+    if (hasPunch && (/جاب|رست/.test(nm))) return;
     var fromVar = mvNum((row.vars || {})[v.id]);
     var fromQty = qtyByName(v.name);
     var val = fromQty > 0 ? fromQty : fromVar;
@@ -10671,6 +10694,7 @@ function countExpected(emp, row, F, M) {
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
 }
+
 
 
 // One "تعداد" cell. Auto-suggest ONLY for «تعداد خالص» (qty_flat); «بر اساس تعداد» stays manual.
@@ -10697,7 +10721,9 @@ function countCellView(emp, row, n, F, M) {
     };
   }
   var isFlat = isQtyFlatItemName(n, ctx.y, ctx.m);
-  var exp = isFlat ? countExpected(emp, row, F, M) : null;
+  // جاب و رست از تایم‌شیت می‌آیند — پیشنهاد تعداد خالص روی آن‌ها اعمال نشود
+  var skipAutoName = /جاب|رست/.test(String(n || ''));
+  var exp = (isFlat && !skipAutoName) ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
   if (exp !== null && (row.qtyAuto[n] === true || row.qty[n] === undefined || row.qty[n] === '')) {
     row.qty[n] = exp.value;
