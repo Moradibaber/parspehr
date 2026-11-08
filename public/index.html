@@ -6315,41 +6315,10 @@ function loadDataEntry() {
       }
     });
   } catch (eJ) {}
-  // رست اشتباهاً در روز مرخصی: به ستون تعداد رست منتقل شود
-  try {
-    var bucket2 = data.monthlyData[key] || {};
-    Object.keys(bucket2).forEach(function(code) {
-      if (code === '_meta') return;
-      var row = bucket2[code];
-      if (!row) return;
-      if (!row.qty) row.qty = {};
-      var restKeys = [];
-      try {
-        (allQtyNames || []).forEach(function(nm) {
-          if (String(nm).indexOf('رست') >= 0) restKeys.push(nm);
-        });
-      } catch (eN) {}
-      Object.keys(row.qty).forEach(function(nm) {
-        if (String(nm).indexOf('رست') >= 0 && restKeys.indexOf(nm) < 0) restKeys.push(nm);
-      });
-      if (!restKeys.length) restKeys = ['تعداد رست کاری'];
-      var restQty = 0;
-      restKeys.forEach(function(nm) { restQty += Number(row.qty[nm]) || 0; });
-      var ld = Number(row.leaveDays) || 0;
-      if (ld > 0 && restQty === 0 && restKeys.length) {
-        // کل عدد مرخصی را به اولین کلید رست بده و مرخصی را صفر کن
-        row.qty[restKeys[0]] = ld;
-        restKeys.slice(1).forEach(function(nm) { row.qty[nm] = 0; });
-        row.leaveDays = 0;
-      } else if (ld > 0 && restQty > 0) {
-        if (Math.abs(ld - restQty) < 0.05) row.leaveDays = 0;
-        else if (ld > restQty) row.leaveDays = Math.round((ld - restQty) * 100) / 100;
-      }
-    });
-  } catch (eR) {}
+  // اگر عدد مرخصی دقیقاً برابر رست ثبت‌شده در qty است، مرخصی را صفر نکن مگر رست واقعاً پر باشد و نام نوع رست باشد — حذف انتقال تهاجمی
   const monthDays = getMonthDays(y, m) || 30;
   const thead = document.getElementById('dataEntryHead');
-  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','روز مرخصی')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
+  let head = '<tr><th>کد</th><th>نام</th><th>' + mvEsc(getBuiltinLabel('workDays','روز کارکرد')) + '</th><th>' + mvEsc(getBuiltinLabel('leaveDays','مرخصی استحقاقی روزانه')) + '</th><th>' + mvEsc(getBuiltinLabel('hourlyLeave','مرخصی ساعتی')) + '</th><th>روز مأموریت</th><th>ساعت مأموریت</th><th>' + mvEsc(getBuiltinLabel('otHours','ساعات اضافه‌کار')) + '</th><th>' + mvEsc(getBuiltinLabel('nightHours','ساعات شب‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftType','نوع نوبت‌کاری')) + '</th><th>' + mvEsc(getBuiltinLabel('shiftDays','روز نوبت')) + '</th>';
   // ستون‌های پویا با ترتیب ذخیره‌شده (ثابت ماهانه + تعدادی / کسورات / معوقه)
   var orderedCols = resolveDataEntryColOrder();
   var fixedVars = [];
@@ -10678,7 +10647,7 @@ function countExpected(emp, row, F, M) {
     days = mvNum(days);
     if (days > 0) { total -= days; parts.push(label + ' (−' + mvFmt(days) + ')'); }
   };
-  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'روز مرخصی'), row.leaveDays);
+  if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
   if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
   if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
   function qtyByName(name) {
@@ -10884,7 +10853,7 @@ function updateDataVar(code, id, value) {
 // Fixed numeric data-entry columns (no amount). Names are editable; effects only drive qty_flat suggestions.
 var MV_BUILTINS = [
   { key: 'workDays', name: 'روز کارکرد', unit: 'روز', rule: 'workShortfall', ruleFlat: 'workShortfallFlat' },
-  { key: 'leaveDays', name: 'روز مرخصی', unit: 'روز', rule: 'leaveDays', ruleFlat: 'leaveDaysFlat' },
+  { key: 'leaveDays', name: 'مرخصی استحقاقی روزانه', unit: 'روز', rule: 'leaveDays', ruleFlat: 'leaveDaysFlat' },
   { key: 'hourlyLeave', name: 'مرخصی ساعتی', unit: 'ساعت', rule: 'hourlyLeave', ruleFlat: 'hourlyLeaveFlat' },
   { key: 'missionDays', name: 'روز مأموریت', unit: 'روز', rule: null, ruleFlat: 'missionDaysFlat' },
   { key: 'otHours', name: 'ساعات اضافه‌کار', unit: 'ساعت' },
