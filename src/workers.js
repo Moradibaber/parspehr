@@ -1897,7 +1897,7 @@ function reverseApprovedRequestFromTimesheet(data, req) {
   } else if (req.kind === 'mission' && req.mode === 'daily') {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRb) {
+      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRestRb) {} } catch (eRb) {
         if (!row.qty) row.qty = {};
         Object.keys(row.qty).forEach(function (nm) { if (/جاب/.test(String(nm))) row.qty[nm] = 0; });
         row.missionDays = 0;
@@ -1978,7 +1978,7 @@ function applyApprovedRequestToTimesheet(data, req) {
   } else if (req.kind === 'mission' && req.mode === 'daily') {
     splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
       const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRb) {}
+      try { rebuildMissionAndQtyFromRequests(data, chunk.year, chunk.month, code, row); try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRestRb) {} } catch (eRb) {}
     });
   } else if (req.kind === 'mission' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -4176,6 +4176,62 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
   row.qtyAuto[qtyName] = false;
 }
 
+
+function rebuildRestQtyFromRequests(obj, year, month, code, row) {
+  if (!row) return;
+  if (!row.qty) row.qty = {};
+  Object.keys(row.qty).forEach(function (k) {
+    if (String(k).indexOf('رست') >= 0) delete row.qty[k];
+  });
+  var total = 0;
+  var outName = null;
+  var ct = 'normal';
+  try {
+    var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+    if (emp && emp.contractType) ct = emp.contractType;
+  } catch (e0) {}
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (!x || String(x.empCode) !== String(code)) return;
+    var st = String(x.status || '').toLowerCase();
+    if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
+    if (x.kind !== 'leave' || x.mode !== 'daily') return;
+    if (typeof isRestOrNonLeaveColumnType !== 'function' || !isRestOrNonLeaveColumnType(obj, x)) return;
+    if (typeof isUnpaidLeaveRequest === 'function' && isUnpaidLeaveRequest(obj, x)) return;
+    var days = 0;
+    try {
+      days = (typeof countWorkingDaysInMonth === 'function')
+        ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+        : 0;
+    } catch (e1) { days = 0; }
+    if (!(days > 0)) return;
+    total += days;
+    var tn = x.typeName || x.type || '';
+    if (!tn && x.typeId) {
+      try {
+        var types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
+        var td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
+        if (td) tn = td.name || '';
+      } catch (e2) {}
+    }
+    if (!tn) tn = 'رست کاری';
+    var qn = null;
+    try { qn = matchQtyItemName(obj, code, tn); } catch (e3) {}
+    if (!qn) qn = tn;
+    outName = qn;
+  });
+  if (total > 0 && outName) {
+    row.qty[outName] = Math.round(total * 100) / 100;
+    if (!row.qtyAuto) row.qtyAuto = {};
+    row.qtyAuto[outName] = false;
+    // alias برای ستون «تعداد رست کاری»
+    var alt = (String(outName).indexOf('تعداد ') === 0) ? String(outName).slice(6).trim() : ('تعداد ' + outName);
+    if (alt && alt !== outName && row.qty[alt] == null) {
+      row.qty[alt] = row.qty[outName];
+      row.qtyAuto[alt] = false;
+    }
+  }
+}
+
 function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   /* مأموریت منطبق با آیتم تعداد (جاب و …) → فقط qty
      مأموریت روزانه معمولی → فقط missionDays
@@ -4295,7 +4351,7 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
     md.leaveDays = Math.round(lv * 100) / 100;
     md.hourlyLeave = Math.round(hl * 100) / 100;
     // مأموریت عادی vs جاب/تعداد
-    try { rebuildMissionAndQtyFromRequests(obj, year, month, code, md); } catch (eR) {
+    try { rebuildMissionAndQtyFromRequests(obj, year, month, code, md); try { rebuildRestQtyFromRequests(obj, year, month, code, md); } catch (eRestRb) {} } catch (eR) {
       md.missionDays = Math.round(ms * 100) / 100;
       md.missionHours = Math.round(mh * 100) / 100;
     }
@@ -4685,22 +4741,7 @@ async function handleEmpTimesheet(request, env) {
   reqs.forEach(function (x) {
     if (x.kind === 'leave' && x.mode === 'daily') {
       if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) {
-        // رست → qty
-        try {
-          let tn = x.typeName || x.type || '';
-          if (!tn && x.typeId) {
-            const types = (gd.obj.attendanceTypes || []).concat(((gd.obj.settings || {}).attendanceTypes) || []);
-            const td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
-            if (td) tn = td.name || '';
-          }
-          const qn = matchQtyItemName(gd.obj, code, tn) || (tn ? ('تعداد ' + tn) : null);
-          if (qn) {
-            const days = countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
-            const row = ensureEmpMonthRow(gd.obj, year, month, code);
-            if (!row.qty) row.qty = {};
-            row.qty[qn] = Math.round(((Number(row.qty[qn]) || 0) + days) * 100) / 100;
-          }
-        } catch (eRest) {}
+        // رست: leaveDays نه؛ qty با rebuildRestQtyFromRequests
       } else {
         reLeaveDays += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, empCt0);
       }
@@ -4840,6 +4881,7 @@ async function handleEmpTimesheet(request, env) {
     mdE.missionHours = reMissionHours;
     // منبع حقیقت = همان منطق پرتال (روز کاری برای مرخصی + recount برای کارکرد)
     mdE.leaveDays = reLeaveDays;
+    try { rebuildRestQtyFromRequests(gd.obj, year, month, code, mdE); } catch (eRR) {}
     mdE.missionDays = reMissionDays;
     mdE.workDays = Math.round(workWithAtt) || 0;
     try { mdE.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code); } catch (ePd) { mdE.punchDays = 0; }
