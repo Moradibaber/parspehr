@@ -1105,6 +1105,22 @@ async function handlePayroll(request, user, env) {
   let out;
   try {
     try { data = syncCardSalaryIntoDecreeData(data) || data; } catch (eS2) {}
+    // پر کردن punchDays برای تعداد خالص قبل از محاسبه
+    try {
+      const key = year + '-' + month;
+      if (!data.monthlyData) data.monthlyData = {};
+      if (!data.monthlyData[key]) data.monthlyData[key] = {};
+      Object.keys(data.monthlyData[key]).forEach(function (code) {
+        if (code === '_meta') return;
+        const row = data.monthlyData[key][code];
+        if (!row) return;
+        try {
+          if (typeof countEmpMonthPunchDays === 'function') {
+            row.punchDays = countEmpMonthPunchDays(data, year, month, code);
+          }
+        } catch (eP) {}
+      });
+    } catch (ePD) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
   } catch (e) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
