@@ -596,21 +596,45 @@ export function makeEngine(data) {
    * دقیقاً همان فرمول runMonth است (تا معوقه با فیش ماه یکسان باشد).
    * workDays: کارکرد مؤثر ماه (پس از سقف‌ها).
    */
+  function parseHoursValue(v) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number' && isFinite(v)) return v;
+    var s = String(v).trim().replace(/[۰-۹]/g, function(d) {
+      return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d);
+    });
+    if (!s) return 0;
+    // HH:MM or H:MM
+    var m = s.match(/^(\d{1,3})\s*[:：]\s*(\d{1,2})$/);
+    if (m) {
+      var h = parseInt(m[1], 10) || 0;
+      var min = parseInt(m[2], 10) || 0;
+      return h + (min / 60);
+    }
+    var n = Number(s.replace(/,/g, ''));
+    return isFinite(n) ? n : 0;
+  }
+
   function calcVariablePay(basicSalary, d, workDays) {
     d = d || {};
     const sv = data.settings || {};
     const daily = (Number(basicSalary) || 0) / 30;
-    const ot = Math.round((daily / 7.33) * (d.otHours || 0) * sv.overtimeFactor);
-    const night = Math.round((daily / 7.33) * (d.nightHours || 0) * (sv.nightFactor || 1.35));
+    const otH = parseHoursValue(d.otHours);
+    const nightH = parseHoursValue(d.nightHours);
+    const otF = Number(sv.overtimeFactor);
+    const ntF = Number(sv.nightFactor);
+    const ot = Math.round((daily / 7.33) * otH * (isFinite(otF) && otF > 0 ? otF : 1.4));
+    const night = Math.round((daily / 7.33) * nightH * (isFinite(ntF) && ntF > 0 ? ntF : 1.35));
     let shiftPct = 0;
     const st = d.shiftType || 'none';
     if (st === 'me') shiftPct = Number(sv.shiftMorningEvening) || 10;
     else if (st === 'mn') shiftPct = Number(sv.shiftWithNight) || 22.5;
     else if (st === 'all') shiftPct = Number(sv.shiftAllThree) || 15;
-    let shiftDays = Number(d.shiftDays) || 0;
+    let shiftDays = Number(d.shiftDays);
+    if (!isFinite(shiftDays) || shiftDays < 0) shiftDays = 0;
     if (shiftPct > 0 && shiftDays <= 0 && workDays > 0) shiftDays = workDays;
     const shift = (shiftPct > 0 && shiftDays > 0) ? Math.round(daily * shiftDays * (shiftPct / 100)) : 0;
-    return { ot: ot, night: night, shift: shift, total: ot + night + shift, shiftType: st, shiftDays: shiftDays };
+    const safe = function(x) { return isFinite(x) ? x : 0; };
+    return { ot: safe(ot), night: safe(night), shift: safe(shift), total: safe(ot) + safe(night) + safe(shift), shiftType: st, shiftDays: shiftDays };
   }
 
   /** مابه‌التفاوت اضافه‌کار/شب‌کاری/نوبت‌کاری ماهِ (year, month) بین دو حقوق پایه — برای معوقه حکم */
@@ -842,7 +866,19 @@ export function makeEngine(data) {
           }
         }
         if (ci.entryType === 'quantity') {
-          let qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
+          let qty = 0;
+          if (d.qty) {
+            if (d.qty[ci.name] !== undefined) qty = Number(d.qty[ci.name]);
+            else {
+              const bare = String(ci.name || '').replace(/^تعداد\s+/, '').trim();
+              Object.keys(d.qty).forEach(function(k) {
+                const kb = String(k).replace(/^تعداد\s+/, '').trim();
+                if (k === ci.name || kb === bare || k === ('تعداد ' + bare) || kb === String(ci.name || '').trim())
+                  qty = Number(d.qty[k]);
+              });
+            }
+          }
+          if (!isFinite(qty) || qty < 0) qty = 0;
           const isSuppIns = /بیمه\s*تکمیلی/.test(String(ci.name || ''));
           if (isSuppIns) {
             let unit = getSuppInsurancePerPerson() || amt;
@@ -864,9 +900,19 @@ export function makeEngine(data) {
           }
         } else if (ci.entryType === 'qty_flat') {
           // تعداد خالص: مبلغ × (تعداد مؤثر ÷ کارکرد خالص)
-          // تعداد مؤثر = تعداد واردشده؛ اگر صفر/خالی باشد از روز کارکرد استفاده می‌شود
-          // تا وقتی کارکرد کم است (مثلاً ۵ روز) مبلغ صفر نشود و تناسب حفظ شود
-          let qty = (d.qty && d.qty[ci.name] !== undefined) ? Number(d.qty[ci.name]) : 0;
+          let qty = 0;
+          if (d.qty) {
+            if (d.qty[ci.name] !== undefined) qty = Number(d.qty[ci.name]);
+            else {
+              const bare = String(ci.name || '').replace(/^تعداد\s+/, '').trim();
+              Object.keys(d.qty).forEach(function(k) {
+                const kb = String(k).replace(/^تعداد\s+/, '').trim();
+                if (k === ci.name || kb === bare || k === ('تعداد ' + bare))
+                  qty = Number(d.qty[k]);
+              });
+            }
+          }
+          if (!isFinite(qty) || qty < 0) qty = 0;
           if (!(qty > 0) && workDays > 0) qty = workDays;
           qtyUsed = qty;
           if (functionalDays > 0 && amt > 0 && qty > 0) {
@@ -936,7 +982,8 @@ export function makeEngine(data) {
         // نوبت‌کاری معمولاً مشمول بیمه و مالیات است
         insBase += shiftAmount;
       }
-      const gross = basicAmount + otAmount + nightAmount + shiftAmount + totalAllow;
+      const _fin = function(x) { var n = Number(x); return isFinite(n) ? n : 0; };
+      const gross = _fin(basicAmount) + _fin(otAmount) + _fin(nightAmount) + _fin(shiftAmount) + _fin(totalAllow);
       let insurance = 0, tax = 0;
       const exempt = emp.exemption || 'none';
       if (exempt !== 'insurance' && exempt !== 'both') {
@@ -980,7 +1027,7 @@ export function makeEngine(data) {
         loanDeduction = 0;
       }
   
-      const net = gross - insurance - tax - loanDeduction - totalDeductions;
+      const net = _fin(gross) - _fin(insurance) - _fin(tax) - _fin(loanDeduction) - _fin(totalDeductions);
       const remainingLoanAfter = alreadyDeducted
         ? (emp.loanRemaining || 0)
         : Math.max(0, (emp.loanRemaining || 0) - loanDeduction);
