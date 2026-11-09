@@ -479,6 +479,16 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
         if (prev.obj.employeePhotos && typeof prev.obj.employeePhotos === 'object') {
           obj.employeePhotos = Object.assign({}, prev.obj.employeePhotos, obj.employeePhotos || {});
         }
+        // شرح وظایف — فقط با updatedBy jobdesc: تغییر کند
+        if (String(updatedBy || '').indexOf('jobdesc:') !== 0) {
+          if (prev.obj.jobDescriptions && typeof prev.obj.jobDescriptions === 'object') {
+            obj.jobDescriptions = prev.obj.jobDescriptions;
+          }
+          if (prev.obj.settings && prev.obj.settings.jobDescTemplate != null) {
+            if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+            if (obj.settings.jobDescTemplate == null) obj.settings.jobDescTemplate = prev.obj.settings.jobDescTemplate;
+          }
+        }
         // نوع قرارداد و تقویم قرارداد: اگر کلاینت (فرم اصلی) لیست ناقص فرستاد، لیست کامل سرور حفظ شود
         try {
           if (prev.obj.settings && typeof prev.obj.settings === 'object') {
@@ -6328,6 +6338,169 @@ function checkRequestWindow(windows, p, nowJ) {
   return { handled: true, ok: true };
 }
 
+
+/** شرح وظایف کارکنان — obj.jobDescriptions[code] = { title, duties, visible, updatedAt } */
+function defaultJobDescTemplate() {
+  return [
+    '══════════════════════════════════════',
+    '           شرح وظایف کارکنان',
+    '══════════════════════════════════════',
+    'کد پرسنلی: {code}',
+    'نام و نام خانوادگی: {fullName}',
+    'سمت: {position}',
+    'واحد: {unit}',
+    'عنوان شغل: {title}',
+    '──────────────────────────────────────',
+    'شرح وظایف:',
+    '{duties}',
+    '══════════════════════════════════════'
+  ].join('\n');
+}
+function normalizeJobDescItem(x) {
+  if (!x || typeof x !== 'object') return null;
+  const title = String(x.title || '').trim().slice(0, 200);
+  const duties = String(x.duties || '').trim().slice(0, 20000);
+  if (!title && !duties) return null;
+  return {
+    title: title,
+    duties: duties,
+    visible: x.visible !== false && x.visible !== 0 && x.visible !== '0' && x.visible !== 'false',
+    updatedAt: x.updatedAt || new Date().toISOString()
+  };
+}
+async function handleAdminJobDescriptions(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    const map = (gd.obj && gd.obj.jobDescriptions && typeof gd.obj.jobDescriptions === 'object') ? gd.obj.jobDescriptions : {};
+    const emps = (gd.obj && Array.isArray(gd.obj.employees)) ? gd.obj.employees : [];
+    const template = (gd.obj && gd.obj.settings && gd.obj.settings.jobDescTemplate) || defaultJobDescTemplate();
+    const list = emps.map(function (e) {
+      const code = String(e.code);
+      const jd = map[code] || null;
+      return {
+        code: code,
+        fullName: e.fullName || ((e.firstName || '') + ' ' + (e.lastName || '')).trim(),
+        position: e.position || '',
+        unit: e.unit || '',
+        title: jd ? (jd.title || '') : '',
+        duties: jd ? (jd.duties || '') : '',
+        visible: jd ? (jd.visible !== false) : false,
+        has: !!(jd && (jd.title || jd.duties)),
+        updatedAt: jd ? (jd.updatedAt || '') : ''
+      };
+    });
+    return jsonResponse({ ok: true, list: list, template: template, columns: ['code', 'title', 'duties', 'visible'] });
+  }
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    if (!gd.obj.jobDescriptions || typeof gd.obj.jobDescriptions !== 'object') gd.obj.jobDescriptions = {};
+    if (!gd.obj.settings || typeof gd.obj.settings !== 'object') gd.obj.settings = {};
+    if (typeof body.template === 'string') {
+      gd.obj.settings.jobDescTemplate = body.template.slice(0, 50000);
+    }
+    if (Array.isArray(body.items)) {
+      body.items.forEach(function (it) {
+        if (!it || it.code == null || String(it.code).trim() === '') return;
+        const code = String(it.code).trim();
+        if (it.remove) {
+          delete gd.obj.jobDescriptions[code];
+          return;
+        }
+        const n = normalizeJobDescItem(it);
+        if (!n) {
+          delete gd.obj.jobDescriptions[code];
+          return;
+        }
+        const prev = gd.obj.jobDescriptions[code];
+        if (it.visible === undefined && prev && prev.visible != null) n.visible = prev.visible !== false;
+        n.updatedAt = new Date().toISOString();
+        gd.obj.jobDescriptions[code] = n;
+      });
+    }
+    if (body.code != null && String(body.code).trim() !== '' && !Array.isArray(body.items)) {
+      const code = String(body.code).trim();
+      if (body.remove) {
+        delete gd.obj.jobDescriptions[code];
+      } else {
+        const n = normalizeJobDescItem(body);
+        if (n) {
+          const prev = gd.obj.jobDescriptions[code];
+          if (body.visible === undefined && prev && prev.visible != null) n.visible = prev.visible !== false;
+          n.updatedAt = new Date().toISOString();
+          gd.obj.jobDescriptions[code] = n;
+        } else {
+          delete gd.obj.jobDescriptions[code];
+        }
+      }
+    }
+    const put = await storePutData(cfg, gd.version, gd.obj, 'jobdesc:' + ((who && who.name) || 'admin'));
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleEmpJobDescription(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess) return jsonResponse({ ok: false, error: 'login_required' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  const code = String(sess.code);
+  const emps = (gd.obj && Array.isArray(gd.obj.employees)) ? gd.obj.employees : [];
+  let emp = null;
+  for (let i = 0; i < emps.length; i++) {
+    if (String(emps[i].code) === code) { emp = emps[i]; break; }
+  }
+  const map = (gd.obj && gd.obj.jobDescriptions && typeof gd.obj.jobDescriptions === 'object') ? gd.obj.jobDescriptions : {};
+  const jd = map[code] || null;
+  if (!jd || jd.visible === false || (!jd.title && !jd.duties)) {
+    return jsonResponse({ ok: true, available: false, message: 'شرح وظایفی ثبت نشده است.' });
+  }
+  const template = (gd.obj && gd.obj.settings && gd.obj.settings.jobDescTemplate) || defaultJobDescTemplate();
+  const fullName = (emp && (emp.fullName || ((emp.firstName || '') + ' ' + (emp.lastName || '')).trim())) || sess.fullName || '';
+  const position = (emp && emp.position) || '';
+  const unit = (emp && emp.unit) || '';
+  function applyTpl(tpl, m) {
+    return String(tpl || '').replace(/\{(code|fullName|position|unit|title|duties)\}/g, function (_, k) {
+      return m[k] != null ? String(m[k]) : '';
+    });
+  }
+  const rendered = applyTpl(template, {
+    code: code,
+    fullName: fullName,
+    position: position,
+    unit: unit,
+    title: jd.title || '',
+    duties: jd.duties || ''
+  });
+  return jsonResponse({
+    ok: true,
+    available: true,
+    code: code,
+    fullName: fullName,
+    position: position,
+    unit: unit,
+    title: jd.title || '',
+    duties: jd.duties || '',
+    rendered: rendered,
+    updatedAt: jd.updatedAt || ''
+  });
+}
+
+
 async function handleAdminRequestWindows(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -8622,6 +8795,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
   if (path === '/api/admin/request-windows') return handleAdminRequestWindows(request, who, env);
+  if (path === '/api/admin/job-descriptions') return handleAdminJobDescriptions(request, who, env);
   if (path === '/api/admin/contract-types') return handleAdminContractTypes(request, who, env);
   if (path === '/api/admin/holidays') {
     if (request.method === 'POST') return handleAdminSaveHolidays(request, who, env);
@@ -9017,7 +9191,8 @@ function defaultUserAccess() {
       profile: true,
       contracts: true,
       balances: true,
-      password: true
+      password: true,
+      jobdesc: true
     },
     adminTabs: {}
   };
@@ -9964,6 +10139,7 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
       <button class="tab" data-tab="contracts" id="tabContracts" onclick="showTab('contracts')">قراردادها</button>
       <button class="tab" data-tab="balances" id="tabBalances" onclick="showTab('balances')">مانده مرخصی و وام</button>
       <button class="tab" data-tab="password" onclick="showTab('password')">تغییر رمز</button>
+      <button class="tab" data-tab="jobdesc" id="tabJobdesc" onclick="showTab('jobdesc')">شرح وظایف</button>
     </div>
   </div>
   <div class="card panel" id="panel-payslip">
@@ -10055,6 +10231,11 @@ const BUILTIN_EMPLOYEE_HTML = `<!DOCTYPE html>
     <p class="sub" style="text-align:right;margin-bottom:10px;">در صورت مجاز بودن، مدت قرارداد نمایش داده می‌شود.</p>
     <div id="contractsBox"><div class="sub">در حال بارگذاری…</div></div>
   </div>
+  <div class="card panel hidden" id="panel-jobdesc">
+    <h2>شرح وظایف</h2>
+    <p class="sub" style="text-align:right;margin-bottom:10px;">شرح وظایف ثبت‌شده برای شما</p>
+    <div id="jobdescBox"><div class="sub">در حال بارگذاری…</div></div>
+  </div>
   <div class="card panel hidden" id="panel-password">
     <h2>تغییر رمز عبور</h2>
     <label>رمز فعلی</label><input id="oldPass" type="password">
@@ -10081,6 +10262,7 @@ function showTab(name){
   if(name==='contracts') loadContractsEmp();
   if(name==='balances') loadBalancesEmp();
   if(name==='payslip') loadPayslipArchive();
+  if(name==='jobdesc') loadJobdesc();
 }
 async function loadBalancesEmp(){
   var box=document.getElementById('balancesBox'); if(!box) return;
@@ -10410,7 +10592,7 @@ function applyUserAccessUI(ua) {
     document.head.appendChild(style);
   }
   var css = '';
-  var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password'];
+  var keys = ['payslip','request','mine','timesheet','decree','profile','contracts','balances','password','jobdesc'];
   keys.forEach(function(k) {
     var on = nt[k] == null ? true : !!nt[k];
     if (!on) css += '.tab[data-tab="' + k + '"]{display:none!important;}';
@@ -10694,6 +10876,22 @@ async function loadTimesheet(){
     document.getElementById('tsBox').innerHTML=html+'</div>';
   }catch(e){err.textContent='خطا در دریافت تایم‌شیت'}
 }
+
+async function loadJobdesc(){
+  var box=document.getElementById('jobdescBox'); if(!box) return;
+  box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
+  try{
+    var r=await fetch('/api/emp/job-description?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
+    var j=await r.json();
+    if(!j||!j.ok){ box.innerHTML='<div class="sub">خطا در دریافت شرح وظایف.</div>'; return; }
+    if(!j.available){ box.innerHTML='<div class="sub">'+(j.message||'شرح وظایفی ثبت نشده است.')+'</div>'; return; }
+    var html='<div class="box" style="white-space:pre-wrap;line-height:1.9;font-size:0.88rem;background:#f8fffe;border:1px solid #99f6e4;border-radius:10px;padding:14px;">';
+    html+=String(j.rendered||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html+='</div>';
+    box.innerHTML=html;
+  }catch(e){ box.innerHTML='<div class="sub">خطا در ارتباط با سرور.</div>'; }
+}
+
 async function changePass(){
   var err=document.getElementById('passErr'); err.textContent=''; err.classList.remove('okmsg');
   var oldPassword=document.getElementById('oldPass').value, newPassword=document.getElementById('newPass').value, n2=document.getElementById('newPass2').value;
@@ -10744,6 +10942,7 @@ export default {
     if (url.pathname === '/api/emp/decide') return handleEmpDecideRequest(request, env);
     if (url.pathname === '/api/emp/timesheet') return handleEmpTimesheet(request, env);
     if (url.pathname === '/api/emp/attendance-types') return handleEmpAttendanceTypes(request, env);
+    if (url.pathname === '/api/emp/job-description') return handleEmpJobDescription(request, env);
 
     // ---- Portal admin boot JS: همیشه کامل (APIها جداگانه محافظت می‌شوند) ----
     if (url.pathname === '/api/admin/portal-boot.js') {
