@@ -1,6 +1,10 @@
 // AUTO-GENERATED payroll engine. Runs ONLY on the server (never sent to browsers).
 // Functions are copied verbatim from the original app; only screen/permission parts were removed.
 export function makeEngine(data) {
+  function isLunchItemName(name) {
+    var s = String(name || '').replace(/\u200c/g, '').replace(/\s+/g, ' ').trim().replace(/^تعداد\s+/, '');
+    return /ناهار|غذا|خوراک|غذایی/.test(s);
+  }
   function defaultMonthDaysMap() {
     return {1:31,2:31,3:31,4:31,5:31,6:31,7:30,8:30,9:30,10:30,11:30,12:29};
   }
@@ -879,6 +883,17 @@ export function makeEngine(data) {
             }
           }
           if (!isFinite(qty) || qty < 0) qty = 0;
+          // حق ناهاری/غذا: اگر تعداد خالی بود از کارکرد/تردد پر شود (مثل تعداد خالص)
+          if (!(qty > 0) && (typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name || '')))) {
+            var pN = Number(d.punchDays || d.punch_days || 0);
+            if (!(pN > 0) && d.vars) {
+              Object.keys(d.vars).forEach(function(vk) {
+                if (/punch|تردد/i.test(String(vk))) pN = Math.max(pN, Number(d.vars[vk]) || 0);
+              });
+            }
+            if (pN > 0) qty = pN;
+            else if (typeof workDays === 'number' && workDays > 0) qty = workDays;
+          }
           const isSuppIns = /بیمه\s*تکمیلی/.test(String(ci.name || ''));
           if (isSuppIns) {
             let unit = getSuppInsurancePerPerson() || amt;
@@ -913,7 +928,17 @@ export function makeEngine(data) {
             }
           }
           if (!isFinite(qty) || qty < 0) qty = 0;
-          if (!(qty > 0) && workDays > 0) qty = workDays;
+          if (!(qty > 0)) {
+            var pNL = Number(d.punchDays || d.punch_days || 0);
+            if (!(pNL > 0) && d.vars) {
+              Object.keys(d.vars).forEach(function(vk) {
+                if (/punch|تردد/i.test(String(vk))) pNL = Math.max(pNL, Number(d.vars[vk]) || 0);
+              });
+            }
+            if ((typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name||''))) && pNL > 0) qty = pNL;
+            else if (workDays > 0) qty = workDays;
+            else if (pNL > 0) qty = pNL;
+          }
           qtyUsed = qty;
           if (functionalDays > 0 && amt > 0 && qty > 0) {
             const effectiveQty = Math.min(qty, functionalDays);
