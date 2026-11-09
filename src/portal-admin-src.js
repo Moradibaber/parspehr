@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-11-09-v244';",
-  "  try { console.log('%c[psp] portal-boot 2026-11-09-v244', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-11-09-v245';",
+  "  try { console.log('%c[psp] portal-boot 2026-11-09-v245', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  window.__pspPortalBootOk = 1;",
   "  try {",
   "    var __n = document.querySelectorAll('div,p,span,section');",
@@ -4678,7 +4678,7 @@ export default [
   "      '<div class=\"form-group\"><label>سال</label><input type=\"number\" id=\"pspTsYear\" value=\"1405\"></div>' +",
   "      '<div class=\"form-group\"><label>ماه</label><select id=\"pspTsMonth\"><option value=\"1\">فروردین</option><option value=\"2\">اردیبهشت</option><option value=\"3\">خرداد</option><option value=\"4\">تیر</option><option value=\"5\">مرداد</option><option value=\"6\">شهریور</option><option value=\"7\">مهر</option><option value=\"8\">آبان</option><option value=\"9\">آذر</option><option value=\"10\">دی</option><option value=\"11\">بهمن</option><option value=\"12\">اسفند</option></select></div>' +",
   "      '<div class=\"form-group\"><label>کد پرسنلی</label><input id=\"pspTsCode\" placeholder=\"خالی = همه\" autocomplete=\"off\"></div>' +",
-  "      '<div class=\"form-group\"><label>کد مدیر</label><div style=\"display:flex;gap:8px;align-items:center;\"><input id=\"pspTsMgr\" placeholder=\"فیلتر زیرمجموعه\" autocomplete=\"off\" style=\"flex:1;min-width:0;\"><button type=\"button\" class=\"btn btn-primary btn-sm\" id=\"pspTsLoad\" data-boot=\"2026-11-09-v242\" style=\"white-space:nowrap;flex-shrink:0;\">نمایش</button><span id=\"pspBootVerBadge\" style=\"font-size:0.7rem;color:#0f766e;margin-right:8px;\">boot:2026-10-31-v240</span></div></div>' +",
+  "      '<div class=\"form-group\"><label>کد مدیر</label><div style=\"display:flex;gap:8px;align-items:center;\"><input id=\"pspTsMgr\" placeholder=\"فیلتر زیرمجموعه\" autocomplete=\"off\" style=\"flex:1;min-width:0;\"><button type=\"button\" class=\"btn btn-primary btn-sm\" id=\"pspTsLoad\" data-boot=\"2026-11-09-v245\" style=\"white-space:nowrap;flex-shrink:0;\">نمایش</button><span id=\"pspBootVerBadge\" style=\"font-size:0.7rem;color:#0f766e;margin-right:8px;\">boot:2026-10-31-v240</span></div></div>' +",
   "      '</div>' +",
   "      '<p style=\"font-size:0.78rem;color:#64748b;margin:6px 0 10px;\">برای جدول <b>روزبه‌روز شبیه اکسل</b> حتماً کد پرسنلی را پر کنید.</p>' +",
   "      '<div class=\"form-grid\" style=\"margin-bottom:10px;align-items:end;\">' +",
@@ -5721,21 +5721,33 @@ export default [
   "      function pspTsPrintStatusText(d){",
   "        if (!d) return '';",
   "        var parts = [];",
-  "        if (d.leaveDaily) parts.push('مرخصی: '+d.leaveDaily);",
-  "        if (d.missionDaily) parts.push('مأموریت: '+d.missionDaily);",
+  "        function shortLv(t){",
+  "          t = String(t||'').replace(/\s+/g,' ').trim();",
+  "          if (!t) return 'مرخصی';",
+  "          if (/استحقاقی/.test(t)) return 'مرخصی استحقاقی';",
+  "          if (/استعلاجی|بیماری/.test(t)) return 'مرخصی استعلاجی';",
+  "          if (/بدون\s*حقوق|بدون حقوق/.test(t)) return 'مرخصی بدون‌حقوق';",
+  "          if (/ساعتی/.test(t)) return 'مرخصی ساعتی';",
+  "          return 'مرخصی';",
+  "        }",
+  "        if (d.leaveDaily) parts.push(shortLv(d.leaveDaily));",
+  "        if (d.missionDaily) parts.push('مأموریت');",
   "        if (d.leaveHourly) parts.push('مرخصی ساعتی');",
   "        if (d.missionHourly) parts.push('مأموریت ساعتی');",
-  "        if (d.isNonWork) parts.push(d.weekday ? ('تعطیل/غیرکاری '+d.weekday) : 'تعطیل/غیرکاری');",
+  "        if (d.isNonWork) parts.push('تعطیل');",
   "        if (d.rest || d.isRest) parts.push('رست');",
-  "        if (d.note) parts.push(d.note);",
-  "        if (d.status) parts.push(d.status);",
-  "        // روز موظفی بدون حضور و بدون مرخصی/مأموریت روزانه → غیبت",
+  "        if (d.note) {",
+  "          var n = String(d.note).replace(/\s+/g,' ').trim();",
+  "          if (n && n.length > 28) n = n.slice(0,28)+'…';",
+  "          if (n) parts.push(n);",
+  "        }",
+  "        if (d.status) parts.push(String(d.status).replace(/\s+/g,' ').trim());",
   "        var hasPunch = !!(d.in1||d.out1||d.in2||d.out2||d.in3||d.out3||d.in4||d.out4);",
   "        var covered = !!(d.leaveDaily||d.missionDaily||d.leaveHourly||d.missionHourly);",
   "        if (!d.isNonWork && !(d.rest||d.isRest) && !hasPunch && !covered) {",
   "          if (parts.indexOf('غیبت') < 0) parts.push('غیبت');",
   "        }",
-  "        return parts.join(' | ');",
+  "        return parts.join(' · ');",
   "      }",
   "      function pspTsPrintSelected(){",
   "        var cbs = Array.prototype.slice.call(document.querySelectorAll('.psp-tsprint-cb:checked'));",
@@ -5806,15 +5818,17 @@ export default [
   "              rowsHtml = days.map(function(d, di){",
   "                var st = pspTsPrintStatusText(d);",
   "                var zebra = (di % 2 === 1) ? ' class=\"z\"' : '';",
+  "                var dayLab = esc(d.day != null ? d.day : (d.date||''));",
+  "                if (d.weekday) dayLab += ' <span class=\"wd\">'+esc(d.weekday)+'</span>';",
   "                return '<tr'+zebra+'>'+",
-  "                  '<td>'+esc(d.day != null ? d.day : (d.date||''))+(d.weekday?('<br><span class=\"wd\">'+esc(d.weekday)+'</span>'):'')+'</td>'+",
+  "                  '<td class=\"c-day\">'+dayLab+'</td>'+",
   "                  '<td>'+cell(d,'in1')+'</td><td>'+cell(d,'out1')+'</td>'+",
   "                  '<td>'+cell(d,'in2')+'</td><td>'+cell(d,'out2')+'</td>'+",
   "                  '<td>'+cell(d,'workHoursHM')+(d.workHoursHM?'':cell(d,'workHours'))+'</td>'+",
   "                  '<td>'+cell(d,'otHoursHM')+(d.otHoursHM?'':cell(d,'otHours'))+'</td>'+",
   "                  '<td>'+cell(d,'nightHoursHM')+(d.nightHoursHM?'':cell(d,'nightHours'))+'</td>'+",
   "                  '<td>'+cell(d,'delayMin')+'</td>'+",
-  "                  '<td style=\"text-align:right;font-size:8pt\">'+esc(st)+'</td></tr>';",
+  "                  '<td class=\"c-st\">'+esc(st)+'</td></tr>';",
   "              }).join('');",
   "            } else {",
   "              rowsHtml = '<tr><td colspan=\"10\" style=\"text-align:center;padding:12px\">جدول روزبه‌روز در دسترس نیست.'+",
@@ -5829,30 +5843,40 @@ export default [
   "              '<table class=\"days\"><thead><tr><th>روز</th><th>ورود1</th><th>خروج1</th><th>ورود2</th><th>خروج2</th><th>کارکرد</th><th>اضافهکار</th><th>شبکاری</th><th>تاخیر</th><th>وضعیت</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+",
   "              '<div class=\"foot\">چاپ سیستم پارسپهر</div></section>';",
   "          }).join('');",
-  "          var css = 'html,body{height:auto;margin:0;padding:0;direction:rtl;font-family:Tahoma,Arial,sans-serif;font-size:9pt;color:#111;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+",
-  "            '@page{size:A4 portrait;margin:6mm}'+",
-  "            '.sheet{page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;"+
-  "              height:285mm;max-height:285mm;overflow:hidden;box-sizing:border-box;padding:2mm 3mm;display:flex;flex-direction:column}'+",
-  "            '.sheet:last-child{page-break-after:auto;break-after:auto}'+",
-  "            '.head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #0f766e;padding-bottom:2px;margin:0 0 3px;flex:0 0 auto}'+",
-  "            '.title{font-size:11pt;font-weight:bold;color:#0f766e}.meta{font-size:8.5pt;color:#334155}'+",
-  "            'table.info{width:100%;border-collapse:collapse;margin:0 0 3px;flex:0 0 auto}'+",
-  "            'table.info td{border:1px solid #94a3b8;padding:2px 4px;text-align:right;font-size:8pt}'+",
-  "            '.sum{font-size:7.5pt;margin:0 0 3px;color:#0f172a;flex:0 0 auto}'+",
-  "            'table.days{width:100%;border-collapse:collapse;table-layout:fixed;flex:1 1 auto}'+",
-  "            'table.days th,table.days td{border:1px solid #94a3b8;padding:1px 2px;text-align:center;font-size:7pt;line-height:1.15;vertical-align:middle}'+",
-  "            'table.days th{background:#0f766e;color:#fff;font-weight:700;font-size:7pt}'+",
-  "            'table.days tr.z td{background:#e2e8f0}'+",
-  "            'table.days .wd{font-size:6pt;color:#64748b;display:block}'+",
-  "            '.foot{margin-top:2px;font-size:7pt;color:#64748b;text-align:center;flex:0 0 auto}'+",
-  "            '@media print{html,body{width:100%;height:auto}.sheet{height:285mm;max-height:285mm;overflow:hidden}}';",
+  "          var css = 'html,body{margin:0;padding:0;direction:rtl;font-family:Tahoma,Arial,sans-serif;font-size:9pt;color:#0f172a;background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+"
+  "            '@page{size:A4 portrait;margin:7mm}'+"
+  "            '.toolbar{position:sticky;top:0;z-index:9;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#0f766e;color:#fff}'+"
+  "            '.toolbar button{font-family:inherit;font-size:12px;font-weight:700;border:0;border-radius:6px;padding:6px 14px;cursor:pointer}'+"
+  "            '.toolbar .btn-print{background:#fff;color:#0f766e}'+"
+  "            '.toolbar .btn-close{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5)}'+"
+  "            '.toolbar .hint{font-size:11px;opacity:.92;margin-right:auto}'+"
+  "            '.sheet{page-break-after:always;break-after:page;page-break-inside:avoid;box-sizing:border-box;width:100%;max-width:200mm;margin:10px auto;padding:5mm 4mm;background:#fff;border:1px solid #e2e8f0}'+"
+  "            '.sheet:last-child{page-break-after:auto;break-after:auto}'+"
+  "            '.head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0f766e;padding-bottom:3px;margin:0 0 4px}'+"
+  "            '.title{font-size:12pt;font-weight:800;color:#0f766e}'+"
+  "            '.meta{font-size:9pt;color:#334155;font-weight:600}'+"
+  "            'table.info{width:100%;border-collapse:collapse;margin:0 0 4px;table-layout:fixed}'+"
+  "            'table.info td{border:1px solid #cbd5e1;padding:2px 5px;text-align:right;font-size:8pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+"
+  "            '.sum{font-size:7.5pt;margin:0 0 4px;color:#115e59;background:#f0fdfa;border:1px solid #99f6e4;border-radius:4px;padding:2px 6px}'+"
+  "            'table.days{width:100%;border-collapse:collapse;table-layout:fixed}'+"
+  "            'table.days th,table.days td{border:1px solid #94a3b8;padding:1px 2px;text-align:center;font-size:7.5pt;line-height:1.2;vertical-align:middle}'+"
+  "            'table.days th{background:#0f766e;color:#fff;font-weight:700;padding:3px 2px}'+"
+  "            'table.days tr.z td{background:#f1f5f9}'+"
+  "            'table.days td.c-day{text-align:right;padding:1px 4px;white-space:nowrap}'+"
+  "            'table.days .wd{font-size:6.5pt;color:#64748b}'+"
+  "            'table.days td.c-st{text-align:right;font-size:7pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+"
+  "            '.foot{margin-top:3px;font-size:7pt;color:#94a3b8;text-align:center}'+"
+  "            '@media print{body{background:#fff}.toolbar{display:none!important}.sheet{margin:0;padding:0;border:0;max-width:none}}';"
   "          var w = window.open('', '_blank');",
   "          if (!w) { alert('پنجره چاپ مسدود شد'); return; }",
   "          w.document.open();",
-  "          w.document.write('<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charset=\"utf-8\"><title>چاپ تایم شیت</title><style>'+css+'</style></head><body>'+htmlPages+'</body></html>');",
+  "          var tb = '<div class=\"toolbar\"><button type=\"button\" class=\"btn-print\" onclick=\"window.print()\">چاپ</button>' +
+  "            '<button type=\"button\" class=\"btn-close\" onclick=\"window.close()\">بستن</button>' +
+  "            '<span class=\"hint\">پیش‌نمایش — پس از بررسی دکمه چاپ را بزنید ('+pages.length+' برگ)</span></div>';",
+  "          w.document.write('<!DOCTYPE html><html lang=\"fa\" dir=\"rtl\"><head><meta charset=\"utf-8\"><title>پیش‌نمایش تایم‌شیت</title><style>'+css+'</style></head><body>'+tb+htmlPages+'</body></html>');",
   "          w.document.close();",
-  "          setTimeout(function(){ try { w.focus(); w.print(); } catch (eP) {} }, 400);",
-  "          if (msg) msg.textContent = 'چاپ آماده شد ('+pages.length+' برگ A4)';",
+  "          try { w.focus(); } catch (eF) {}",
+  "          if (msg) msg.textContent = 'پیش‌نمایش باز شد ('+pages.length+' برگ) — از پنجره جدید چاپ کنید';",
   "        });",
   "      }",
 "      function pspToggleBreakFields() {",
