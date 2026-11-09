@@ -94,7 +94,7 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261031v240';
+  const bootVer = '20261109v244';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;return false;}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs\'))continue;var t=n(el.textContent);if(!red(t))continue;var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;if(cnt>=4)hide(el);}catch(e1){}}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();<\/script>';
 
@@ -6228,27 +6228,31 @@ async function handleAdminTimesheet(request, who, env) {
       md.excessAbsenceMin = excessMin;
       md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
       md._timesheetSyncedAt = new Date().toISOString();
-      // ذخیره پایدار با یک‌بار تلاش مجدد در conflict
-      try {
-        let putR = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
-        if (putR && putR.conflict) {
-          const gd2 = await storeGetData(cfg);
-          if (!gd2.fail && gd2.obj) {
-            // فقط monthlyData این ماه را روی نسخه جدید بنویس
-            const mk = year + '-' + month;
-            if (!gd2.obj.monthlyData) gd2.obj.monthlyData = {};
-            if (gd.obj.monthlyData && gd.obj.monthlyData[mk]) {
-              gd2.obj.monthlyData[mk] = gd.obj.monthlyData[mk];
+      // ذخیره پایدار فقط با save/persist صریح — چاپ/مشاهده write نزند (timeout → HTML)
+      const wantPersist = !!(r.body && (r.body.save === true || r.body.persist === true));
+      if (wantPersist) {
+        try {
+          let putR = await storePutData(cfg, gd.version, gd.obj, (who && who.name) || 'admin');
+          if (putR && putR.conflict) {
+            const gd2 = await storeGetData(cfg);
+            if (!gd2.fail && gd2.obj) {
+              const mk = year + '-' + month;
+              if (!gd2.obj.monthlyData) gd2.obj.monthlyData = {};
+              if (gd.obj.monthlyData && gd.obj.monthlyData[mk]) {
+                gd2.obj.monthlyData[mk] = gd.obj.monthlyData[mk];
+              }
+              putR = await storePutData(cfg, gd2.version, gd2.obj, (who && who.name) || 'admin');
             }
-            putR = await storePutData(cfg, gd2.version, gd2.obj, (who && who.name) || 'admin');
           }
-        }
-        if (putR && putR.fail) console.error('md put fail', putR.fail);
-      } catch (ePut) { console.error('md put', ePut); }
+          if (putR && putR.fail) console.error('md put fail', putR.fail);
+        } catch (ePut) { console.error('md put', ePut); }
+      }
     } catch (eMd) { console.error('monthlyData sync', eMd); }
     daily = {
       code: rows[0].code,
-      fullName: rows[0].fullName,
+      fullName: rows[0].fullName || (emp0 && emp0.fullName) || '',
+      unit: (emp0 && emp0.unit) || rows[0].unit || '',
+      position: (emp0 && (emp0.position || emp0.post)) || '',
       contractType: (emp0 && emp0.contractType) || 'normal',
       schedule: {
         workStart: cal.workStart, workEnd: cal.workEnd,
