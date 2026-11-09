@@ -6034,25 +6034,35 @@ function pruneOrphanQtyKeys(monthKey, validNames) {
 }
 
 /** آیا این نام آیتم برای ماه، حداقل روی یک کارمند از نوع «تعداد خالص» است؟ */
+function isLunchItemName(name) {
+  var s = String(name || '').replace(/\u200c/g, '').replace(/\s+/g, ' ').trim();
+  s = s.replace(/^تعداد\s+/, '');
+  // حق ناهاری / کمک هزینه ناهاری / ناهار / غذا
+  return /ناهار|غذا|خوراک|غذایی/.test(s);
+}
+
 function isQtyFlatItemName(name, year, month) {
   const y = year != null ? Number(year) : Number(document.getElementById('dataYear') && document.getElementById('dataYear').value) || Number(data.settings.currentYear) || 1405;
   const m = month != null ? Number(month) : Number(document.getElementById('dataMonth') && document.getElementById('dataMonth').value) || 1;
   const nm = String(name || '').trim();
   if (!nm) return false;
   const bare = nm.replace(/^تعداد\s+/, '');
+  // حق ناهاری / کمک‌هزینه ناهار / غذا: همیشه مثل تعداد خالص پیشنهاد شوند
+  if (typeof isLunchItemName === 'function' ? isLunchItemName(nm) || isLunchItemName(bare) : /ناهار|غذا|خوراک|غذایی/.test(nm + bare)) return true;
   let found = false;
-  (data.employees || []).forEach(function(emp) {
-    (emp.customItems || []).forEach(function(ci) {
+  function scanList(list) {
+    (list || []).forEach(function(ci) {
       if (!ci || !ci.name) return;
       var cn = String(ci.name).trim();
       var cb = cn.replace(/^تعداد\s+/, '');
       if (cn !== nm && cb !== bare && cn !== bare && cb !== nm) return;
-      if (!isCustomItemInDuration(ci, y, m)) return;
+      if (typeof isCustomItemInDuration === 'function' && !isCustomItemInDuration(ci, y, m)) return;
       if (ci.entryType === 'qty_flat') { found = true; return; }
-      // ناهار/غذا حتی اگر quantity باشد مثل تعداد خالص پیشنهاد شود
       if (ci.entryType === 'quantity' && /ناهار|غذا|خوراک|غذایی/.test(cn + bare)) found = true;
     });
-  });
+  }
+  (data.employees || []).forEach(function(emp) { scanList(emp.customItems); });
+  scanList(data.customItemTemplates || []);
   return found;
 }
 
@@ -6112,6 +6122,25 @@ function empQtyItemActive(emp, name, year, month) {
     if (!isQtyType(tp)) continue;
     if (isOff(tp.enabled)) return false;
     if (!okDuration(tp)) return false;
+    return true;
+  }
+  // حق ناهاری — دائمی: فقط با enabled=false روی کارت خاموش می‌شود
+  if (typeof isLunchItemName === 'function' ? isLunchItemName(nm) : /ناهار|غذا|خوراک|غذایی/.test(nm)) {
+    for (var i2 = 0; i2 < list.length; i2++) {
+      var c2 = list[i2];
+      if (!c2 || !sameName(c2.name, nm)) continue;
+      if (isOff(c2.enabled)) return false;
+      if (!okDuration(c2)) return false;
+      return true;
+    }
+    for (var t2 = 0; t2 < tpls.length; t2++) {
+      var tp2 = tpls[t2];
+      if (!tp2 || !sameName(tp2.name, nm)) continue;
+      if (isOff(tp2.enabled)) return false;
+      if (!okDuration(tp2)) return false;
+      return true;
+    }
+    // اگر در قالب‌ها/کارت پیدا نشد ولی ستون ناهاری است، برای کارمند عادی فعال بماند
     return true;
   }
   return false;
@@ -10769,7 +10798,8 @@ function countCellView(emp, row, n, F, M) {
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
     // غیرفعال: پیشنهاد خودکار پاک شود؛ مقدار دستی کاربر نگه داشته می‌شود
-    if (row.qtyAuto && row.qtyAuto[n] === true) {
+    // حق ناهاری: هرگز مقدار auto را بی‌دلیل پاک نکن (جلوگیری از صفر شدن تکراری)
+    if (row.qtyAuto && row.qtyAuto[n] === true && !(typeof isLunchItemName === 'function' && isLunchItemName(n))) {
       delete row.qty[n];
       delete row.qtyAuto[n];
     }
@@ -10787,6 +10817,8 @@ function countCellView(emp, row, n, F, M) {
   var isFlat = isQtyFlatItemName(n, ctx.y, ctx.m);
   // جاب و رست از تایم‌شیت می‌آیند — پیشنهاد تعداد خالص روی آن‌ها اعمال نشود
   var skipAutoName = /جاب|رست/.test(String(n || ''));
+  // ناهار هرگز skip نشود
+  if (typeof isLunchItemName === 'function' ? isLunchItemName(n) : /ناهار|غذا|خوراک|غذایی/.test(String(n || ''))) { isFlat = true; skipAutoName = false; }
   var exp = (isFlat && !skipAutoName) ? countExpected(emp, row, F, M) : null;
   // only auto-fill qty_flat cells that are still on "suggested"
   if (exp !== null && (row.qty[n] === undefined || row.qty[n] === '' || row.qtyAuto[n] === true)) {
