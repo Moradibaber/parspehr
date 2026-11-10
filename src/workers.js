@@ -6342,31 +6342,61 @@ function checkRequestWindow(windows, p, nowJ) {
 /** شرح وظایف کارکنان — obj.jobDescriptions[code] = { title, duties, visible, updatedAt } */
 function defaultJobDescTemplate() {
   return [
-    '══════════════════════════════════════',
-    '           شرح وظایف کارکنان',
-    '══════════════════════════════════════',
-    'کد پرسنلی: {code}',
-    'نام و نام خانوادگی: {fullName}',
-    'سمت: {position}',
-    'واحد: {unit}',
-    'عنوان شغل: {title}',
-    '──────────────────────────────────────',
-    'شرح وظایف:',
-    '{duties}',
-    '══════════════════════════════════════'
+    '                    -نام شرکت-',
+    '════════════════════════════════════════════════',
+    '              شرح شغل فرمت ۱',
+    '════════════════════════════════════════════════',
+    'الف) شناسنامه شغل',
+    '────────────────────────────────────────────────',
+    'گروه شغلی: -گروه شغلی-',
+    'عنوان شغل: -عنوان شغل-',
+    'نوع شغل: -نوع شغل-',
+    'عنوان واحد: -عنوان واحد-',
+    'سرپرست مستقیم: -سرپرست مستقیم-',
+    '────────────────────────────────────────────────',
+    'نام: -نام-',
+    'نام خانوادگی: -نام خانوادگی-',
+    'نام و نام خانوادگی: -نام و نام خانوادگی-',
+    'کد پرسنلی: -کد پرسنلی-',
+    'کد ملی: -کد ملی-',
+    'سمت: -سمت-',
+    'واحد: -واحد-',
+    '════════════════════════════════════════════════',
+    'ب) خلاصه شغل',
+    '-خلاصه شغل-',
+    '════════════════════════════════════════════════',
+    'شرایط احراز',
+    '────────────────────────────────────────────────',
+    'تحصیلات: -تحصیلات مورد نیاز-',
+    'رشته‌های مرتبط: -رشته‌های مرتبط-',
+    'مهارت‌های لازم: -مهارت‌های لازم-',
+    'تجربه / سابقه: -تجربه مورد نیاز-',
+    'توضیحات: -توضیحات احراز-',
+    '════════════════════════════════════════════════',
+    'شرح شغل',
+    '-شرح وظایف-',
+    '════════════════════════════════════════════════'
   ].join('\n');
 }
 function normalizeJobDescItem(x) {
   if (!x || typeof x !== 'object') return null;
   const title = String(x.title || '').trim().slice(0, 200);
   const duties = String(x.duties || '').trim().slice(0, 20000);
-  if (!title && !duties) return null;
-  return {
+  if (!title && !duties && !x.extra) return null;
+  const out = {
     title: title,
     duties: duties,
     visible: x.visible !== false && x.visible !== 0 && x.visible !== '0' && x.visible !== 'false',
     updatedAt: x.updatedAt || new Date().toISOString()
   };
+  if (x.extra && typeof x.extra === 'object') {
+    const e = {};
+    ['jobGroup','jobType','unitTitle','supervisor','summary','reqEducation','reqField','reqSkills','reqExp','reqNote'].forEach(function (k) {
+      if (x.extra[k] != null && String(x.extra[k]).trim() !== '') e[k] = String(x.extra[k]).trim().slice(0, 4000);
+    });
+    if (Object.keys(e).length) out.extra = e;
+  }
+  return out;
 }
 async function handleAdminJobDescriptions(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -6474,17 +6504,62 @@ async function handleEmpJobDescription(request, env) {
   const position = (emp && emp.position) || '';
   const unit = (emp && emp.unit) || '';
   function applyTpl(tpl, m) {
-    return String(tpl || '').replace(/\{(code|fullName|position|unit|title|duties)\}/g, function (_, k) {
+    var out = String(tpl || '');
+    out = out.replace(/\{(code|fullName|position|unit|title|duties)\}/g, function (_, k) {
       return m[k] != null ? String(m[k]) : '';
     });
+    var labels = {
+      'کد پرسنلی': m.code, 'کد': m.code, 'code': m.code,
+      'نام و نام خانوادگی': m.fullName, 'fullName': m.fullName,
+      'نام': m.firstName || '', 'نام خانوادگی': m.lastName || '',
+      'کد ملی': m.nationalId || '',
+      'سمت': m.position, 'واحد': m.unit,
+      'عنوان شغل': m.title, 'title': m.title,
+      'شرح وظایف': m.duties, 'duties': m.duties,
+      'نام شرکت': m.company || '',
+      'گروه شغلی': m.jobGroup || '',
+      'نوع شغل': m.jobType || '',
+      'عنوان واحد': m.unitTitle || m.unit || '',
+      'سرپرست مستقیم': m.supervisor || '',
+      'خلاصه شغل': m.summary || '',
+      'تحصیلات مورد نیاز': m.reqEducation || '',
+      'رشته‌های مرتبط': m.reqField || '',
+      'مهارت‌های لازم': m.reqSkills || '',
+      'تجربه مورد نیاز': m.reqExp || '',
+      'توضیحات احراز': m.reqNote || ''
+    };
+    Object.keys(labels).forEach(function (lab) {
+      var re = new RegExp('-' + lab.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-', 'g');
+      out = out.replace(re, labels[lab] != null ? String(labels[lab]) : '');
+    });
+    return out;
   }
+  const firstName = (emp && (emp.firstName || '')) || '';
+  const lastName = (emp && (emp.lastName || '')) || '';
+  const nationalId = (emp && (emp.nationalId || '')) || '';
+  const company = (gd.obj && gd.obj.settings && (gd.obj.settings.companyName || gd.obj.settings.company || '')) || '';
+  const extra = (jd && jd.extra && typeof jd.extra === 'object') ? jd.extra : {};
   const rendered = applyTpl(template, {
     code: code,
     fullName: fullName,
+    firstName: firstName,
+    lastName: lastName,
+    nationalId: nationalId,
     position: position,
     unit: unit,
     title: jd.title || '',
-    duties: jd.duties || ''
+    duties: jd.duties || '',
+    company: company,
+    jobGroup: extra.jobGroup || '',
+    jobType: extra.jobType || '',
+    unitTitle: extra.unitTitle || unit,
+    supervisor: extra.supervisor || '',
+    summary: extra.summary || '',
+    reqEducation: extra.reqEducation || '',
+    reqField: extra.reqField || '',
+    reqSkills: extra.reqSkills || '',
+    reqExp: extra.reqExp || '',
+    reqNote: extra.reqNote || ''
   });
   return jsonResponse({
     ok: true,
