@@ -487,6 +487,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
           if (prev.obj.settings && prev.obj.settings.jobDescTemplate != null) {
             if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
             if (obj.settings.jobDescTemplate == null) obj.settings.jobDescTemplate = prev.obj.settings.jobDescTemplate;
+            if (obj.settings.jobDescShow == null && prev.obj.settings.jobDescShow != null) obj.settings.jobDescShow = prev.obj.settings.jobDescShow;
           }
         }
         // نوع قرارداد و تقویم قرارداد: اگر کلاینت (فرم اصلی) لیست ناقص فرستاد، لیست کامل سرور حفظ شود
@@ -6398,6 +6399,40 @@ function normalizeJobDescItem(x) {
   }
   return out;
 }
+
+function defaultJobDescShow() {
+  return {
+    company: true,
+    jobGroup: true,
+    title: true,
+    jobType: true,
+    unitTitle: true,
+    supervisor: true,
+    position: true,
+    firstName: true,
+    lastName: true,
+    fullName: true,
+    code: true,
+    nationalId: true,
+    unit: true,
+    summary: true,
+    reqEducation: true,
+    reqField: true,
+    reqSkills: true,
+    reqExp: true,
+    reqNote: true,
+    duties: true
+  };
+}
+function normalizeJobDescShow(raw) {
+  const d = defaultJobDescShow();
+  if (!raw || typeof raw !== 'object') return d;
+  Object.keys(d).forEach(function (k) {
+    if (raw[k] != null) d[k] = !!raw[k];
+  });
+  return d;
+}
+
 async function handleAdminJobDescriptions(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -6420,10 +6455,12 @@ async function handleAdminJobDescriptions(request, who, env) {
         duties: jd ? (jd.duties || '') : '',
         visible: jd ? (jd.visible !== false) : false,
         has: !!(jd && (jd.title || jd.duties)),
+        extra: jd && jd.extra && typeof jd.extra === 'object' ? jd.extra : {},
         updatedAt: jd ? (jd.updatedAt || '') : ''
       };
     });
-    return jsonResponse({ ok: true, list: list, template: template, columns: ['code', 'title', 'duties', 'visible'] });
+    const show = normalizeJobDescShow(gd.obj && gd.obj.settings && gd.obj.settings.jobDescShow);
+    return jsonResponse({ ok: true, list: list, template: template, show: show, columns: ['code', 'title', 'duties', 'visible'] });
   }
   if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   const r = await readBody(request);
@@ -6437,6 +6474,9 @@ async function handleAdminJobDescriptions(request, who, env) {
     if (!gd.obj.settings || typeof gd.obj.settings !== 'object') gd.obj.settings = {};
     if (typeof body.template === 'string') {
       gd.obj.settings.jobDescTemplate = body.template.slice(0, 50000);
+    }
+    if (body.show && typeof body.show === 'object') {
+      gd.obj.settings.jobDescShow = normalizeJobDescShow(body.show);
     }
     if (Array.isArray(body.items)) {
       body.items.forEach(function (it) {
@@ -6561,6 +6601,7 @@ async function handleEmpJobDescription(request, env) {
     reqExp: extra.reqExp || '',
     reqNote: extra.reqNote || ''
   });
+  const show = normalizeJobDescShow(gd.obj && gd.obj.settings && gd.obj.settings.jobDescShow);
   return jsonResponse({
     ok: true,
     available: true,
@@ -6584,6 +6625,7 @@ async function handleEmpJobDescription(request, env) {
     reqSkills: extra.reqSkills || '',
     reqExp: extra.reqExp || '',
     reqNote: extra.reqNote || '',
+    show: show,
     rendered: rendered,
     updatedAt: jd.updatedAt || ''
   });
@@ -10970,67 +11012,69 @@ async function loadJobdesc(){
   var box=document.getElementById('jobdescBox'); if(!box) return;
   box.innerHTML='<div class="sub">در حال بارگذاری…</div>';
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-  function cell(lab,val){return '<div class="jd-cell"><span class="jd-lab">'+esc(lab)+'</span><span class="jd-val">'+esc(val||'—')+'</span></div>';}
   try{
     var r=await fetch('/api/emp/job-description?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});
     var j=await r.json();
-    if(!j||!j.ok){ box.innerHTML='<div class="sub">خطا در دریافت شرح وظایف.</div>'; return; }
-    if(!j.available){ box.innerHTML='<div class="sub">'+(j.message||'شرح وظایفی ثبت نشده است.')+'</div>'; return; }
+    if(!j||!j.ok){ box.innerHTML='<div class="sub">خطا در دریافت شرح شغل.</div>'; return; }
+    if(!j.available){ box.innerHTML='<div class="sub">'+(j.message||'شرح شغلی ثبت نشده است.')+'</div>'; return; }
+    var sh=j.show||{};
+    function on(k){ return sh[k]==null ? true : !!sh[k]; }
+    function row(lab,val,key){
+      if(key && !on(key)) return '';
+      if(val==null || String(val).trim()==='') return '';
+      return '<div class="jd-row"><span class="jd-lab">'+esc(lab)+':</span> <span class="jd-val">'+esc(val)+'</span></div>';
+    }
     var duties=String(j.duties||'').trim();
     var dutiesHtml='';
-    if(duties){
+    if(on('duties') && duties){
       var lines=duties.split(/\\n+/).map(function(x){return x.trim();}).filter(Boolean);
       dutiesHtml='<ol class="jd-duties">'+lines.map(function(ln){
         var t=ln.replace(/^[۰-۹0-9]+[\\-\\.\\)]\\s*/,'');
         return '<li>'+esc(t||ln)+'</li>';
       }).join('')+'</ol>';
-    } else dutiesHtml='<div class="sub">—</div>';
+    }
     var html='<style>'
-      +'.jd-sheet{box-sizing:border-box;width:100%;max-width:100%;margin:0 auto;border:1px solid #94a3b8;border-radius:10px;overflow:hidden;background:#fff;font-size:0.82rem;line-height:1.7;}'
+      +'.jd-sheet{box-sizing:border-box;width:100%;max-width:100%;border:1px solid #94a3b8;border-radius:8px;overflow:hidden;background:#fff;font-size:0.8rem;line-height:1.55;}'
       +'.jd-sheet *{box-sizing:border-box;}'
-      +'.jd-head{text-align:center;font-weight:800;color:#0f766e;padding:10px 12px;background:linear-gradient(90deg,#ecfdf5,#f0fdfa);border-bottom:2px solid #0f766e;font-size:0.95rem;}'
-      +'.jd-subhead{text-align:center;font-weight:700;padding:8px;background:#f8fafc;border-bottom:1px solid #cbd5e1;color:#334155;}'
-      +'.jd-sec{font-weight:700;color:#0f766e;padding:8px 10px;background:#ecfdf5;border-top:1px solid #99f6e4;border-bottom:1px solid #99f6e4;}'
-      +'.jd-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;}'
-      +'.jd-cell{padding:8px 10px;border-bottom:1px solid #e2e8f0;border-left:1px solid #e2e8f0;min-width:0;}'
-      +'.jd-cell:nth-child(2n){border-left:0;}'
-      +'.jd-lab{display:block;font-size:0.72rem;color:#64748b;margin-bottom:2px;}'
-      +'.jd-val{display:block;font-weight:600;color:#0f172a;word-wrap:break-word;overflow-wrap:anywhere;}'
-      +'.jd-block{padding:10px;border-bottom:1px solid #e2e8f0;}'
-      +'.jd-duties{margin:0;padding:0 0 0 1.2rem;}'
-      +'.jd-duties li{margin:0 0 6px;padding:0;}'
-      +'@media (max-width:640px){.jd-grid{grid-template-columns:1fr;}.jd-cell{border-left:0;}.jd-sheet{font-size:0.8rem;border-radius:8px;}.jd-head{font-size:0.88rem;padding:8px;}}'
-      +'</style>';
-    html+='<div class="jd-sheet">';
-    html+='<div class="jd-head">'+esc(j.company||'شرح شغل')+'</div>';
-    html+='<div class="jd-subhead">شرح شغل فرمت ۱</div>';
-    html+='<div class="jd-sec">الف) شناسنامه شغل</div>';
-    html+='<div class="jd-grid">';
-    html+=cell('گروه شغلی',j.jobGroup);
-    html+=cell('عنوان شغل',j.title);
-    html+=cell('نوع شغل',j.jobType);
-    html+=cell('عنوان واحد',j.unitTitle||j.unit);
-    html+=cell('سرپرست مستقیم',j.supervisor);
-    html+=cell('سمت',j.position);
-    html+=cell('نام',j.firstName);
-    html+=cell('نام خانوادگی',j.lastName);
-    html+=cell('نام و نام خانوادگی',j.fullName);
-    html+=cell('کد پرسنلی',j.code);
-    html+=cell('کد ملی',j.nationalId);
-    html+=cell('واحد',j.unit);
+      +'.jd-head{text-align:center;font-weight:800;color:#0f766e;padding:8px 10px;background:#ecfdf5;border-bottom:1px solid #99f6e4;font-size:0.9rem;}'
+      +'.jd-sec{font-weight:700;color:#0f766e;padding:5px 8px;background:#f0fdfa;border-top:1px solid #e2e8f0;font-size:0.78rem;}'
+      +'.jd-body{padding:6px 8px;display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;}'
+      +'.jd-row{min-width:0;padding:2px 0;}'
+      +'.jd-lab{color:#64748b;font-size:0.72rem;white-space:nowrap;}'
+      +'.jd-val{font-weight:600;color:#0f172a;word-break:break-word;}'
+      +'.jd-block{padding:6px 8px;border-top:1px solid #f1f5f9;}'
+      +'.jd-duties{margin:4px 0 0;padding:0 0 0 1.15rem;}'
+      +'.jd-duties li{margin:0 0 3px;}'
+      +'@media (max-width:560px){.jd-body{grid-template-columns:1fr;}.jd-sheet{font-size:0.78rem;}}'
+      +'</style><div class="jd-sheet">';
+    if(on('company') && j.company) html+='<div class="jd-head">'+esc(j.company)+'</div>';
+    else html+='<div class="jd-head">شرح شغل</div>';
+    html+='<div class="jd-sec">شناسنامه شغل</div><div class="jd-body">';
+    html+=row('گروه شغلی',j.jobGroup,'jobGroup');
+    html+=row('عنوان شغل',j.title,'title');
+    html+=row('نوع شغل',j.jobType,'jobType');
+    html+=row('عنوان واحد',j.unitTitle||j.unit,'unitTitle');
+    html+=row('سرپرست مستقیم',j.supervisor,'supervisor');
+    html+=row('سمت',j.position,'position');
+    html+=row('نام',j.firstName,'firstName');
+    html+=row('نام خانوادگی',j.lastName,'lastName');
+    html+=row('نام و نام خانوادگی',j.fullName,'fullName');
+    html+=row('کد پرسنلی',j.code,'code');
+    html+=row('کد ملی',j.nationalId,'nationalId');
+    html+=row('واحد',j.unit,'unit');
     html+='</div>';
-    html+='<div class="jd-sec">ب) خلاصه شغل</div>';
-    html+='<div class="jd-block">'+esc(j.summary||'—')+'</div>';
-    html+='<div class="jd-sec">شرایط احراز</div>';
-    html+='<div class="jd-grid">';
-    html+=cell('تحصیلات',j.reqEducation);
-    html+=cell('رشته‌های مرتبط',j.reqField);
-    html+=cell('مهارت‌های لازم',j.reqSkills);
-    html+=cell('تجربه / سابقه',j.reqExp);
-    html+='</div>';
-    if(j.reqNote) html+='<div class="jd-block"><span class="jd-lab">توضیحات</span><span class="jd-val">'+esc(j.reqNote)+'</span></div>';
-    html+='<div class="jd-sec">شرح شغل</div>';
-    html+='<div class="jd-block">'+dutiesHtml+'</div>';
+    if(on('summary') && j.summary){ html+='<div class="jd-sec">خلاصه شغل</div><div class="jd-block">'+esc(j.summary)+'</div>'; }
+    var hasReq = (on('reqEducation')&&j.reqEducation)||(on('reqField')&&j.reqField)||(on('reqSkills')&&j.reqSkills)||(on('reqExp')&&j.reqExp)||(on('reqNote')&&j.reqNote);
+    if(hasReq){
+      html+='<div class="jd-sec">شرایط احراز</div><div class="jd-body">';
+      html+=row('تحصیلات',j.reqEducation,'reqEducation');
+      html+=row('رشته‌های مرتبط',j.reqField,'reqField');
+      html+=row('مهارت‌های لازم',j.reqSkills,'reqSkills');
+      html+=row('تجربه / سابقه',j.reqExp,'reqExp');
+      html+='</div>';
+      if(on('reqNote')&&j.reqNote) html+='<div class="jd-block">'+esc(j.reqNote)+'</div>';
+    }
+    if(dutiesHtml){ html+='<div class="jd-sec">شرح وظایف</div><div class="jd-block">'+dutiesHtml+'</div>'; }
     html+='</div>';
     box.innerHTML=html;
   }catch(e){ box.innerHTML='<div class="sub">خطا در ارتباط با سرور.</div>'; }
