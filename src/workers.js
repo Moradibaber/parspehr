@@ -488,6 +488,7 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
             if (obj.settings.jobDescTemplate == null) obj.settings.jobDescTemplate = prev.obj.settings.jobDescTemplate;
             if (obj.settings.jobDescShow == null && prev.obj.settings.jobDescShow != null) obj.settings.jobDescShow = prev.obj.settings.jobDescShow;
+            if (obj.settings.jobDescCustomFields == null && prev.obj.settings.jobDescCustomFields != null) obj.settings.jobDescCustomFields = prev.obj.settings.jobDescCustomFields;
           }
         }
         // نوع قرارداد و تقویم قرارداد: اگر کلاینت (فرم اصلی) لیست ناقص فرستاد، لیست کامل سرور حفظ شود
@@ -6395,6 +6396,14 @@ function normalizeJobDescItem(x) {
     ['jobGroup','jobType','unitTitle','supervisor','summary','reqEducation','reqField','reqSkills','reqExp','reqNote'].forEach(function (k) {
       if (x.extra[k] != null && String(x.extra[k]).trim() !== '') e[k] = String(x.extra[k]).trim().slice(0, 4000);
     });
+    if (x.extra.custom && typeof x.extra.custom === 'object') {
+      const c = {};
+      Object.keys(x.extra.custom).slice(0, 40).forEach(function (k) {
+        const v = x.extra.custom[k];
+        if (v != null && String(v).trim() !== '') c[String(k).slice(0, 40)] = String(v).trim().slice(0, 4000);
+      });
+      if (Object.keys(c).length) e.custom = c;
+    }
     if (Object.keys(e).length) out.extra = e;
   }
   return out;
@@ -6433,6 +6442,28 @@ function normalizeJobDescShow(raw) {
   return d;
 }
 
+function normalizeJobDescCustomFields(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const seen = {};
+  raw.forEach(function (f, i) {
+    if (!f || typeof f !== 'object') return;
+    let id = String(f.id || '').trim().slice(0, 40);
+    const label = String(f.label || '').trim().slice(0, 80);
+    if (!label) return;
+    if (!id) id = 'c' + i + '_' + label.replace(/\s+/g, '_').slice(0, 20);
+    if (seen[id]) return;
+    seen[id] = true;
+    out.push({
+      id: id,
+      label: label,
+      placeBefore: String(f.placeBefore || '').trim().slice(0, 40),
+      show: f.show !== false && f.show !== 0 && f.show !== '0'
+    });
+  });
+  return out.slice(0, 40);
+}
+
 async function handleAdminJobDescriptions(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   const cfg = storeConfig(env);
@@ -6460,7 +6491,8 @@ async function handleAdminJobDescriptions(request, who, env) {
       };
     });
     const show = normalizeJobDescShow(gd.obj && gd.obj.settings && gd.obj.settings.jobDescShow);
-    return jsonResponse({ ok: true, list: list, template: template, show: show, columns: ['code', 'title', 'duties', 'visible'] });
+    const customFields = normalizeJobDescCustomFields(gd.obj && gd.obj.settings && gd.obj.settings.jobDescCustomFields);
+    return jsonResponse({ ok: true, list: list, template: template, show: show, customFields: customFields, columns: ['code', 'title', 'duties', 'visible'] });
   }
   if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
   const r = await readBody(request);
@@ -6477,6 +6509,9 @@ async function handleAdminJobDescriptions(request, who, env) {
     }
     if (body.show && typeof body.show === 'object') {
       gd.obj.settings.jobDescShow = normalizeJobDescShow(body.show);
+    }
+    if (Array.isArray(body.customFields)) {
+      gd.obj.settings.jobDescCustomFields = normalizeJobDescCustomFields(body.customFields);
     }
     if (Array.isArray(body.items)) {
       body.items.forEach(function (it) {
@@ -6574,8 +6609,20 @@ async function handleEmpJobDescription(request, env) {
     });
     return out;
   }
-  const firstName = (emp && (emp.firstName || '')) || '';
-  const lastName = (emp && (emp.lastName || '')) || '';
+  let firstName = (emp && (emp.firstName || '')) || '';
+  let lastName = (emp && (emp.lastName || '')) || '';
+  if (fullName && (!firstName || (firstName && lastName && (firstName + ' ' + lastName) !== fullName && firstName === fullName))) {
+    // اگر firstName همان نام کامل است یا خالی است، از fullName جدا کن
+  }
+  if (fullName) {
+    const parts = String(fullName).trim().split(/\s+/);
+    if (!firstName || firstName === fullName) {
+      firstName = parts[0] || '';
+      if (!lastName) lastName = parts.slice(1).join(' ');
+    } else if (!lastName && parts.length > 1 && firstName === parts[0]) {
+      lastName = parts.slice(1).join(' ');
+    }
+  }
   const nationalId = (emp && (emp.nationalId || '')) || '';
   const company = (gd.obj && gd.obj.settings && (gd.obj.settings.companyName || gd.obj.settings.company || '')) || '';
   const extra = (jd && jd.extra && typeof jd.extra === 'object') ? jd.extra : {};
@@ -6626,6 +6673,8 @@ async function handleEmpJobDescription(request, env) {
     reqExp: extra.reqExp || '',
     reqNote: extra.reqNote || '',
     show: show,
+    customFields: normalizeJobDescCustomFields(gd.obj && gd.obj.settings && gd.obj.settings.jobDescCustomFields),
+    custom: (extra.custom && typeof extra.custom === 'object') ? extra.custom : {},
     rendered: rendered,
     updatedAt: jd.updatedAt || ''
   });
@@ -11019,18 +11068,71 @@ async function loadJobdesc(){
     if(!j.available){ box.innerHTML='<div class="sub">'+(j.message||'شرح شغلی ثبت نشده است.')+'</div>'; return; }
     var sh=j.show||{};
     function on(k){ return sh[k]==null ? true : !!sh[k]; }
+    var fn=String(j.firstName||'').trim();
+    var ln=String(j.lastName||'').trim();
+    var full=String(j.fullName||'').trim();
+    if(full){
+      var parts=full.split(/\s+/);
+      if(!fn || fn===full){ fn=parts[0]||''; if(!ln) ln=parts.slice(1).join(' '); }
+    }
     function row(lab,val,key){
       if(key && !on(key)) return '';
       if(val==null || String(val).trim()==='') return '';
-      return '<div class="jd-row"><span class="jd-lab">'+esc(lab)+':</span> <span class="jd-val">'+esc(val)+'</span></div>';
+      return '<div class="jd-row" data-k="'+esc(key||'')+'"><span class="jd-lab">'+esc(lab)+':</span> <span class="jd-val">'+esc(val)+'</span></div>';
+    }
+    var fixed=[
+      ['jobGroup','گروه شغلی',j.jobGroup],
+      ['title','عنوان شغل',j.title],
+      ['jobType','نوع شغل',j.jobType],
+      ['unitTitle','عنوان واحد',j.unitTitle||j.unit],
+      ['supervisor','سرپرست مستقیم',j.supervisor],
+      ['position','سمت',j.position],
+      ['firstName','نام',fn],
+      ['lastName','نام خانوادگی',ln],
+      ['fullName','نام و نام خانوادگی',full],
+      ['code','کد پرسنلی',j.code],
+      ['nationalId','کد ملی',j.nationalId],
+      ['unit','واحد',j.unit]
+    ];
+    var customs=Array.isArray(j.customFields)?j.customFields:[];
+    var customVals=j.custom||{};
+    // build ordered identity rows with custom field insertion
+    function buildSectionRows(keysSet){
+      var html='';
+      var usedCustom={};
+      fixed.forEach(function(item){
+        var k=item[0];
+        // customs that place before this key
+        customs.forEach(function(cf){
+          if(usedCustom[cf.id]) return;
+          if(String(cf.placeBefore||'')===k && cf.show!==false){
+            var v=customVals[cf.id];
+            if(v!=null && String(v).trim()!==''){
+              html+='<div class="jd-row"><span class="jd-lab">'+esc(cf.label)+':</span> <span class="jd-val">'+esc(v)+'</span></div>';
+            }
+            usedCustom[cf.id]=true;
+          }
+        });
+        html+=row(item[1],item[2],k);
+      });
+      // customs without placeBefore or unmatched — append
+      customs.forEach(function(cf){
+        if(usedCustom[cf.id]) return;
+        if(cf.show===false) return;
+        var v=customVals[cf.id];
+        if(v!=null && String(v).trim()!==''){
+          html+='<div class="jd-row"><span class="jd-lab">'+esc(cf.label)+':</span> <span class="jd-val">'+esc(v)+'</span></div>';
+        }
+      });
+      return html;
     }
     var duties=String(j.duties||'').trim();
     var dutiesHtml='';
     if(on('duties') && duties){
       var lines=duties.split(/\\n+/).map(function(x){return x.trim();}).filter(Boolean);
-      dutiesHtml='<ol class="jd-duties">'+lines.map(function(ln){
-        var t=ln.replace(/^[۰-۹0-9]+[\\-\\.\\)]\\s*/,'');
-        return '<li>'+esc(t||ln)+'</li>';
+      dutiesHtml='<ol class="jd-duties">'+lines.map(function(ln0){
+        var t=ln0.replace(/^[۰-۹0-9]+[\\-\\.\\)]\\s*/,'');
+        return '<li>'+esc(t||ln0)+'</li>';
       }).join('')+'</ol>';
     }
     var html='<style>'
@@ -11049,20 +11151,7 @@ async function loadJobdesc(){
       +'</style><div class="jd-sheet">';
     if(on('company') && j.company) html+='<div class="jd-head">'+esc(j.company)+'</div>';
     else html+='<div class="jd-head">شرح شغل</div>';
-    html+='<div class="jd-sec">شناسنامه شغل</div><div class="jd-body">';
-    html+=row('گروه شغلی',j.jobGroup,'jobGroup');
-    html+=row('عنوان شغل',j.title,'title');
-    html+=row('نوع شغل',j.jobType,'jobType');
-    html+=row('عنوان واحد',j.unitTitle||j.unit,'unitTitle');
-    html+=row('سرپرست مستقیم',j.supervisor,'supervisor');
-    html+=row('سمت',j.position,'position');
-    html+=row('نام',j.firstName,'firstName');
-    html+=row('نام خانوادگی',j.lastName,'lastName');
-    html+=row('نام و نام خانوادگی',j.fullName,'fullName');
-    html+=row('کد پرسنلی',j.code,'code');
-    html+=row('کد ملی',j.nationalId,'nationalId');
-    html+=row('واحد',j.unit,'unit');
-    html+='</div>';
+    html+='<div class="jd-sec">شناسنامه شغل</div><div class="jd-body">'+buildSectionRows()+'</div>';
     if(on('summary') && j.summary){ html+='<div class="jd-sec">خلاصه شغل</div><div class="jd-block">'+esc(j.summary)+'</div>'; }
     var hasReq = (on('reqEducation')&&j.reqEducation)||(on('reqField')&&j.reqField)||(on('reqSkills')&&j.reqSkills)||(on('reqExp')&&j.reqExp)||(on('reqNote')&&j.reqNote);
     if(hasReq){
