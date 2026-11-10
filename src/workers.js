@@ -10979,9 +10979,9 @@ async function loadJobdesc(){
     var duties=String(j.duties||'').trim();
     var dutiesHtml='';
     if(duties){
-      var lines=duties.split(/\n+/).map(function(x){return x.trim();}).filter(Boolean);
+      var lines=duties.split(/\\n+/).map(function(x){return x.trim();}).filter(Boolean);
       dutiesHtml='<ol class="jd-duties">'+lines.map(function(ln){
-        var t=ln.replace(/^[۰-۹0-9]+[\-\.\)]\s*/,'');
+        var t=ln.replace(/^[۰-۹0-9]+[\\-\\.\\)]\\s*/,'');
         return '<li>'+esc(t||ln)+'</li>';
       }).join('')+'</ol>';
     } else dutiesHtml='<div class="sub">—</div>';
