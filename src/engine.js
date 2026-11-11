@@ -30,7 +30,7 @@ return 29;
 
 function parseJalali(str) {
 if (!str) return null;
-const p = str.replace(///g,'-').split('-').map(Number);
+const p = str.replace(/\//g,'-').split('-').map(Number);
 if (p.length < 3) return null;
 return { y:p[0], m:p[1], d:p[2] };
 }
@@ -80,20 +80,20 @@ function getActiveEmployees() { return data.employees.filter(e => e.status !== '
 function nameStartsWithDeductionOrArrears(name) {
 const n = String(name || '').trim();
 if (!n) return false;
-// شروع با یکی از این کلمات + جداکننده یا پایان رشته
-return /^(کسورات|کسر|معوقه)(?=$`|[\s()[]{}-\–\—_/،,.:：])/.test(n);
+// شروع با کسورات / کسر / معوقه
+return /^(کسورات|کسر|معوقه)(?=$|[^\u0600-\u06FFa-zA-Z0-9])/.test(n);
 }
 
 function isNameDeductionItem(name) {
 const n = String(name || '').trim();
 if (!n) return false;
-return /^(کسورات|کسر)(?=`$|[\s()[]{}-\–\—_/،,.:：])/.test(n);
+return /^(کسورات|کسر)(?=$|[^\u0600-\u06FFa-zA-Z0-9])/.test(n);
 }
 
 function isNameArrearsItem(name) {
 const n = String(name || '').trim();
 if (!n) return false;
-return /^معوقه(?=$`|[\s()[]{}-\–\—_/،,.:：])/.test(n);
+return /^معوقه(?=$|[^\u0600-\u06FFa-zA-Z0-9])/.test(n);
 }
 
 function isDeductionOrArrearsItem(ci) {
@@ -329,16 +329,16 @@ if (h.subjectEid !== false) eidSum += amt;
 return { decreeSum: decreeSum, eidSum: eidSum };
 }
 
-/** فرمول ساده و امن: فقط اعداد و + - * / ( ) و متغیرهای مجاز /
+/** فرمول ساده و امن: فقط اعداد و + - * / ( ) و متغیرهای مجاز */
 function evalSimpleFormula(expr, vars) {
 if (!expr || !String(expr).trim()) return null;
 let e = String(expr).trim();
 // جایگزینی متغیرها
-e = e.replace(/[A-Za-z_][A-Za-z0-9_]/g, function(name) {
+e = e.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function(name) {
 if (Object.prototype.hasOwnProperty.call(vars, name)) return String(Number(vars[name]) || 0);
 return '0';
 });
-if (!/^[0-9.\s+-*/()]+`$/.test(e)) return null;
+if (!/^[0-9.\s+\-*/()]+$/.test(e)) return null;
 try {
 const v = Function('"use strict"; return (' + e + ');')();
 if (typeof v !== 'number' || !isFinite(v)) return null;
@@ -595,10 +595,10 @@ return Math.max(0, Math.min(baseMax, monthDays - specialDays));
 }
 
 /**
-• اضافه‌کار / شب‌کاری / نوبت‌کاری یک ماه با «حقوق پایه» دلخواه.
-• دقیقاً همان فرمول runMonth است (تا معوقه با فیش ماه یکسان باشد).
-• workDays: کارکرد مؤثر ماه (پس از سقف‌ها).
-/
+ * اضافه‌کار / شب‌کاری / نوبت‌کاری یک ماه با «حقوق پایه» دلخواه.
+ * دقیقاً همان فرمول runMonth است (تا معوقه با فیش ماه یکسان باشد).
+ * workDays: کارکرد مؤثر ماه (پس از سقف‌ها).
+ */
 function parseHoursValue(v) {
 if (v == null || v === '') return 0;
 if (typeof v === 'number' && isFinite(v)) return v;
