@@ -9006,10 +9006,14 @@ async function handleAdminGetCurrentMonth(request, who, env) {
         if (!cy) cy = jy;
         if (!cm) cm = jm;
         // اگر settings روی فروردین مانده ولی تقویم واقعی بعد از فروردین است، ماه واقعی
-        if (!s.monthLocked && jm && cm === 1 && jm !== 1) {
+        // settings گیرکرده روی فروردین → ماه واقعی (مگر قفل صریح)
+        if (s.monthLocked !== true && jm && cm === 1 && jm !== 1) {
           cm = jm;
           if (jy) cy = jy;
         }
+        // اگر اصلاً ماه settings نداشت
+        if (!cm && jm) cm = jm;
+        if (!cy && jy) cy = jy;
       }
     }
   } catch (eJ) {}
