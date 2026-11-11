@@ -6157,42 +6157,65 @@ async function handleAdminTimesheet(request, who, env) {
       if (m && Number(m[1]) === year && Number(m[2]) === month) md = gd.obj.monthlyData[k] || md;
     });
   }
-  // مسیر سبک برای «انتقال از تایم‌شیت» — بدون recount سنگین (جلوگیری از 503)
+  // انتقال از تایم‌شیت: حتماً از dailyAttendance دوباره پر شود (قبلاً فقط monthlyData کهنه برمی‌گشت → کارکرد ۹ و ...)
   const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true));
   if (light) {
     const rowsLight = [];
+    let cellsTouched = 0;
+    if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
+    const mdKey = year + '-' + month;
+    if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
     (gd.obj.employees || []).forEach(function (emp) {
       if (!emp || emp.status === 'inactive') return;
-      if (filterCode && String(emp.code) !== filterCode) return;
+      if (filterCode && String(emp.code) !== String(filterCode)) return;
       if (filterUnit && String(emp.unit || '') !== filterUnit) return;
       if (filterManager && String(emp.managerCode || '') !== filterManager) return;
       const code = String(emp.code);
-      let row = md[code] || md[emp.code] || null;
-      if (!row) {
-        const ks = Object.keys(md);
-        for (let i = 0; i < ks.length; i++) {
-          if (String(ks[i]) === code) { row = md[ks[i]]; break; }
-        }
+      let filled = null;
+      try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eFill) { filled = null; }
+      const row = filled || gd.obj.monthlyData[mdKey][code] || {};
+      if (filled) {
+        gd.obj.monthlyData[mdKey][code] = Object.assign({}, gd.obj.monthlyData[mdKey][code] || {}, filled);
+        cellsTouched++;
       }
-      row = row || {};
-      const qty = row.qty || {};
       function num(v) { v = Number(v); return isNaN(v) ? 0 : v; }
       rowsLight.push({
         code: emp.code,
         fullName: emp.fullName || '',
         unit: emp.unit || '',
-        workDays: num(row.workDays != null ? row.workDays : (qty['روز کارکرد'] || qty['کارکرد'])),
-        leaveDays: num(row.leaveDays != null ? row.leaveDays : (qty['روز مرخصی'] || qty['مرخصی روزانه'])),
-        hourlyLeave: num(row.hourlyLeave != null ? row.hourlyLeave : qty['مرخصی ساعتی']),
-        missionDays: num(row.missionDays != null ? row.missionDays : (qty['تعداد مأموریت روزانه'] || qty['مأموریت روزانه'])),
-        missionHours: num(row.missionHours != null ? row.missionHours : (qty['ساعت مأموریت'] || qty['مأموریت ساعتی'])),
-        otHours: row.otHours != null ? row.otHours : (qty['ساعات اضافه‌کار'] || qty['اضافه‌کار'] || '00:00'),
-        nightHours: row.nightHours != null ? row.nightHours : (qty['ساعات شب‌کاری'] || qty['شب‌کاری'] || '00:00'),
-        hourlyAbsenceHours: num(row.hourlyAbsenceHours != null ? row.hourlyAbsenceHours : qty['غیبت ساعتی']),
+        workDays: num(row.workDays),
+        leaveDays: num(row.leaveDays),
+        hourlyLeave: num(row.hourlyLeave),
+        missionDays: num(row.missionDays),
+        missionHours: num(row.missionHours),
+        otHours: row.otHours != null ? row.otHours : 0,
+        nightHours: row.nightHours != null ? row.nightHours : 0,
+        hourlyAbsenceHours: num(row.hourlyAbsenceHours),
+        absenceDays: num(row.absenceDays),
+        punchDays: num(row.punchDays),
+        qty: row.qty || {},
         childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
       });
     });
-    return jsonResponse({ ok: true, year: year, month: month, rows: rowsLight, light: true });
+    // ذخیره روی سرور تا فیش همان کارکرد را ببیند (نه مقدار کهنه ۹)
+    let saved = false;
+    try {
+      const put = await storePutData(cfg, gd.version, gd.obj, (who && who.name) ? ('ts-transfer:' + who.name) : 'ts-transfer');
+      if (put && !put.fail && !put.conflict) saved = true;
+    } catch (ePut) {}
+    return jsonResponse({
+      ok: true,
+      year: year,
+      month: month,
+      rows: rowsLight,
+      light: true,
+      transferred: cellsTouched,
+      cells: cellsTouched,
+      saved: saved,
+      message: saved
+        ? ('منتقل و ذخیره شد (' + cellsTouched + ' نفر)')
+        : ('منتقل شد (' + cellsTouched + ' نفر) — ذخیره را بزنید')
+    });
   }
   const reqs = gd.obj.attendanceRequests || [];
   const rows = [];
