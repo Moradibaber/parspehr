@@ -4243,9 +4243,9 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     } catch (eC) {}
   });
 
-  // کارکرد = تعداد روزهای کاری که فعالیت (تردد/مرخصی/مأموریت) دارند
-  // نه «همه روزهای تقویم − غیبت» که باعث می‌شد تعطیل‌ها به‌عنوان کارکرد شمرده شوند
-  let wd = 0;
+  // کارکرد = روزهای تقویم ماه (در بازه استخدام) − فقط غیبت
+  // پنجشنبه/جمعه و تعطیل هم جزو کارکرد هستند؛ فقط روز موظفیِ بدون حضور/مرخصی/مأموریت = غیبت
+  const baseDays = toD - fromD + 1;
   let absence = 0;
   for (let d = fromD; d <= toD; d++) {
     let nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
@@ -4255,10 +4255,11 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
         nonWork = false;
       }
     }
+    // تعطیل هفتگی/رسمی غیبت نیست
     if (nonWork) continue;
-    if (dayActivity[d]) wd++;
-    else absence++;
+    if (!dayActivity[d]) absence++;
   }
+  const wd = Math.max(0, baseDays - absence);
   return Math.max(0, Math.round(wd * 100) / 100);
 }
 
@@ -4598,20 +4599,17 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   if (!row) return;
   if (!row.qty) row.qty = {};
-  // همیشه رست قبلی را پاک کن
+  // همیشه همه کلیدهای رست را صفر کن
   Object.keys(row.qty).forEach(function (k) {
-    if (String(k).indexOf('رست') >= 0) delete row.qty[k];
+    if (String(k).indexOf('رست') >= 0) row.qty[k] = 0;
   });
-  function isRestLabel(s) {
-    s = String(s || '').replace(/\u200c/g, ' ').trim();
+  function isExplicitRestOnly(s) {
+    s = String(s || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
     if (!s) return false;
-    // هر نوع مرخصی / استحقاق / استعلاج / بدون‌حقوق = رست نیست
-    if (s.indexOf('استحقاق') >= 0) return false;
-    if (s.indexOf('استعلاج') >= 0) return false;
-    if (s.indexOf('بدون حقوق') >= 0 || s.indexOf('بدون‌حقوق') >= 0) return false;
-    if (s.indexOf('مرخص') >= 0) return false; // مرخصی هرگز رست نیست مگر کلمه رست جدا باشد
-    if (s.indexOf('غیبت') >= 0 || s.indexOf('غایب') >= 0) return false;
-    return s.indexOf('رست') >= 0 || /\brest\b/i.test(s);
+    // هر مرخصی/استحقاق/استعلاج/غیبت/مأموریت = رست نیست
+    if (/مرخص|استحقاق|استعلاج|بدون\s*حقوق|غیبت|غایب|مأمور|مامور|mission|leave/i.test(s)) return false;
+    // فقط وقتی کلمه رست (یا rest) هست
+    return (s.indexOf('رست') >= 0) || /\brest\b/i.test(s);
   }
   function approved(st) {
     st = String(st || '').toLowerCase();
@@ -4626,20 +4624,18 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     if (emp && emp.contractType) ct = emp.contractType;
   } catch (e0) {}
 
-  // فقط درخواست‌هایی که نام/نوعشان صریحاً «رست» است
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== String(code)) return;
     if (!approved(x.status)) return;
-    if (x.deductFromEntitlement === true) return;
-    if (x.kind === 'leave') {
-      // leave فقط اگر نام نوع دقیقاً رست باشد
-      var tn0 = String(x.typeName || x.type || x.name || '');
-      if (!isRestLabel(tn0) && !isRestLabel(String(x.typeId || ''))) return;
-    } else {
-      var k = String(x.kind || '').toLowerCase();
-      var tn = String(x.typeName || x.type || x.name || '');
-      var tid = String(x.typeId || '');
-      if (!(isRestLabel(tn) || isRestLabel(tid) || k === 'rest' || k === 'work_rest' || k.indexOf('rest') >= 0 || String(x.kind || '').indexOf('رست') >= 0)) return;
+    // kind صریح rest
+    var k = String(x.kind || '').toLowerCase();
+    var tn = String(x.typeName || x.type || x.name || '');
+    var isRestKind = (k === 'rest' || k === 'work_rest' || k.indexOf('rest') >= 0 || String(x.kind || '').indexOf('رست') >= 0);
+    var isRestName = isExplicitRestOnly(tn) || isExplicitRestOnly(String(x.typeId || ''));
+    if (!isRestKind && !isRestName) return;
+    // اگر kind=leave باشد حتی با نام عجیب، قبول نکن مگر نام دقیقاً فقط رست باشد
+    if (k === 'leave' || k === 'مرخصی') {
+      if (!isExplicitRestOnly(tn)) return;
     }
     if (x.mode === 'hourly') return;
     var days = 0;
@@ -4653,7 +4649,7 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     if (days > 0) total += days;
   });
 
-  // سلول تایم‌شیت: فقط برچسب صریح رست
+  // سلول: فقط برچسب که صریحاً رست است و مرخصی نیست
   if (!(total > 0)) {
     try {
       var store = (obj.dailyAttendance && (obj.dailyAttendance[String(code)] || obj.dailyAttendance[code])) || {};
@@ -4661,8 +4657,8 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
       Object.keys(store).forEach(function (dk) {
         var cell = store[dk];
         if (!cell) return;
-        var label = String(cell.leaveDaily || '');
-        if (!isRestLabel(label)) return;
+        var label = String(cell.leaveDaily || cell.restDaily || cell.status || '');
+        if (!isExplicitRestOnly(label)) return;
         var parts = String(dk).split(/[-/]/);
         if (parts.length < 3) return;
         if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
@@ -4674,7 +4670,6 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   }
 
   if (!(total > 0)) {
-    // مطمئن شو رست صفر است
     row.qty['رست کاری'] = 0;
     row.qty['تعداد رست کاری'] = 0;
     return;
