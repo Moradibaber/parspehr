@@ -4718,16 +4718,22 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
 
 
 function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
-  /* دیگر کارکرد را با leave+mission بالا نمی‌برد.
-     فقط leaveDays/missionDays را مثل پرتال از درخواست‌های تأییدشده بازنویسی می‌کند. */
+  /* leaveDays/missionDays را از درخواست‌ها + سلول تایم‌شیت هم‌تراز می‌کند.
+     اگر مقدار قبلی leaveDays بزرگ‌تر باشد (از سلول)، آن را کم نکند. */
   if (!md || !obj) return;
   try {
     year = Number(year); month = Number(month);
     const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
     const ct = (emp && emp.contractType) || 'normal';
+    function isApprovedStatus(st) {
+      st = String(st || '').toLowerCase();
+      return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+        st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
+        st === 'accept' || st === 'ok' || st === 'done';
+    }
     let lv = 0, hl = 0, ms = 0, mh = 0;
     (obj.attendanceRequests || []).forEach(function (x) {
-      if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return;
+      if (!x || String(x.empCode) !== String(code) || !isApprovedStatus(x.status)) return;
       if (x.kind === 'leave' && x.mode === 'daily') {
         x = enrichLeaveRequestFromTypes(obj, x);
         if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x)))
@@ -4742,6 +4748,28 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
         if (p && p.y === year && p.m === month) mh += hoursBetween(x.fromTime, x.toTime);
       }
     });
+    // سلول‌های leaveDaily (غیر رست)
+    try {
+      var seen = {};
+      var store = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
+      Object.keys(store).forEach(function (dk) {
+        var cell = store[dk];
+        if (!cell) return;
+        var lab = String(cell.leaveDaily || '').trim();
+        if (!lab) return;
+        if (lab.indexOf('رست') >= 0 || /\brest\b/i.test(lab)) return;
+        if (!(lab.indexOf('مرخص') >= 0 || lab.indexOf('استحقاق') >= 0 || lab.indexOf('استعلاج') >= 0)) return;
+        if (lab.indexOf('بدون حقوق') >= 0) return;
+        var parts = String(dk).split(/[-\/]/);
+        if (parts.length < 3) return;
+        if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+        var dd = Number(parts[2]);
+        if (seen[dd]) return;
+        try { if (isHolidayOrNonWork(obj, year, month, dd, ct)) return; } catch (e) {}
+        seen[dd] = true;
+        lv += 1;
+      });
+    } catch (eC) {}
     md.leaveDays = Math.round(lv * 100) / 100;
     md.hourlyLeave = Math.round(hl * 100) / 100;
     // مأموریت عادی vs جاب/تعداد
@@ -5934,12 +5962,17 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
     else if (x.kind === 'mission' && x.mode === 'hourly') aMissionH += hoursBetween(x.fromTime, x.toTime);
   });
 
-  // مرخصی/مأموریت روزانه از درخواست‌های تأییدشده
+  // مرخصی/مأموریت روزانه از درخواست‌های تأییدشده (همه وضعیت‌های تأیید)
+  function isApprovedStatus(st) {
+    st = String(st || '').toLowerCase();
+    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+      st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
+      st === 'accept' || st === 'ok' || st === 'done';
+  }
   let aLeave = 0, aMission = 0;
   (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== code || x.status !== 'approved') return;
+    if (String(x.empCode) !== code || !isApprovedStatus(x.status)) return;
     if (x.kind === 'leave' && x.mode === 'daily') {
-      // اگر typeName خالی است از تعریف نوع پر کن تا استحقاقی درست تشخیص داده شود
       if (!x.typeName && x.typeId) {
         try {
           var _ts = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
@@ -5955,6 +5988,34 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
       aMission += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
     }
   });
+  // از سلول‌های تایم‌شیت: اگر leaveDaily برچسب مرخصی (نه رست) دارد و در درخواست‌ها شمرده نشده
+  try {
+    var seenLeaveDays = {};
+    var storeL = ((obj.dailyAttendance || {})[code]) || ((obj.dailyAttendance || {})[String(code)]) || {};
+    Object.keys(storeL).forEach(function (dk) {
+      var cell = storeL[dk];
+      if (!cell) return;
+      var lab = String(cell.leaveDaily || '').trim();
+      if (!lab) return;
+      // رست را به leaveDays نده
+      if (lab.indexOf('رست') >= 0 || /\brest\b/i.test(lab)) return;
+      // فقط مرخصی / استحقاق / استعلاج
+      if (!(lab.indexOf('مرخص') >= 0 || lab.indexOf('استحقاق') >= 0 || lab.indexOf('استعلاج') >= 0 || /leave/i.test(lab))) return;
+      if (lab.indexOf('بدون حقوق') >= 0 || lab.indexOf('بدون‌حقوق') >= 0) return;
+      var parts = String(dk).replace(/[\u06f0-\u06f9]/g, function(ch){ return String(ch.charCodeAt(0)-0x06f0); }).split(/[-\/]/);
+      if (parts.length < 3) return;
+      var yy = Number(parts[0]), mm = Number(parts[1]), dd = Number(parts[2]);
+      if (yy !== year || mm !== month) return;
+      if (seenLeaveDays[dd]) return;
+      // روز غیرکاری را در ستون مرخصی روزانه حساب نکن (مگر اینکه صریحاً مرخصی باشد روی روز کاری)
+      try {
+        if (isHolidayOrNonWork(obj, year, month, dd, ct)) return;
+      } catch (eNw) {}
+      seenLeaveDays[dd] = true;
+      aLeave += 1;
+    });
+  } catch (eCellLeave) {}
+
   const workDaysTs = recountEmpMonthWorkDays(obj, year, month, code);
 
   const key = year + '-' + month;
@@ -5969,6 +6030,8 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {} } catch (ePd2) { md.punchDays = 0; }
   md.leaveDays = Math.round(aLeave * 100) / 100;
   md.missionDays = Math.round(aMission * 100) / 100;
+  // رست را بعد از leaveDays بساز تا مرخصی به رست نرود
+  try { rebuildRestQtyFromRequests(obj, year, month, code, md); } catch (eRest0) {}
   try { ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code); } catch (eEns) {}
   md.hourlyLeave = Math.round(aHourly * 100) / 100;
   md.missionHours = Math.round(aMissionH * 100) / 100;
