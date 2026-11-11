@@ -4037,8 +4037,14 @@ function countEmpMonthPunchDays(obj, year, month, code) {
   const dim = daysInJalaliMonth(year, month);
   const punchStore = ((obj.dailyAttendance || {})[String(code)]) ||
     ((obj.dailyAttendance || {})[code]) || {};
-  let n = 0;
-  for (let d = 1; d <= dim; d++) {
+  function toEnDigits(s) {
+    return String(s || '').replace(/[\u06f0-\u06f9]/g, function (ch) {
+      return String(ch.charCodeAt(0) - 0x06f0);
+    }).replace(/[\u0660-\u0669]/g, function (ch) {
+      return String(ch.charCodeAt(0) - 0x0660);
+    });
+  }
+  function punchForDay(d) {
     const pad = String(d).padStart(2, '0');
     const mpad = String(month).padStart(2, '0');
     const keys = [
@@ -4047,12 +4053,28 @@ function countEmpMonthPunchDays(obj, year, month, code) {
       year + '-' + month + '-' + d,
       year + '/' + month + '/' + d,
       year + '/' + mpad + '/' + d,
-      year + '-' + mpad + '-' + d
+      year + '-' + mpad + '-' + d,
+      year + '/' + month + '/' + pad,
+      year + '-' + month + '-' + pad
     ];
-    let punch = null;
     for (let i = 0; i < keys.length; i++) {
-      if (punchStore[keys[i]]) { punch = punchStore[keys[i]]; break; }
+      if (punchStore[keys[i]]) return punchStore[keys[i]];
     }
+    try {
+      var ks = Object.keys(punchStore || {});
+      for (var ki = 0; ki < ks.length; ki++) {
+        var parts = toEnDigits(ks[ki]).split(/[-\/.]/);
+        if (parts.length < 3) continue;
+        if (Number(parts[0]) === year && Number(parts[1]) === month && Number(parts[2]) === d) {
+          return punchStore[ks[ki]];
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+  let n = 0;
+  for (let d = 1; d <= dim; d++) {
+    const punch = punchForDay(d);
     if (!punch) continue;
     let has = false;
     for (let pi = 1; pi <= 4; pi++) {
@@ -4112,11 +4134,27 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
       year + '-' + month + '-' + d,
       year + '/' + month + '/' + d,
       year + '-' + mpad + '-' + d,
-      year + '/' + mpad + '/' + d
+      year + '/' + mpad + '/' + d,
+      year + '/' + month + '/' + pad,
+      year + '-' + month + '-' + pad
     ];
     for (let i = 0; i < keys.length; i++) {
       if (punchStore[keys[i]]) return punchStore[keys[i]];
     }
+    // جست‌وجوی فازی روی همه کلیدهای ذخیره (فرمت‌های متفرقه / ارقام)
+    try {
+      var wantY = Number(year), wantM = Number(month), wantD = Number(d);
+      var ks = Object.keys(punchStore || {});
+      for (var ki = 0; ki < ks.length; ki++) {
+        var parts = String(ks[ki]).replace(/[\u06f0-\u06f9]/g, function(ch) {
+          return String(ch.charCodeAt(0) - 0x06f0);
+        }).split(/[-\/.]/);
+        if (parts.length < 3) continue;
+        if (Number(parts[0]) === wantY && Number(parts[1]) === wantM && Number(parts[2]) === wantD) {
+          return punchStore[ks[ki]];
+        }
+      }
+    } catch (eF) {}
     return {};
   }
 
@@ -4188,7 +4226,9 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     } catch (eC) {}
   });
 
-  const baseDays = toD - fromD + 1;
+  // کارکرد = تعداد روزهای کاری که فعالیت (تردد/مرخصی/مأموریت) دارند
+  // نه «همه روزهای تقویم − غیبت» که باعث می‌شد تعطیل‌ها به‌عنوان کارکرد شمرده شوند
+  let wd = 0;
   let absence = 0;
   for (let d = fromD; d <= toD; d++) {
     let nonWork = isHolidayOrNonWork(obj, year, month, d, ct);
@@ -4199,10 +4239,9 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
       }
     }
     if (nonWork) continue;
-    if (!dayActivity[d]) absence++;
+    if (dayActivity[d]) wd++;
+    else absence++;
   }
-  let wd = Math.max(0, baseDays - absence);
-  // فقط روزهای علامت‌خورده (حضور/مرخصی/مأموریت روی روز کاری) — بدون کف از leaveDays ذخیره‌شده
   return Math.max(0, Math.round(wd * 100) / 100);
 }
 
@@ -4246,11 +4285,27 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
       year + '-' + month + '-' + d,
       year + '/' + month + '/' + d,
       year + '-' + mpad + '-' + d,
-      year + '/' + mpad + '/' + d
+      year + '/' + mpad + '/' + d,
+      year + '/' + month + '/' + pad,
+      year + '-' + month + '-' + pad
     ];
     for (let i = 0; i < keys.length; i++) {
       if (punchStore[keys[i]]) return punchStore[keys[i]];
     }
+    // جست‌وجوی فازی روی همه کلیدهای ذخیره (فرمت‌های متفرقه / ارقام)
+    try {
+      var wantY = Number(year), wantM = Number(month), wantD = Number(d);
+      var ks = Object.keys(punchStore || {});
+      for (var ki = 0; ki < ks.length; ki++) {
+        var parts = String(ks[ki]).replace(/[\u06f0-\u06f9]/g, function(ch) {
+          return String(ch.charCodeAt(0) - 0x06f0);
+        }).split(/[-\/.]/);
+        if (parts.length < 3) continue;
+        if (Number(parts[0]) === wantY && Number(parts[1]) === wantM && Number(parts[2]) === wantD) {
+          return punchStore[ks[ki]];
+        }
+      }
+    } catch (eF) {}
     return {};
   }
   for (let d = fromD; d <= toD; d++) {
