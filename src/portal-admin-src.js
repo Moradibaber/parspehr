@@ -10536,7 +10536,7 @@ export default [
   "      if (!window.__pspBootMonthIv) {",
   "        window.__pspBootMonthIv = setInterval(function(){",
   "          try {",
-  "            var mEl = document.getElementById('dataMonth') || document.querySelector('select[id*="month" i]');",
+  "            var mEl = document.getElementById('dataMonth') || document.querySelector('select[id*=\'month\' i]');",
   "            var j = window.__pspPortalCalendar;",
   "            var want = j ? Number(j.currentMonth || j.month) : 0;",
   "            if (want && mEl) {",
