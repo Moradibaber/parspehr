@@ -936,6 +936,7 @@ qtyUsed = null;
 }
 } else if (ci.entryType === 'qty_flat') {
 // تعداد خالص: مبلغ × (تعداد مؤثر ÷ کارکرد خالص)
+// تعداد مؤثر پس از کسر غیبت و آیتم‌های با تیک «کسر از تعداد خالص»
 let qty = 0;
 if (d.qty) {
 if (d.qty[ci.name] !== undefined) qty = Number(d.qty[ci.name]);
@@ -949,16 +950,21 @@ qty = Number(d.qty[k]);
 }
 }
 if (!isFinite(qty) || qty < 0) qty = 0;
+const netDed = Math.max(0, Number(d.netDeductionDays != null ? d.netDeductionDays : d.absenceDays) || 0);
 if (!(qty > 0)) {
+// پایه = کارکرد خالص؛ بعد کسر غیبت/تیک‌ها
+if (functionalDays > 0) qty = Math.max(0, functionalDays - netDed);
+else {
 var pNL = Number(d.punchDays || d.punch_days || 0);
 if (!(pNL > 0) && d.vars) {
 Object.keys(d.vars).forEach(function(vk) {
 if (/punch|تردد/i.test(String(vk))) pNL = Math.max(pNL, Number(d.vars[vk]) || 0);
 });
 }
-if ((typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name||''))) && pNL > 0) qty = pNL;
-else if (workDays > 0) qty = workDays;
-else if (pNL > 0) qty = pNL;
+if ((typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name||''))) && pNL > 0) qty = Math.max(0, pNL - netDed);
+else if (workDays > 0) qty = workDays; // workDays از قبل با غیبت کم شده
+else if (pNL > 0) qty = Math.max(0, pNL - netDed);
+}
 }
 qtyUsed = qty;
 if (functionalDays > 0 && amt > 0 && qty > 0) {
