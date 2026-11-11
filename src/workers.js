@@ -4328,35 +4328,51 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 /** از آیتم‌های «تعداد خالص» (qty_flat) به اندازه روز غیبت کسر کن — بدون دست زدن به تیک ثابت/مرخصی/رست */
 /** آیا این نوع در ثابت ماهانه / تعریف نوع، تیک «کسر از تعداد خالص» دارد؟ */
 function typeDeductsFromNetCount(obj, typeId, typeName) {
+  function hasDeductFlag(o) {
+    if (!o || typeof o !== 'object') return false;
+    if (o.deductFromNetCount === true || o.deductFromPure === true || o.deductFromNet === true || o.deductFromFunctional === true) return true;
+    if (o.deductFromNetCount === 1 || o.deductFromPure === 1 || o.deductFromNet === 1) return true;
+    if (o.ksrAzKhales === true || o.ksrAzKhales === 1) return true;
+    if (o.deductFromNetCount === '1' || o.deductFromPure === 'true') return true;
+    return false;
+  }
+  function nameMatch(a, b) {
+    a = String(a || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+    b = String(b || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!a || !b) return false;
+    if (a === b) return true;
+    var ab = a.replace(/^تعداد\s+/, '').trim();
+    var bb = b.replace(/^تعداد\s+/, '').trim();
+    if (ab === bb) return true;
+    if (ab.indexOf(bb) >= 0 || bb.indexOf(ab) >= 0) return true;
+    return false;
+  }
   try {
-    var types = [].concat((obj && obj.attendanceTypes) || [], (obj && obj.settings && obj.settings.attendanceTypes) || []);
     var tid = String(typeId || '');
     var tn = String(typeName || '');
+    var types = [].concat((obj && obj.attendanceTypes) || [], (obj && obj.settings && obj.settings.attendanceTypes) || []);
     for (var i = 0; i < types.length; i++) {
       var t = types[i];
       if (!t) continue;
-      var match = (tid && String(t.id) === tid) || (tn && String(t.name || '') === tn);
+      var match = (tid && String(t.id) === tid) || (tn && nameMatch(t.name, tn));
       if (!match) continue;
-      if (t.deductFromNetCount === true || t.deductFromPure === true || t.deductFromNet === true || t.deductFromFunctional === true) return true;
-      if (t.deductFromNetCount === 1 || t.deductFromPure === 1) return true;
+      if (hasDeductFlag(t)) return true;
     }
-    // ثابت‌های ماهانه (اگر جدا ذخیره شده باشند)
+    // ثابت‌های ماهانه
     var consts = [].concat(
       (obj && obj.monthlyConstants) || [],
       (obj && obj.settings && obj.settings.monthlyConstants) || [],
       (obj && obj.fixedMonthlyItems) || [],
-      (obj && obj.settings && obj.settings.fixedMonthlyItems) || []
+      (obj && obj.settings && obj.settings.fixedMonthlyItems) || [],
+      (obj && obj.settings && obj.settings.monthlyFixedItems) || [],
+      (obj && obj.constantItems) || []
     );
     for (var j = 0; j < consts.length; j++) {
       var c = consts[j];
       if (!c) continue;
-      var cn = String(c.name || c.typeName || c.id || '');
-      if (tn && cn && (cn === tn || cn.indexOf(tn) >= 0 || tn.indexOf(cn) >= 0)) {
-        if (c.deductFromNetCount || c.deductFromPure || c.deductFromNet || c.ksrAzKhales) return true;
-      }
-      if (tid && String(c.typeId || c.id || '') === tid) {
-        if (c.deductFromNetCount || c.deductFromPure || c.deductFromNet) return true;
-      }
+      if (!hasDeductFlag(c)) continue;
+      if (tid && (String(c.typeId || '') === tid || String(c.id || '') === tid)) return true;
+      if (tn && (nameMatch(c.name, tn) || nameMatch(c.typeName, tn) || nameMatch(c.label, tn))) return true;
     }
   } catch (e) {}
   return false;
@@ -4364,35 +4380,50 @@ function typeDeductsFromNetCount(obj, typeId, typeName) {
 
 /** روزهایی که باید از تعداد خالص کم شوند: همیشه غیبت + انواع با تیک کسر از خالص */
 function countNetDeductionDays(obj, year, month, code) {
+  /* کسر از تعداد خالص (ناهار و …):
+     همیشه: روز غیبت
+     + روزهای درخواست/ثابت ماهانه که تیک «کسر از تعداد خالص» دارند
+     (مرخصی بدون آن تیک کسر نمی‌شود) */
   year = Number(year); month = Number(month);
-  var total = 0;
   var abs = 0;
   try { abs = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { abs = 0; }
-  total += Math.max(0, abs);
 
   var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
   var ct = (emp && emp.contractType) || 'normal';
   var seenDays = {};
+  var extra = 0;
 
   function addDayKey(dk) {
-    if (seenDays[dk]) return;
+    dk = String(dk || '');
+    if (!dk || seenDays[dk]) return;
     seenDays[dk] = true;
-    total += 1;
+    extra += 1;
   }
 
-  // درخواست‌های تأییدشده با تیک کسر از خالص
+  function approved(st) {
+    st = String(st || '').toLowerCase();
+    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+      st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
+      st === 'accept' || st === 'ok' || st === 'done';
+  }
+
+  // درخواست‌های تأییدشده با تیک کسر از خالص (ثابت ماهانه / نوع مرخصی تیک‌خورده)
   try {
     (obj.attendanceRequests || []).forEach(function (x) {
       if (!x || String(x.empCode) !== String(code)) return;
-      var st = String(x.status || '').toLowerCase();
-      if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
-      if (!(x.deductFromNetCount || x.deductFromPure || typeDeductsFromNetCount(obj, x.typeId, x.typeName || x.type || x.name))) return;
+      if (!approved(x.status)) return;
       if (x.mode === 'hourly') return;
+      var tn = x.typeName || x.type || x.name || '';
+      var flagged = !!(x.deductFromNetCount || x.deductFromPure || x.deductFromNet || x.ksrAzKhales);
+      if (!flagged) flagged = typeDeductsFromNetCount(obj, x.typeId, tn);
+      if (!flagged) return;
+      // رست هرگز از ناهاری کم نمی‌شود
+      if (String(tn).indexOf('رست') >= 0 || String(x.kind || '').indexOf('رست') >= 0) return;
       try {
         var days = (typeof countWorkingDaysInMonth === 'function')
           ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
           : 0;
-        if (days > 0) total += days;
+        if (days > 0) extra += days;
       } catch (eD) {}
     });
   } catch (eR) {}
@@ -4406,18 +4437,15 @@ function countNetDeductionDays(obj, year, month, code) {
       var lab = String(cell.leaveDaily || '').trim();
       if (!lab) return;
       if (lab.indexOf('رست') >= 0) return;
-      // اگر برچسب با نوعی که تیک دارد match شود
-      if (!typeDeductsFromNetCount(obj, '', lab)) {
-        // fallback: استحقاق فقط اگر در types تیک خورده
-        return;
-      }
+      if (!typeDeductsFromNetCount(obj, '', lab)) return;
       var parts = String(dk).split(/[-/]/);
       if (parts.length < 3) return;
       if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
-      addDayKey(dk);
+      addDayKey(year + '-' + month + '-' + Number(parts[2]));
     });
   } catch (eC) {}
 
+  var total = Math.max(0, abs) + Math.max(0, extra);
   return Math.max(0, Math.round(total * 100) / 100);
 }
 
@@ -4474,18 +4502,29 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     }
   });
 
+  // پایه تعداد خالص = کارکرد خالص ماه (نه qty قبلاً کسرشده)
+  // تا کسر غیبت+ثابت‌های تیک‌دار دوباره از روی مقدار قبلی کم نشود
+  Object.keys(flatNames).forEach(function (k) {
+    if (funcDays > 0) row.qtyAbsBase[k] = funcDays;
+    else if (row.qtyAbsBase[k] == null || row.qtyAbsBase[k] === '') {
+      var n0 = Number(row.qty[k]);
+      if (isFinite(n0) && n0 > 0) row.qtyAbsBase[k] = n0;
+    }
+  });
   Object.keys(row.qty).forEach(function (k) {
     if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
-    if (row.qtyAbsBase[k] == null || row.qtyAbsBase[k] === '') {
+    if (funcDays > 0) {
+      row.qtyAbsBase[k] = funcDays;
+    } else if (row.qtyAbsBase[k] == null || row.qtyAbsBase[k] === '') {
       var n = Number(row.qty[k]);
       if (isFinite(n)) row.qtyAbsBase[k] = n;
-      else if (funcDays > 0) row.qtyAbsBase[k] = funcDays;
     }
   });
   Object.keys(row.qtyAbsBase).forEach(function (k) {
     if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
     var base = Number(row.qtyAbsBase[k]);
     if (!isFinite(base)) return;
+    // ناهاری و تعداد خالص: پایه − (غیبت + ثابت‌های ماهانه تیک‌دار)
     row.qty[k] = Math.max(0, Math.round((base - netDed) * 100) / 100);
   });
 }
@@ -6326,34 +6365,11 @@ async function handleAdminTimesheet(request, who, env) {
             _fromTimesheet: true
           });
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
-          // همیشه: اگر درخواست صریح رست در این ماه نیست، qty رست را صفر کن (داده قبلی / نشت از مرخصی نماند)
+          // رست: فقط اگر rebuildRest مقدار >0 گذاشت از درخواست صریح؛ وگرنه صفر مطلق
           try {
-            var explicitRest = false;
-            try {
-              (gd.obj.attendanceRequests || []).forEach(function(x) {
-                if (!x || String(x.empCode) !== code) return;
-                var st = String(x.status || '').toLowerCase();
-                if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st.indexOf('تایید') >= 0 || st.indexOf('تأیید') >= 0)) return;
-                if (x.deductFromEntitlement === true) return;
-                var tn = String(x.typeName || x.type || x.name || '');
-                var k = String(x.kind || '').toLowerCase();
-                if (/مرخص|استحقاق|استعلاج|mission|مأمور|مامور|leave/i.test(tn)) return;
-                if (k === 'leave' || k === 'مرخصی') return;
-                var isRest = (k === 'rest' || k === 'work_rest' || k === 'رست' || k === 'رست کاری' ||
-                  (tn.indexOf('رست') >= 0 && tn.indexOf('مرخص') < 0) || /\brest\b/i.test(tn));
-                if (!isRest) return;
-                var p = parseJalaliYMD(x.startDate);
-                if (p && p.y === year && p.m === month) explicitRest = true;
-                if (!explicitRest && x.endDate) {
-                  try {
-                    var chunks = splitDaysByMonth(x.startDate, x.endDate);
-                    if (chunks.some(function(c){ return Number(c.year)===year && Number(c.month)===month; })) explicitRest = true;
-                  } catch (eCh) {}
-                }
-              });
-            } catch (eX) {}
-            if (!explicitRest) {
-              if (!row.qty) row.qty = {};
+            if (!row.qty) row.qty = {};
+            var rv = Number(row.qty['رست کاری'] != null ? row.qty['رست کاری'] : row.qty['تعداد رست کاری']) || 0;
+            if (!(rv > 0)) {
               Object.keys(row.qty).forEach(function(qk) {
                 if (String(qk).indexOf('رست') >= 0) row.qty[qk] = 0;
               });
@@ -8991,34 +9007,30 @@ async function handleAdminGetCurrentMonth(request, who, env) {
   const ct = String(url.searchParams.get('contractType') || 'normal').trim() || 'normal';
   const cal = getContractCalendar(gd.obj, ct);
   const tdef = (s.contractTypesList || []).find(function (t) { return t.id === ct; });
-  // ماه/سال جاری: اول settings، اگر نبود یا نامعتبر از تاریخ واقعی جلالی سرور
-  let cy = Number(s.currentYear) || Number(s.activeYear) || 0;
-  let cm = Number(s.currentMonth) || Number(s.activeMonth) || 0;
+  // ماه/سال جاری = تاریخ واقعی جلالی سرور (مگر monthLocked===true)
+  let cy = 0, cm = 0;
+  var realY = 0, realM = 0;
   try {
-    if (typeof gregorianToJalali === 'function') {
+    var j = null;
+    try { if (typeof jalaliNowTehran === 'function') j = jalaliNowTehran(); } catch (eT) {}
+    if (!j && typeof gregorianToJalali === 'function') {
       const now = new Date();
-      // ترجیح: jalaliNowTehran اگر هست
-      var j = null;
-      try { if (typeof jalaliNowTehran === 'function') j = jalaliNowTehran(); } catch (eT) {}
-      if (!j) j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
-      if (j && (j.y || j.jy)) {
-        var jy = Number(j.y || j.jy), jm = Number(j.m || j.jm);
-        if (!cy) cy = jy;
-        if (!cm) cm = jm;
-        // اگر settings روی فروردین مانده ولی تقویم واقعی بعد از فروردین است، ماه واقعی
-        // settings گیرکرده روی فروردین → ماه واقعی (مگر قفل صریح)
-        if (s.monthLocked !== true && jm && cm === 1 && jm !== 1) {
-          cm = jm;
-          if (jy) cy = jy;
-        }
-        // اگر اصلاً ماه settings نداشت
-        if (!cm && jm) cm = jm;
-        if (!cy && jy) cy = jy;
-      }
+      j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    }
+    if (j && (j.y || j.jy)) {
+      realY = Number(j.y || j.jy) || 0;
+      realM = Number(j.m || j.jm) || 0;
     }
   } catch (eJ) {}
+  if (s.monthLocked === true) {
+    cy = Number(s.currentYear) || Number(s.activeYear) || realY || 1405;
+    cm = Number(s.currentMonth) || Number(s.activeMonth) || realM || 1;
+  } else {
+    cy = realY || Number(s.currentYear) || Number(s.activeYear) || 1405;
+    cm = realM || Number(s.currentMonth) || Number(s.activeMonth) || 1;
+  }
   if (!cy) cy = 1405;
-  if (!cm) cm = 8;
+  if (!cm) cm = realM || 8;
   return jsonResponse({
     ok: true,
     year: cy,
