@@ -4285,6 +4285,50 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     abs = countEmpMonthAbsenceDays(obj, year, month, code);
   } catch (eA) { abs = 0; }
   row.absenceDays = abs;
+
+  // مرخصی‌هایی که تیک کسر از تعداد خالص / استحقاق سالانه دارند
+  var leaveDeduct = 0;
+  try {
+    var types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
+    var typeById = {};
+    types.forEach(function (t) {
+      if (t && t.id != null) typeById[String(t.id)] = t;
+    });
+    (obj.attendanceRequests || []).forEach(function (x) {
+      if (!x || String(x.empCode) !== String(code)) return;
+      var st = String(x.status || '').toLowerCase();
+      if (st !== 'approved' && st !== 'final' && st !== 'تایید' && st !== 'تأیید' && st !== 'تایید شده' && st !== 'تأیید شده') return;
+      if (x.kind !== 'leave') return;
+      if (x.mode === 'hourly') return;
+      var tdef = typeById[String(x.typeId || '')] || null;
+      var deductNet = !!(x.deductFromNet || x.deductFromNetCount || x.deductFromPure
+        || (tdef && (tdef.deductFromNet || tdef.deductFromNetCount || tdef.deductFromPure)));
+      if (!deductNet && (x.deductFromEntitlement === true || (tdef && tdef.deductFromEntitlement === true))) {
+        var tn = String(x.typeName || (tdef && tdef.name) || '');
+        if (/استحقاق|leave_annual/i.test(tn) || (tdef && String(tdef.id) === 'leave_annual')) deductNet = true;
+      }
+      if (!deductNet) return;
+      var emp0 = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+      var ct = (emp0 && emp0.contractType) || 'normal';
+      var days = 0;
+      try {
+        days = (typeof countWorkingDaysInMonth === 'function')
+          ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+          : 0;
+      } catch (eD) { days = 0; }
+      if (days > 0) leaveDeduct += days;
+    });
+    if (!(leaveDeduct > 0) && Number(row.leaveDays) > 0) {
+      var sett = (obj.settings || {});
+      if (sett.leaveDeductFromNet === true || sett.entitledLeaveDeductFromNet === true) {
+        leaveDeduct = Number(row.leaveDays) || 0;
+      }
+    }
+  } catch (eNet) {}
+
+  var netDeduct = abs + leaveDeduct;
+  row.netDeductDays = Math.round(netDeduct * 100) / 100;
+
   const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
   const flatNames = {};
   function collect(list) {
@@ -4300,6 +4344,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   }
   collect(emp && emp.customItems);
   collect(obj.customItemTemplates);
+  collect(obj.settings && obj.settings.customItemTemplates);
   if (!row.qty) row.qty = {};
   if (!row.qtyAbsBase || typeof row.qtyAbsBase !== 'object') row.qtyAbsBase = {};
   // پایه را فقط یک‌بار از مقدار فعلی بردار (تا تکرار اجرا دوباره کسر نکند)
@@ -4314,7 +4359,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
     const base = Number(row.qtyAbsBase[k]);
     if (!isFinite(base)) return;
-    row.qty[k] = Math.max(0, Math.round((base - abs) * 100) / 100);
+    row.qty[k] = Math.max(0, Math.round((base - netDeduct) * 100) / 100);
   });
 }
 
@@ -4409,6 +4454,9 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     }
     if (x.deductFromEntitlement === true) return;
     if (tn.indexOf('استحقاق') >= 0) return;
+    if (/استعلاج|بدون\s*حقوق/.test(tn)) return;
+    // مرخصی غیررست هرگز به ستون رست نرود
+    if (x.kind === 'leave' && !isRestName(tn) && !isRestName(tid)) return;
     if (!isRestName(tn) && !isRestName(tid)) return;
     // روزانه
     if (x.mode === 'hourly') return;
@@ -4477,16 +4525,18 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   var qn = null;
   try { qn = matchQtyItemName(obj, code, outName); } catch (e6) {}
   if (!qn) qn = outName;
+  // فقط یک کلید — از پر کردن چند نام موازی که باعث جابه‌جایی ستون‌ها می‌شد خودداری کن
+  if (!isRestName(qn) && qn !== 'رست کاری') {
+    qn = 'رست کاری';
+  }
   row.qty[qn] = Math.round(total * 100) / 100;
   if (!row.qtyAuto) row.qtyAuto = {};
   row.qtyAuto[qn] = false;
-  // هر دو نام رایج
-  var names = [qn, 'رست کاری', 'تعداد رست کاری', 'تعداد ' + outName, outName];
-  names.forEach(function (nm) {
-    if (!nm) return;
-    row.qty[nm] = Math.round(total * 100) / 100;
-    row.qtyAuto[nm] = false;
-  });
+  // نام استاندارد رست کاری را هم اگر متفاوت بود همگام کن (فقط اگر واقعاً رست است)
+  if (qn !== 'رست کاری' && isRestName(qn)) {
+    row.qty['رست کاری'] = row.qty[qn];
+    row.qtyAuto['رست کاری'] = false;
+  }
 }
 
 
@@ -5155,6 +5205,7 @@ async function handleEmpTimesheet(request, env) {
     mdE.hourlyAbsenceHours = Math.round((punchAbsMin / 60) * 100) / 100;
     mdE._fromTimesheet = true;
     mdE._timesheetSyncedAt = new Date().toISOString();
+    try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, mdE); } catch (eAbsQE) {}
   } catch (eMdE) { console.error('emp md sync', eMdE); }
   const userAccess = normalizeUserAccess((gd.obj.settings || {}).userAccess);
   return jsonResponse({
@@ -5833,6 +5884,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
   md._fromTimesheet = true;
   md._timesheetSyncedAt = new Date().toISOString();
+  try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbsQ) {}
   return md;
 }
 
@@ -6155,6 +6207,7 @@ async function handleAdminTimesheet(request, who, env) {
       if (rr.hourlyAbsenceHours != null) mdA.hourlyAbsenceHours = Number(rr.hourlyAbsenceHours) || 0;
       mdA._fromTimesheet = true;
       mdA._timesheetSyncedAt = new Date().toISOString();
+      try { applyAbsenceToQtyFlatItems(gd.obj, year, month, ck, mdA); } catch (eAbsQA) {}
     });
     // فقط در حافظه پاسخ API — ذخیره سرور با «ذخیره داده‌ها» تا conflict/پرش UI نشود
   } catch (eSyncAll) { console.error('monthlyData sync all', eSyncAll); }
