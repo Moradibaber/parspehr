@@ -764,13 +764,21 @@ return;
 
 // —— قرارداد عادی ——
 const maxAllowed = maxWorkDaysForEmployee(emp, year, month);
-const workDays = Math.min(Number(d.workDays)||0, maxAllowed, monthDays);
-// حقوق پایه و مزایا: تناسب با تعداد روز همان ماه (از جدول ماه‌ها — ۲۹/۳۰/۳۱)
-// مزد روزانه قانونی برای اضافه‌کار و مشابه همچنان ÷۳۰ می‌ماند
+// کارکرد مؤثر: از شیت؛ اگر absenceDays آمده و از workDays کم نشده، اینجا کم می‌کنیم
+let workDays = Math.min(Number(d.workDays) || 0, maxAllowed, monthDays);
+const absDays = Math.max(0, Number(d.absenceDays) || 0);
+if (absDays > 0) {
+  // اگر workDays هنوز «پر» به‌نظر می‌رسد، غیبت را اعمال کن
+  const maybeFull = workDays >= Math.max(1, monthDays - 1);
+  if (maybeFull || workDays + absDays <= monthDays) {
+    workDays = Math.max(0, Math.min(workDays, monthDays - absDays));
+  }
+}
+// تناسب مزایا/پایه با تعداد روز همان ماه (جدول ماه‌ها: ۲۹/۳۰/۳۱) — نه همیشه ÷۳۰
 const ratioBase = (monthDays > 0) ? (workDays / monthDays) : (workDays / 30);
 const ratioFunc = functionalDays > 0 ? (workDays / functionalDays) : 0;
 const basicAmount = Math.round(emp.basicSalary * (emp.basicFixed ? 1 : ratioBase)); // «ثابت» = مبلغ کامل بدون تناسب کارکرد
-const daily = emp.basicSalary / 30;
+const daily = emp.basicSalary / 30; // مزد روزانه قانونی اضافه‌کار همچنان ÷۳۰
 const vp = calcVariablePay(emp.basicSalary, d, workDays);
 const otAmount = vp.ot;
 const nightAmount = vp.night;
@@ -817,10 +825,17 @@ if (a.id === 'child' || (a.name && String(a.name).indexOf('اولاد') >= 0)) r
 if (a.id === 'marital' || (a.name && (/تأهل|تاهل/.test(String(a.name))))) {
   raw = (emp.marital === 'married' || emp.marital === 'provider') ? raw : 0;
 }
-var _an = String(a.name || '');
-var forceWorkRatio = !!(a.id === 'child' || a.id === 'marital' || a.id === 'housing' || a.id === 'grocery' || a.id === 'bon' ||
-  /اولاد|تأهل|تاهل|مسکن|خواربار|بن\s*کارگر|بن‌خواربار|حق\s*ویژه|فوق[\u200c\s]*العاده\s*سرپرست|سرپرست|ماندگار/.test(_an));
-var useFull = !!a.isFixed && !forceWorkRatio;
+var _an = String(a.name || '').replace(/\u200c/g, '');
+function _forceRatioName(n) {
+  n = String(n || '');
+  return n.indexOf('اولاد') >= 0 || n.indexOf('تاهل') >= 0 || n.indexOf('تأهل') >= 0 ||
+    n.indexOf('مسکن') >= 0 || n.indexOf('خواربار') >= 0 || n.indexOf('بن کارگر') >= 0 ||
+    n.indexOf('حق ویژه') >= 0 || n.indexOf('ویژه') >= 0 || n.indexOf('سرپرست') >= 0 || n.indexOf('ماندگار') >= 0;
+}
+var forceWorkRatio = !!(a.id === 'child' || a.id === 'marital' || a.id === 'housing' || a.id === 'grocery' || a.id === 'bon' || _forceRatioName(_an));
+// این مزایا همیشه با کارکرد تناسب می‌گیرند (تیک ثابت نادیده)
+var useFull = false;
+if (a.isFixed && !forceWorkRatio) useFull = true;
 const val = Math.round(raw * (useFull ? 1 : ratioBase));
 if (val === 0) return;
 totalAllow += val;
@@ -957,10 +972,13 @@ val = 0;
 }
 } else {
 // بر اساس کارکرد
-var _cn = String(ci.name || '');
-var forceCiRatio = /اولاد|تأهل|تاهل|مسکن|خواربار|بن\s*کارگر|بن‌خواربار|حق\s*ویژه|فوق[\u200c\s]*العاده\s*سرپرست|سرپرست|ماندگار/.test(_cn);
-if ((ci.isFixed && !forceCiRatio) || asDeduction || asArrears) {
-// ثابت (به‌جز مزایای اجباری تناسب‌پذیر) / کسر / معوقه: مبلغ کامل
+var _cn = String(ci.name || '').replace(/\u200c/g, '');
+var forceCiRatio = _cn.indexOf('اولاد') >= 0 || _cn.indexOf('تاهل') >= 0 || _cn.indexOf('تأهل') >= 0 ||
+  _cn.indexOf('مسکن') >= 0 || _cn.indexOf('خواربار') >= 0 || _cn.indexOf('بن کارگر') >= 0 ||
+  _cn.indexOf('حق ویژه') >= 0 || _cn.indexOf('ویژه') >= 0 || _cn.indexOf('سرپرست') >= 0 || _cn.indexOf('ماندگار') >= 0;
+if (asDeduction || asArrears) {
+val = Math.round(amt);
+} else if (ci.isFixed && !forceCiRatio) {
 val = Math.round(amt);
 } else {
 val = Math.round(amt * ratioBase);
@@ -1067,7 +1085,7 @@ const remainingLoanAfter = alreadyDeducted
 
 results.push({
 code: emp.code, fullName: emp.fullName, position: emp.position||'', unit: emp.unit||'',
-workplace: emp.workplace||'', workDays, leaveDays: d.leaveDays||0,
+workplace: emp.workplace||'', workDays, leaveDays: d.leaveDays||0, absenceDays: absDays || 0, monthDays: monthDays, ratioBase: Math.round(ratioBase * 10000) / 10000,
 basicAmount, otAmount, nightAmount, shiftAmount, shiftType: st, shiftDays: shiftDays, totalAllow, totalDeductions, itemDetails,
 gross, insurance, tax, taxable, taxBase, loanDeduction, remainingLoan: remainingLoanAfter, net,
 bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: emp.insuranceNo||'',
