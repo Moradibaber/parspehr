@@ -4087,6 +4087,23 @@ function countEmpMonthPunchDays(obj, year, month, code) {
   return n;
 }
 
+
+/** تعداد روزهای کاری تقویم ماه: موظفی منهای پنجشنبه/جمعه و تعطیل رسمی/شرایطی کامل */
+function countFunctionalDaysInMonth(obj, year, month, contractType) {
+  year = Number(year); month = Number(month);
+  const dim = daysInJalaliMonth(year, month);
+  const ct = contractType || 'normal';
+  let n = 0;
+  for (let d = 1; d <= dim; d++) {
+    try {
+      if (!isHolidayOrNonWork(obj, year, month, d, ct)) n++;
+    } catch (e) {
+      // در خطا روز را موظفی فرض نکن
+    }
+  }
+  return n > 0 ? n : 0;
+}
+
 function recountEmpMonthWorkDays(obj, year, month, code) {
   /* کارکرد ماه:
      پایه = روزهای تقویمی بازه استخدام در ماه.
@@ -6157,7 +6174,7 @@ async function handleAdminTimesheet(request, who, env) {
       if (m && Number(m[1]) === year && Number(m[2]) === month) md = gd.obj.monthlyData[k] || md;
     });
   }
-  // انتقال از تایم‌شیت: حتماً از dailyAttendance دوباره پر شود (قبلاً فقط monthlyData کهنه برمی‌گشت → کارکرد ۹ و ...)
+  // انتقال از تایم‌شیت: از dailyAttendance پر می‌شود؛ ذخیره غیرمسدود تا timeout نخورد
   const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true));
   if (light) {
     const rowsLight = [];
@@ -6165,6 +6182,19 @@ async function handleAdminTimesheet(request, who, env) {
     if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
     const mdKey = year + '-' + month;
     if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
+    // کارکرد خالص تقویمی (روزهای موظفی ماه)
+    let funcDays = 0;
+    try { funcDays = countFunctionalDaysInMonth(gd.obj, year, month, 'normal'); } catch (eF0) { funcDays = 0; }
+    if (!(funcDays > 0)) {
+      try {
+        const dim0 = daysInJalaliMonth(year, month);
+        // fallback: همه روزها منهای تقریبی ۵ روز تعطیل هفتگی در ماه ۳۰ روزه
+        funcDays = Math.max(1, dim0 - Math.round(dim0 * 2 / 7));
+      } catch (eF1) { funcDays = 22; }
+    }
+    if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
+    gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
+
     (gd.obj.employees || []).forEach(function (emp) {
       if (!emp || emp.status === 'inactive') return;
       if (filterCode && String(emp.code) !== String(filterCode)) return;
@@ -6173,9 +6203,10 @@ async function handleAdminTimesheet(request, who, env) {
       const code = String(emp.code);
       let filled = null;
       try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eFill) { filled = null; }
-      const row = filled || gd.obj.monthlyData[mdKey][code] || {};
+      const prev = gd.obj.monthlyData[mdKey][code] || {};
+      const row = filled ? Object.assign({}, prev, filled) : prev;
       if (filled) {
-        gd.obj.monthlyData[mdKey][code] = Object.assign({}, gd.obj.monthlyData[mdKey][code] || {}, filled);
+        gd.obj.monthlyData[mdKey][code] = row;
         cellsTouched++;
       }
       function num(v) { v = Number(v); return isNaN(v) ? 0 : v; }
@@ -6197,12 +6228,9 @@ async function handleAdminTimesheet(request, who, env) {
         childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
       });
     });
-    // ذخیره روی سرور تا فیش همان کارکرد را ببیند (نه مقدار کهنه ۹)
-    let saved = false;
-    try {
-      const put = await storePutData(cfg, gd.version, gd.obj, (who && who.name) ? ('ts-transfer:' + who.name) : 'ts-transfer');
-      if (put && !put.fail && !put.conflict) saved = true;
-    } catch (ePut) {}
+
+    // ذخیره را اینجا انجام نده — باعث timeout/503 می‌شد؛ کلاینت «ذخیره داده‌ها» می‌زند
+    // فقط monthlyData در حافظهٔ همین درخواست برای rows پر شده است
     return jsonResponse({
       ok: true,
       year: year,
@@ -6211,10 +6239,9 @@ async function handleAdminTimesheet(request, who, env) {
       light: true,
       transferred: cellsTouched,
       cells: cellsTouched,
-      saved: saved,
-      message: saved
-        ? ('منتقل و ذخیره شد (' + cellsTouched + ' نفر)')
-        : ('منتقل شد (' + cellsTouched + ' نفر) — ذخیره را بزنید')
+      functionalDays: funcDays,
+      saved: false,
+      message: 'منتقل شد (' + cellsTouched + ' نفر) — کارکرد خالص ' + funcDays + ' — ذخیره داده‌ها را بزنید'
     });
   }
   const reqs = gd.obj.attendanceRequests || [];
