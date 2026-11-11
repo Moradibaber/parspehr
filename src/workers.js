@@ -1995,6 +1995,7 @@ function applyApprovedRequestToTimesheet(data, req) {
         months.forEach(function (ch) {
           const r = ensureEmpMonthRow(data, ch.year, ch.month, code);
           r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
+          try { r.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(data, ch.year, ch.month, code) : 0; } catch (eAbsR) { r.absenceDays = 0; }
         });
       }
     } catch (eRc) {}
@@ -4614,6 +4615,7 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
     }
     if (typeof recountEmpMonthWorkDays === 'function') {
       md.workDays = Math.round(recountEmpMonthWorkDays(obj, year, month, code)) || 0;
+    try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsD) { md.absenceDays = 0; }
     }
     if (typeof countEmpMonthPunchDays === 'function') {
       md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
@@ -5815,6 +5817,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   const md = obj.monthlyData[key][code];
   // انتقال کامل تایم‌شیت → ورود داده ماهانه
   md.workDays = Math.round(workDaysTs) || 0;
+  try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsT) { md.absenceDays = 0; }
   try { md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {} } catch (ePd2) { md.punchDays = 0; }
   md.leaveDays = Math.round(aLeave * 100) / 100;
