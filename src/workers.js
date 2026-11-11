@@ -6237,63 +6237,150 @@ async function handleAdminTimesheet(request, who, env) {
       if (m && Number(m[1]) === year && Number(m[2]) === month) md = gd.obj.monthlyData[k] || md;
     });
   }
-  // انتقال از تایم‌شیت: از dailyAttendance پر می‌شود؛ ذخیره غیرمسدود تا timeout نخورد
+  // انتقال از تایم‌شیت — سبک و مقاوم (هرگز 500 ندهد)
   const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true));
   if (light) {
     const rowsLight = [];
     let cellsTouched = 0;
-    if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
-    const mdKey = year + '-' + month;
-    if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
-    // کارکرد خالص تقویمی (روزهای موظفی ماه)
-    let funcDays = 0;
-    try { funcDays = countFunctionalDaysInMonth(gd.obj, year, month, 'normal'); } catch (eF0) { funcDays = 0; }
-    if (!(funcDays > 0)) {
+    let funcDays = 22;
+    try {
+      if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
+      const mdKey = year + '-' + month;
+      if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
       try {
-        const dim0 = daysInJalaliMonth(year, month);
-        // fallback: همه روزها منهای تقریبی ۵ روز تعطیل هفتگی در ماه ۳۰ روزه
-        funcDays = Math.max(1, dim0 - Math.round(dim0 * 2 / 7));
-      } catch (eF1) { funcDays = 22; }
-    }
-    if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
-    gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
-
-    (gd.obj.employees || []).forEach(function (emp) {
-      if (!emp || emp.status === 'inactive') return;
-      if (filterCode && String(emp.code) !== String(filterCode)) return;
-      if (filterUnit && String(emp.unit || '') !== filterUnit) return;
-      if (filterManager && String(emp.managerCode || '') !== filterManager) return;
-      const code = String(emp.code);
-      let filled = null;
-      try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eFill) { filled = null; }
-      const prev = gd.obj.monthlyData[mdKey][code] || {};
-      const row = filled ? Object.assign({}, prev, filled) : prev;
-      if (filled) {
-        gd.obj.monthlyData[mdKey][code] = row;
-        cellsTouched++;
+        funcDays = countFunctionalDaysInMonth(gd.obj, year, month, 'normal') || 0;
+      } catch (e0) { funcDays = 0; }
+      if (!(funcDays > 0)) {
+        try {
+          const dim0 = daysInJalaliMonth(year, month);
+          funcDays = Math.max(1, dim0 - Math.round(dim0 * 2 / 7));
+        } catch (e1) { funcDays = 22; }
       }
-      function num(v) { v = Number(v); return isNaN(v) ? 0 : v; }
-      rowsLight.push({
-        code: emp.code,
-        fullName: emp.fullName || '',
-        unit: emp.unit || '',
-        workDays: num(row.workDays),
-        leaveDays: num(row.leaveDays),
-        hourlyLeave: num(row.hourlyLeave),
-        missionDays: num(row.missionDays),
-        missionHours: num(row.missionHours),
-        otHours: row.otHours != null ? row.otHours : 0,
-        nightHours: row.nightHours != null ? row.nightHours : 0,
-        hourlyAbsenceHours: num(row.hourlyAbsenceHours),
-        absenceDays: num(row.absenceDays),
-        punchDays: num(row.punchDays),
-        qty: row.qty || {},
-        childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
-      });
-    });
+      if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
+      gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
 
-    // ذخیره را اینجا انجام نده — باعث timeout/503 می‌شد؛ کلاینت «ذخیره داده‌ها» می‌زند
-    // فقط monthlyData در حافظهٔ همین درخواست برای rows پر شده است
+      const onlyCode = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
+
+      (gd.obj.employees || []).forEach(function (emp) {
+        try {
+          if (!emp || emp.status === 'inactive') return;
+          if (onlyCode && String(emp.code) !== onlyCode && String(emp.code) !== String(filterCode)) return;
+          if (!onlyCode) {
+            if (filterCode && String(emp.code) !== String(filterCode)) return;
+            if (filterUnit && String(emp.unit || '') !== filterUnit) return;
+            if (filterManager && String(emp.managerCode || '') !== filterManager) return;
+          }
+          const code = String(emp.code);
+          // فقط recount سبک — نه fill کامل
+          let wd = 0, lv = 0, pd = 0, ot = 0, night = 0, hl = 0, mdays = 0, mhrs = 0;
+          try { wd = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || 0; } catch (eW) { wd = 0; }
+          try { pd = countEmpMonthPunchDays(gd.obj, year, month, code) || 0; } catch (eP) { pd = 0; }
+          try {
+            (gd.obj.attendanceRequests || []).forEach(function (x) {
+              if (!x || String(x.empCode) !== code) return;
+              var st = String(x.status || '').toLowerCase();
+              if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
+              if (x.kind === 'leave' && x.mode === 'daily') {
+                try {
+                  if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) return;
+                } catch (eS) {}
+                try {
+                  lv += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, emp.contractType || 'normal');
+                } catch (eL) {}
+              } else if (x.kind === 'leave' && x.mode === 'hourly') {
+                try {
+                  var p = parseJalaliYMD(x.startDate);
+                  if (p && p.y === year && p.m === month) hl += hoursBetween(x.fromTime, x.toTime);
+                } catch (eH) {}
+              } else if (x.kind === 'mission' && x.mode === 'daily') {
+                try { mdays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month); } catch (eM) {}
+              } else if (x.kind === 'mission' && x.mode === 'hourly') {
+                try {
+                  var p2 = parseJalaliYMD(x.startDate);
+                  if (p2 && p2.y === year && p2.m === month) mhrs += hoursBetween(x.fromTime, x.toTime);
+                } catch (eMh) {}
+              }
+            });
+          } catch (eReq) {}
+          // مرخصی از سلول
+          try {
+            var store = ((gd.obj.dailyAttendance || {})[code]) || {};
+            Object.keys(store).forEach(function (dk) {
+              var cell = store[dk];
+              if (!cell || !cell.leaveDaily) return;
+              var lab = String(cell.leaveDaily);
+              if (lab.indexOf('رست') >= 0) return;
+              if (lab.indexOf('مرخص') < 0 && lab.indexOf('استحقاق') < 0 && lab.indexOf('استعلاج') < 0) return;
+              var parts = String(dk).split(/[-/]/);
+              if (parts.length < 3) return;
+              if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+              lv += 1;
+            });
+          } catch (eCell) {}
+          // OT/night از punch ساده
+          try {
+            var store2 = ((gd.obj.dailyAttendance || {})[code]) || {};
+            var dim = daysInJalaliMonth(year, month);
+            for (var d = 1; d <= dim; d++) {
+              var pad = String(d).padStart(2, '0');
+              var mpad = String(month).padStart(2, '0');
+              var cell = store2[year + '-' + mpad + '-' + pad] || store2[year + '/' + mpad + '/' + pad] || {};
+              // اگر calc قبلی روی سلول ذخیره شده
+              if (cell.otHours) ot += Number(cell.otHours) || 0;
+              if (cell.nightHours) night += Number(cell.nightHours) || 0;
+            }
+          } catch (eOt) {}
+
+          var prev = gd.obj.monthlyData[mdKey][code] || {};
+          var row = Object.assign({}, prev, {
+            workDays: wd,
+            leaveDays: Math.round(lv * 100) / 100,
+            hourlyLeave: Math.round(hl * 100) / 100,
+            missionDays: Math.round(mdays * 100) / 100,
+            missionHours: Math.round(mhrs * 100) / 100,
+            punchDays: pd,
+            otHours: Math.round(ot * 100) / 100 || prev.otHours || 0,
+            nightHours: Math.round(night * 100) / 100 || prev.nightHours || 0,
+            qty: prev.qty || {},
+            _fromTimesheet: true
+          });
+          try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
+          try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eA) {}
+          gd.obj.monthlyData[mdKey][code] = row;
+          cellsTouched++;
+          rowsLight.push({
+            code: emp.code,
+            fullName: emp.fullName || '',
+            unit: emp.unit || '',
+            workDays: Number(row.workDays) || 0,
+            leaveDays: Number(row.leaveDays) || 0,
+            hourlyLeave: Number(row.hourlyLeave) || 0,
+            missionDays: Number(row.missionDays) || 0,
+            missionHours: Number(row.missionHours) || 0,
+            otHours: row.otHours || 0,
+            nightHours: row.nightHours || 0,
+            hourlyAbsenceHours: Number(row.hourlyAbsenceHours) || 0,
+            absenceDays: Number(row.absenceDays) || 0,
+            punchDays: Number(row.punchDays) || 0,
+            qty: row.qty || {},
+            childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
+          });
+        } catch (eEmp) {
+          try {
+            rowsLight.push({
+              code: emp.code,
+              fullName: (emp && emp.fullName) || '',
+              unit: (emp && emp.unit) || '',
+              workDays: 0, leaveDays: 0, hourlyLeave: 0, missionDays: 0, missionHours: 0,
+              otHours: 0, nightHours: 0, qty: {}
+            });
+          } catch (e2) {}
+        }
+      });
+    } catch (eAll) {
+      console.error('transfer light', eAll);
+    }
+    // همیشه ok با rows
     return jsonResponse({
       ok: true,
       year: year,
