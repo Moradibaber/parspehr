@@ -1,4 +1,4 @@
- // parspehr gate: personal login + watermark + payroll API + employee self-service portal
+// parspehr gate: personal login + watermark + payroll API + employee self-service portal
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
@@ -1963,7 +1963,7 @@ function applyApprovedRequestToTimesheet(data, req) {
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
     if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req)) {
-      // رست کاری و مشابه → ستون تعداد، نه روز مرخصی
+      // فقط رست واقعی → ستون «تعداد رست کاری»؛ مرخصی استحقاقی/بدون‌حقوق هرگز رست نشود
       let tname = req.typeName || req.type || '';
       if (!tname && req.typeId) {
         try {
@@ -1972,14 +1972,22 @@ function applyApprovedRequestToTimesheet(data, req) {
           if (td) tname = td.name || '';
         } catch (eT) {}
       }
-      const qtyName = matchQtyItemName(data, code, tname) || (tname ? ('تعداد ' + tname) : null);
-      if (qtyName) {
+      function _isRestNameOnly(s) {
+        s = String(s || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!s) return false;
+        if (/مرخص|استحقاق|استعلاج|بدون\s*حقوق|غیبت|غایب|مأمور|مامور|mission|leave/i.test(s)) return false;
+        return (s.indexOf('رست') >= 0) || /\brest\b/i.test(s);
+      }
+      if (_isRestNameOnly(tname) || _isRestNameOnly(req.typeId) || _isRestNameOnly(req.kind)) {
+        const qtyName = matchQtyItemName(data, code, tname) || 'رست کاری';
         splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
           const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
           const days = leaveDaysForMonthChunk(data, req, chunk);
           addQtyDaysToMonthRow(row, qtyName, days);
+          try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRR) {}
         });
       }
+      // unpaid / skip بدون نام رست: هیچ qty رستی نوشته نشود
     } else {
       splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
         const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
@@ -2436,7 +2444,9 @@ function computeAccruedLeaveDaysW(obj, emp, year, month) {
   const annual = getAnnualLeaveDaysForEmp(obj, emp);
   const cy = Number(year) || Number((obj.settings || {}).currentYear) || 1405;
   let cm = Number(month);
-  if (!cm) cm = Number((obj.settings || {}).currentMonth) || Number((obj.settings || {}).activeMonth) || 1;
+  if (!cm) cm = Number((obj.settings || {}).currentMonth) || Number((obj.settings || {}).activeMonth) || 0;
+  if (!cm) { try { var _pc = (typeof getPortalCalendarNow === 'function') ? getPortalCalendarNow(obj) : null; cm = (_pc && _pc.realMonth) || 0; } catch(eCm){} }
+  if (!cm) cm = 1;
   if (cm < 1) cm = 1;
   if (cm > 12) cm = 12;
   const p = parseJalaliYMD(emp && emp.hireDate);
@@ -4561,13 +4571,12 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     // kind صریح rest
     var k = String(x.kind || '').toLowerCase();
     var tn = String(x.typeName || x.type || x.name || '');
-    var isRestKind = (k === 'rest' || k === 'work_rest' || k.indexOf('rest') >= 0 || String(x.kind || '').indexOf('رست') >= 0);
+    // فقط kind/name صریح رست — leave/مرخصی/استحقاق هرگز رست نیست
+    var isRestKind = (k === 'rest' || k === 'work_rest' || k === 'رست' || k === 'رست کاری');
     var isRestName = isExplicitRestOnly(tn) || isExplicitRestOnly(String(x.typeId || ''));
+    if (k === 'leave' || k === 'مرخصی' || /مرخص|استحقاق|استعلاج|mission|مأمور|مامور/.test(tn)) return;
+    if (x.deductFromEntitlement === true) return;
     if (!isRestKind && !isRestName) return;
-    // اگر kind=leave باشد حتی با نام عجیب، قبول نکن مگر نام دقیقاً فقط رست باشد
-    if (k === 'leave' || k === 'مرخصی') {
-      if (!isExplicitRestOnly(tn)) return;
-    }
     if (x.mode === 'hourly') return;
     var days = 0;
     try {
@@ -6317,39 +6326,39 @@ async function handleAdminTimesheet(request, who, env) {
             _fromTimesheet: true
           });
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
-          // اگر هیچ رست صریحی نیست، qty رست را صفر نگه دار (دادهٔ قبلی نماند)
+          // همیشه: اگر درخواست صریح رست در این ماه نیست، qty رست را صفر کن (داده قبلی / نشت از مرخصی نماند)
           try {
-            var rv = Number((row.qty && (row.qty['رست کاری'] != null ? row.qty['رست کاری'] : row.qty['تعداد رست کاری'])) || 0);
-            // اگر leaveDaily استحقاقی در ماه هست و فقط به‌خاطر آن rest پر شده، صفر کن
-            var hasEnt = false;
+            var explicitRest = false;
             try {
-              var st2 = ((gd.obj.dailyAttendance || {})[code]) || {};
-              Object.keys(st2).forEach(function(dk) {
-                var lab = String((st2[dk] && st2[dk].leaveDaily) || '');
-                if (lab.indexOf('استحقاق') >= 0 || (lab.indexOf('مرخص') >= 0 && lab.indexOf('رست') < 0)) hasEnt = true;
+              (gd.obj.attendanceRequests || []).forEach(function(x) {
+                if (!x || String(x.empCode) !== code) return;
+                var st = String(x.status || '').toLowerCase();
+                if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st.indexOf('تایید') >= 0 || st.indexOf('تأیید') >= 0)) return;
+                if (x.deductFromEntitlement === true) return;
+                var tn = String(x.typeName || x.type || x.name || '');
+                var k = String(x.kind || '').toLowerCase();
+                if (/مرخص|استحقاق|استعلاج|mission|مأمور|مامور|leave/i.test(tn)) return;
+                if (k === 'leave' || k === 'مرخصی') return;
+                var isRest = (k === 'rest' || k === 'work_rest' || k === 'رست' || k === 'رست کاری' ||
+                  (tn.indexOf('رست') >= 0 && tn.indexOf('مرخص') < 0) || /\brest\b/i.test(tn));
+                if (!isRest) return;
+                var p = parseJalaliYMD(x.startDate);
+                if (p && p.y === year && p.m === month) explicitRest = true;
+                if (!explicitRest && x.endDate) {
+                  try {
+                    var chunks = splitDaysByMonth(x.startDate, x.endDate);
+                    if (chunks.some(function(c){ return Number(c.year)===year && Number(c.month)===month; })) explicitRest = true;
+                  } catch (eCh) {}
+                }
               });
-            } catch (eH) {}
-            if (hasEnt && rv > 0) {
-              // فقط اگر درخواست kind/name صریح رست در ماه نباشد صفر کن — rebuildRest قبلاً فیلتر کرده؛ اینجا دوباره صفر امن
-              var explicitRest = false;
-              try {
-                (gd.obj.attendanceRequests || []).forEach(function(x) {
-                  if (!x || String(x.empCode) !== code) return;
-                  var st = String(x.status || '').toLowerCase();
-                  if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st.indexOf('تایید') >= 0 || st.indexOf('تأیید') >= 0)) return;
-                  var tn = String(x.typeName || x.type || x.name || '');
-                  var k = String(x.kind || '');
-                  if (tn.indexOf('رست') >= 0 || k.indexOf('رست') >= 0 || /\brest\b/i.test(tn) || /\brest\b/i.test(k)) {
-                    var p = parseJalaliYMD(x.startDate);
-                    if (p && p.y === year && p.m === month) explicitRest = true;
-                  }
-                });
-              } catch (eX) {}
-              if (!explicitRest) {
-                if (!row.qty) row.qty = {};
-                row.qty['رست کاری'] = 0;
-                row.qty['تعداد رست کاری'] = 0;
-              }
+            } catch (eX) {}
+            if (!explicitRest) {
+              if (!row.qty) row.qty = {};
+              Object.keys(row.qty).forEach(function(qk) {
+                if (String(qk).indexOf('رست') >= 0) row.qty[qk] = 0;
+              });
+              row.qty['رست کاری'] = 0;
+              row.qty['تعداد رست کاری'] = 0;
             }
           } catch (eZ) {}
           try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eA) {}
@@ -7443,7 +7452,9 @@ function refreshSonAgeMessages(obj, emp) {
   ensureEmpFamily(emp);
   var alertAge = Number(obj.settings.sonAlertAge) || 18;
   var cy = Number((obj.settings || {}).currentYear) || 1405;
-  var cm = Number((obj.settings || {}).currentMonth) || 1;
+  var cm = Number((obj.settings || {}).currentMonth) || Number((obj.settings || {}).activeMonth) || 0;
+  if (!cm) { try { var _pc0 = (typeof getPortalCalendarNow === 'function') ? getPortalCalendarNow(obj) : null; cm = (_pc0 && _pc0.realMonth) || 0; } catch(e0){} }
+  if (!cm) cm = 1;
   var cd = Number((obj.settings || {}).currentDay) || 1;
   var now = { y: cy, m: cm, d: cd };
   (emp.family.members || []).forEach(function (ch, idx) {
@@ -7759,7 +7770,8 @@ async function handleAdminEmployeeExtra(request, who, env) {
     ensureEmpFamily(emp);
     refreshSonAgeMessages(gd.obj, emp);
     const cy = Number((gd.obj.settings || {}).currentYear) || 1405;
-    const cm = Number((gd.obj.settings || {}).currentMonth) || 1;
+    const cm = Number((gd.obj.settings || {}).currentMonth) || Number((gd.obj.settings || {}).activeMonth) || 0;
+  // ماه جاری تنظیمات؛ اگر نبود از تقویم واقعی
     const now = { y: cy, m: cm, d: 1 };
     const members = (emp.family.members || []).map(function (m, idx) {
       const age = calcAgeYM(m && m.birthDate, now);
@@ -7967,7 +7979,9 @@ async function handleAdminFamilyOverview(request, who, env) {
   const obj = gd.obj || {};
   ensureFamilySettings(obj);
   const st = obj.settings || {};
-  const now = { y: Number(st.currentYear) || 1405, m: Number(st.currentMonth) || 1, d: Number(st.currentDay) || 1 };
+  const now = { y: Number(st.currentYear) || 1405, m: Number(st.currentMonth) || Number(st.activeMonth) || 0, d: Number(st.currentDay) || 1 };
+  if (!now.m) { try { var _pcN = (typeof getPortalCalendarNow === 'function') ? getPortalCalendarNow({ settings: st }) : null; if (_pcN && _pcN.realMonth) now.m = _pcN.realMonth; if (_pcN && _pcN.realYear) now.y = _pcN.realYear; } catch(eN){} }
+  if (!now.m) now.m = 1;
   const qty = {};
   const alerts = {};
   (obj.employees || []).forEach(function (emp) {
