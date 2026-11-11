@@ -4384,22 +4384,128 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 }
 
 /** از آیتم‌های «تعداد خالص» (qty_flat) به اندازه روز غیبت کسر کن — بدون دست زدن به تیک ثابت/مرخصی/رست */
+/** آیا این نوع در ثابت ماهانه / تعریف نوع، تیک «کسر از تعداد خالص» دارد؟ */
+function typeDeductsFromNetCount(obj, typeId, typeName) {
+  try {
+    var types = [].concat((obj && obj.attendanceTypes) || [], (obj && obj.settings && obj.settings.attendanceTypes) || []);
+    var tid = String(typeId || '');
+    var tn = String(typeName || '');
+    for (var i = 0; i < types.length; i++) {
+      var t = types[i];
+      if (!t) continue;
+      var match = (tid && String(t.id) === tid) || (tn && String(t.name || '') === tn);
+      if (!match) continue;
+      if (t.deductFromNetCount === true || t.deductFromPure === true || t.deductFromNet === true || t.deductFromFunctional === true) return true;
+      if (t.deductFromNetCount === 1 || t.deductFromPure === 1) return true;
+    }
+    // ثابت‌های ماهانه (اگر جدا ذخیره شده باشند)
+    var consts = [].concat(
+      (obj && obj.monthlyConstants) || [],
+      (obj && obj.settings && obj.settings.monthlyConstants) || [],
+      (obj && obj.fixedMonthlyItems) || [],
+      (obj && obj.settings && obj.settings.fixedMonthlyItems) || []
+    );
+    for (var j = 0; j < consts.length; j++) {
+      var c = consts[j];
+      if (!c) continue;
+      var cn = String(c.name || c.typeName || c.id || '');
+      if (tn && cn && (cn === tn || cn.indexOf(tn) >= 0 || tn.indexOf(cn) >= 0)) {
+        if (c.deductFromNetCount || c.deductFromPure || c.deductFromNet || c.ksrAzKhales) return true;
+      }
+      if (tid && String(c.typeId || c.id || '') === tid) {
+        if (c.deductFromNetCount || c.deductFromPure || c.deductFromNet) return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+/** روزهایی که باید از تعداد خالص کم شوند: همیشه غیبت + انواع با تیک کسر از خالص */
+function countNetDeductionDays(obj, year, month, code) {
+  year = Number(year); month = Number(month);
+  var total = 0;
+  var abs = 0;
+  try { abs = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { abs = 0; }
+  total += Math.max(0, abs);
+
+  var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+  var ct = (emp && emp.contractType) || 'normal';
+  var seenDays = {};
+
+  function addDayKey(dk) {
+    if (seenDays[dk]) return;
+    seenDays[dk] = true;
+    total += 1;
+  }
+
+  // درخواست‌های تأییدشده با تیک کسر از خالص
+  try {
+    (obj.attendanceRequests || []).forEach(function (x) {
+      if (!x || String(x.empCode) !== String(code)) return;
+      var st = String(x.status || '').toLowerCase();
+      if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
+      if (!(x.deductFromNetCount || x.deductFromPure || typeDeductsFromNetCount(obj, x.typeId, x.typeName || x.type || x.name))) return;
+      if (x.mode === 'hourly') return;
+      try {
+        var days = (typeof countWorkingDaysInMonth === 'function')
+          ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+          : 0;
+        if (days > 0) total += days;
+      } catch (eD) {}
+    });
+  } catch (eR) {}
+
+  // سلول‌های تایم‌شیت با leaveDaily که نوعش تیک دارد
+  try {
+    var store = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
+    Object.keys(store).forEach(function (dk) {
+      var cell = store[dk];
+      if (!cell) return;
+      var lab = String(cell.leaveDaily || '').trim();
+      if (!lab) return;
+      if (lab.indexOf('رست') >= 0) return;
+      // اگر برچسب با نوعی که تیک دارد match شود
+      if (!typeDeductsFromNetCount(obj, '', lab)) {
+        // fallback: استحقاق فقط اگر در types تیک خورده
+        return;
+      }
+      var parts = String(dk).split(/[-/]/);
+      if (parts.length < 3) return;
+      if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+      addDayKey(dk);
+    });
+  } catch (eC) {}
+
+  return Math.max(0, Math.round(total * 100) / 100);
+}
+
+/**
+ * کسر از آیتم‌های «تعداد خالص» (qty_flat):
+ * - همیشه: روز غیبت
+ * - انواع با تیک «کسر از تعداد خالص» در ثابت ماهانه / تعریف نوع
+ * روی کارکرد (workDays) جداگانه اثر می‌گذارد (غیبت از قبل در recount کم شده).
+ */
 function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (!row) return;
-  let abs = 0;
-  try {
-    abs = countEmpMonthAbsenceDays(obj, year, month, code);
-  } catch (eA) { abs = 0; }
+  var abs = 0;
+  try { abs = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { abs = 0; }
   row.absenceDays = abs;
-  const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
-  const flatNames = {};
+
+  var netDed = abs;
+  try { netDed = countNetDeductionDays(obj, year, month, code); } catch (eN) { netDed = abs; }
+  // حداقل به اندازه غیبت
+  if (netDed < abs) netDed = abs;
+  row.netDeductionDays = netDed;
+
+  var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+  var flatNames = {};
   function collect(list) {
     (list || []).forEach(function (ci) {
       if (!ci || !ci.name) return;
       if (ci.entryType !== 'qty_flat') return;
       if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') return;
       flatNames[String(ci.name).trim()] = true;
-      const bare = String(ci.name).replace(/^تعداد\s+/, '').trim();
+      var bare = String(ci.name).replace(/^تعداد\s+/, '').trim();
       if (bare) flatNames[bare] = true;
       flatNames['تعداد ' + bare] = true;
     });
@@ -4408,19 +4514,37 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   collect(obj.customItemTemplates);
   if (!row.qty) row.qty = {};
   if (!row.qtyAbsBase || typeof row.qtyAbsBase !== 'object') row.qtyAbsBase = {};
-  // پایه را فقط یک‌بار از مقدار فعلی بردار (تا تکرار اجرا دوباره کسر نکند)
+
+  // اگر qty خالی است، پایه را از کارکرد خالص ماه بگذار
+  var funcDays = 0;
+  try {
+    var key = year + '-' + month;
+    var meta = (obj.monthlyData && obj.monthlyData[key] && obj.monthlyData[key]._meta) || {};
+    funcDays = Number(meta.functionalDays) || Number((obj.settings || {}).defaultFunctionalDays) || 0;
+  } catch (eF) {}
+  if (!(funcDays > 0)) {
+    try { funcDays = countFunctionalDaysInMonth(obj, year, month, (emp && emp.contractType) || 'normal'); } catch (eF2) { funcDays = 0; }
+  }
+
+  Object.keys(flatNames).forEach(function (k) {
+    if (row.qty[k] == null || row.qty[k] === '') {
+      if (funcDays > 0) row.qty[k] = funcDays;
+    }
+  });
+
   Object.keys(row.qty).forEach(function (k) {
     if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
     if (row.qtyAbsBase[k] == null || row.qtyAbsBase[k] === '') {
-      const n = Number(row.qty[k]);
+      var n = Number(row.qty[k]);
       if (isFinite(n)) row.qtyAbsBase[k] = n;
+      else if (funcDays > 0) row.qtyAbsBase[k] = funcDays;
     }
   });
   Object.keys(row.qtyAbsBase).forEach(function (k) {
     if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
-    const base = Number(row.qtyAbsBase[k]);
+    var base = Number(row.qtyAbsBase[k]);
     if (!isFinite(base)) return;
-    row.qty[k] = Math.max(0, Math.round((base - abs) * 100) / 100);
+    row.qty[k] = Math.max(0, Math.round((base - netDed) * 100) / 100);
   });
 }
 
@@ -6299,6 +6423,7 @@ async function handleAdminTimesheet(request, who, env) {
             nightHours: row.nightHours || 0,
             hourlyAbsenceHours: Number(row.hourlyAbsenceHours) || 0,
             absenceDays: Number(row.absenceDays) || 0,
+            netDeductionDays: Number(row.netDeductionDays) || Number(row.absenceDays) || 0,
             punchDays: Number(row.punchDays) || 0,
             qty: row.qty || {},
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
