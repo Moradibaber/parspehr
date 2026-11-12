@@ -4719,30 +4719,29 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   // فرمول قطعی: پایه − تیک‌دارها
   var finalQty = Math.max(0, Math.round((funcDays - deduct) * 100) / 100);
 
-  // بنویس روی همه نام‌های ناهار / qty_flat
+  // فقط آیتم‌های «ناهار» — نه هر qty_flat (حق موتور و … دست‌نخورده بمانند)
   var names = {};
   function addName(nm) {
     nm = String(nm || '').trim();
     if (!nm) return;
+    if (!/ناهار|نهار|اهاری/i.test(nm)) return;
     names[nm] = true;
     var bare = nm.replace(/^تعداد\s+/, '').trim();
     if (bare) names[bare] = true;
     names['تعداد ' + bare] = true;
   }
-  ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری'].forEach(addName);
+  ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری', 'جبران هزینه ناهاری'].forEach(addName);
   try {
     (emp && emp.customItems || []).forEach(function (ci) {
-      if (ci && ci.name && (ci.entryType === 'qty_flat' || /ناهار|اهاری/i.test(ci.name))) addName(ci.name);
+      if (ci && ci.name) addName(ci.name);
     });
   } catch (eC) {}
   try {
     (obj.customItemTemplates || []).forEach(function (ci) {
-      if (ci && ci.name && (ci.entryType === 'qty_flat' || /ناهار|اهاری/i.test(ci.name))) addName(ci.name);
+      if (ci && ci.name) addName(ci.name);
     });
   } catch (eT) {}
-  Object.keys(row.qty).forEach(function (k) {
-    if (/ناهار|اهاری/i.test(k)) addName(k);
-  });
+  Object.keys(row.qty || {}).forEach(function (k) { addName(k); });
 
   Object.keys(names).forEach(function (k) {
     row.qtyAbsBase[k] = funcDays;
