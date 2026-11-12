@@ -11002,7 +11002,7 @@ export default [
   "            _busy = false;",
   "            if (st) {",
   "              st.style.color = '#b91c1c';",
-  "              var msg = (j && (j.message || j.error)) ? String(j.message || j.error) : ('HTTP');",
+  "              var msg = (j && (j.message || j.error)) ? String(j.message || j.error) : ('HTTP ' + (r && r.status ? r.status : '') + (text ? (': ' + String(text).slice(0, 120)) : ''));",
   "              st.textContent = 'انتقال ناموفق — ' + msg;",
   "            }",
   "            return;",
