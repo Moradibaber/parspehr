@@ -4716,7 +4716,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
 
   // تفکیک روزها (تردد / بدون‌تیک / تیک‌دار)
   var info = {};
-  try { info = countQtyFlatEarnDays(obj, year, month, code) || {}; } catch (e2) { info = {}; }
+  try { info = countQtyFlatEarnDays(obj, year, month, code) || {}; } catch (e2) { info = { __err: String(e2 && e2.message || e2) }; }
   var punchN = Number(info.punchDays) || 0;
   var untickedN = Number(info.untickedDays) || 0;
   var tickedNoPunch = Number(info.tickedDays) || 0;
@@ -4775,25 +4775,38 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     names['تعداد ' + bare] = true;
   }
   ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری'].forEach(addName);
+  // آیتم‌های رست / جاب / مأموریت / مرخصی / اقماری هرگز توسط تعداد خالص بازنویسی نمی‌شوند
+  function isProtectedName(nm) {
+    return /رست|جاب|مأمور|مامور|مرخص|اقماری|استحقاق|استعلاج/.test(String(nm || ''));
+  }
   function addQtyFlatFrom(list) {
     try {
       (list || []).forEach(function (ci) {
-        if (ci && ci.name && (ci.entryType === 'qty_flat' || /ناهار|اهاری/i.test(ci.name))) addName(ci.name);
+        if (!ci || !ci.name) return;
+        if (isProtectedName(ci.name)) return;
+        if (ci.entryType === 'qty_flat' || /ناهار|اهاری/i.test(ci.name)) addName(ci.name);
       });
     } catch (eC) {}
   }
   addQtyFlatFrom(emp && emp.customItems);
   addQtyFlatFrom(obj.customItemTemplates);
   addQtyFlatFrom(obj.settings && obj.settings.customItemTemplates);
-  try { addQtyFlatFrom(listMonthlyConstantSources(obj)); } catch (eMc) {}
   Object.keys(row.qty).forEach(function (k) {
     if (/ناهار|اهاری/i.test(k)) addName(k);
   });
 
+  var written = [];
   Object.keys(names).forEach(function (k) {
+    if (isProtectedName(k) && !/ناهار|اهاری/.test(k)) return;
     row.qtyAbsBase[k] = funcDays;
     row.qty[k] = finalQty;
+    written.push(k);
   });
+  row.netDebug = {
+    punch: punchN, unticked: untickedN, tickedNoPunch: tickedNoPunch, tickedAll: tickedAll,
+    rowDeduct: rowDeduct, funcDays: funcDays, workDays: Number(row.workDays) || 0,
+    caseTicked: tickedDeduct > 0, finalQty: finalQty, written: written, infoErr: info.__err || ''
+  };
 }
 
 
@@ -6765,6 +6778,7 @@ async function handleAdminTimesheet(request, who, env) {
             absenceDays: Number(row.absenceDays) || 0,
             netDeductionDays: Number(row.netDeductionDays) || Number(row.absenceDays) || 0,
             punchDays: Number(row.punchDays) || 0,
+            netDebug: row.netDebug || null,
             qty: row.qty || {},
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
           });
