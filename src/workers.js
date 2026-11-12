@@ -4402,7 +4402,20 @@ function monthlyConstantDeductsFromPure(item) {
 }
 
 /** آیا این نوع در ثابت ماهانه / تعریف نوع، تیک «کسر از تعداد خالص» دارد؟ */
+var __netTickCache = (typeof WeakMap === 'function') ? new WeakMap() : null;
 function typeDeductsFromNetCount(obj, typeId, typeName) {
+  // کش در سطح هر obj (هر درخواست) — برای جلوگیری از اسکن تکراری ثابت‌های ماهانه
+  if (!__netTickCache || !obj || typeof obj !== 'object') return typeDeductsFromNetCountRaw(obj, typeId, typeName);
+  var c = __netTickCache.get(obj);
+  if (!c) { c = Object.create(null); __netTickCache.set(obj, c); }
+  var k = String(typeId || '') + '|' + String(typeName || '');
+  if (k in c) return c[k];
+  var r = false;
+  try { r = !!typeDeductsFromNetCountRaw(obj, typeId, typeName); } catch (e) { r = false; }
+  c[k] = r;
+  return r;
+}
+function typeDeductsFromNetCountRaw(obj, typeId, typeName) {
   function truthyFlag(v) {
     if (v === true || v === 1 || v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
     if (typeof v === 'string') {
