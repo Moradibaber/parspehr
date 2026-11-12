@@ -4800,12 +4800,15 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     if (isProtectedName(k) && !/ناهار|اهاری/.test(k)) return;
     row.qtyAbsBase[k] = funcDays;
     row.qty[k] = finalQty;
+    if (!row.qtyAuto) row.qtyAuto = {};
+    row.qtyAuto[k] = false;
     written.push(k);
   });
   row.netDebug = {
     punch: punchN, unticked: untickedN, tickedNoPunch: tickedNoPunch, tickedAll: tickedAll,
     rowDeduct: rowDeduct, funcDays: funcDays, workDays: Number(row.workDays) || 0,
-    caseTicked: tickedDeduct > 0, finalQty: finalQty, written: written, infoErr: info.__err || ''
+    caseTicked: tickedDeduct > 0, finalQty: finalQty, infoErr: info.__err || '',
+    qtyNonZero: (function () { var o = {}; Object.keys(row.qty || {}).forEach(function (k) { if (Number(row.qty[k])) o[k] = row.qty[k]; }); return o; })()
   };
 }
 
