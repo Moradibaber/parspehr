@@ -6659,11 +6659,13 @@ async function handleAdminTimesheet(request, who, env) {
       gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
 
       const onlyCode = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
+      const onlyCodes = Array.isArray(r.body && r.body.codes) ? r.body.codes.map(function (x) { return String(x).trim(); }).filter(Boolean) : [];
 
       (gd.obj.employees || []).forEach(function (emp) {
         try {
           if (!emp || emp.status === 'inactive') return;
           if (onlyCode && String(emp.code) !== onlyCode && String(emp.code) !== String(filterCode)) return;
+          if (!onlyCode && onlyCodes.length && onlyCodes.indexOf(String(emp.code)) < 0) return;
           if (!onlyCode) {
             if (filterCode && String(emp.code) !== String(filterCode)) return;
             if (filterUnit && String(emp.unit || '') !== filterUnit) return;
