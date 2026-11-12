@@ -11230,7 +11230,6 @@ export default [
   "      // هرگز بیش از تعداد تیک‌ها نفر نفرست (محافظ)",
   "      if (st) st.textContent = 'در حال انتقال ' + empCodes.length + ' نفر…';",
   "      fetch('/api/admin/timesheet', {",
-  "      fetch('/api/admin/timesheet', {",
   "        method: 'POST', credentials: 'same-origin',",
   "        headers: { 'Content-Type': 'application/json' },",
   "        body: JSON.stringify({ year: ym.year, month: ym.month, light: true, mode: 'transfer', codes: empCodes, code: empCodes.length === 1 ? empCodes[0] : undefined }),",
