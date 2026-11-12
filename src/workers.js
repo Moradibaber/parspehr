@@ -4330,12 +4330,33 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 /** از آیتم‌های «تعداد خالص» (qty_flat) به اندازه روز غیبت کسر کن — بدون دست زدن به تیک ثابت/مرخصی/رست */
 /** آیا این نوع در ثابت ماهانه / تعریف نوع، تیک «کسر از تعداد خالص» دارد؟ */
 function typeDeductsFromNetCount(obj, typeId, typeName) {
+  function truthyFlag(v) {
+    if (v === true || v === 1 || v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (typeof v === 'string') {
+      var s = v.replace(/\s+/g, '');
+      if (s === 'بله' || s === 'بلی' || s === 'آری' || s === 'دارد' || s === '✓' || s === '✔') return true;
+    }
+    return false;
+  }
   function hasDeductFlag(o) {
     if (!o || typeof o !== 'object') return false;
-    if (o.deductFromNetCount === true || o.deductFromPure === true || o.deductFromNet === true || o.deductFromFunctional === true) return true;
-    if (o.deductFromNetCount === 1 || o.deductFromPure === 1 || o.deductFromNet === 1) return true;
-    if (o.ksrAzKhales === true || o.ksrAzKhales === 1) return true;
-    if (o.deductFromNetCount === '1' || o.deductFromPure === 'true') return true;
+    // نام‌های رایج فیلد تیک «کسر از تعداد خالص»
+    var keys = [
+      'deductFromNetCount', 'deductFromPure', 'deductFromNet', 'deductFromFunctional',
+      'deductFromQtyFlat', 'qtyFlatDeduct', 'deductPure', 'pureCountDeduct', 'deductKhales',
+      'ksrAzKhales', 'ksr_az_khales', 'fromNetCount', 'affectPureCount', 'affectsQtyFlat',
+      'deductFromPureCount', 'netCountDeduct', 'khalesDeduct'
+    ];
+    for (var ki = 0; ki < keys.length; ki++) {
+      if (truthyFlag(o[keys[ki]])) return true;
+    }
+    // کلید فارسی احتمالی
+    try {
+      var pk = ['کسر از تعداد خالص', 'کسر از خالص', 'از تعداد خالص'];
+      for (var pi = 0; pi < pk.length; pi++) {
+        if (truthyFlag(o[pk[pi]])) return true;
+      }
+    } catch (eP) {}
     return false;
   }
   function nameMatch(a, b) {
@@ -4352,7 +4373,15 @@ function typeDeductsFromNetCount(obj, typeId, typeName) {
   try {
     var tid = String(typeId || '');
     var tn = String(typeName || '');
-    var types = [].concat((obj && obj.attendanceTypes) || [], (obj && obj.settings && obj.settings.attendanceTypes) || []);
+    if (!tid && !tn) return false;
+
+    // لیست انواع مرخصی/حضور
+    var types = [].concat(
+      (obj && obj.attendanceTypes) || [],
+      (obj && obj.settings && obj.settings.attendanceTypes) || [],
+      (obj && obj.leaveTypes) || [],
+      (obj && obj.settings && obj.settings.leaveTypes) || []
+    );
     for (var i = 0; i < types.length; i++) {
       var t = types[i];
       if (!t) continue;
@@ -4360,22 +4389,59 @@ function typeDeductsFromNetCount(obj, typeId, typeName) {
       if (!match) continue;
       if (hasDeductFlag(t)) return true;
     }
-    // ثابت‌های ماهانه
+
+    // ثابت‌های ماهانه + قالب آیتم‌ها (منبع اصلی تیک در UI)
     var consts = [].concat(
       (obj && obj.monthlyConstants) || [],
       (obj && obj.settings && obj.settings.monthlyConstants) || [],
       (obj && obj.fixedMonthlyItems) || [],
       (obj && obj.settings && obj.settings.fixedMonthlyItems) || [],
       (obj && obj.settings && obj.settings.monthlyFixedItems) || [],
-      (obj && obj.constantItems) || []
+      (obj && obj.constantItems) || [],
+      (obj && obj.customItemTemplates) || [],
+      (obj && obj.settings && obj.settings.customItemTemplates) || [],
+      (obj && obj.payItems) || [],
+      (obj && obj.settings && obj.settings.payItems) || [],
+      (obj && obj.allowances) || [],
+      (obj && obj.settings && obj.settings.allowances) || []
     );
+    // اگر settings خودش آرایه‌ای با نام‌های مرتبط دارد
+    try {
+      var s = obj && obj.settings;
+      if (s && typeof s === 'object') {
+        Object.keys(s).forEach(function (sk) {
+          var v = s[sk];
+          if (Array.isArray(v) && v.length && v[0] && typeof v[0] === 'object') {
+            // فقط آرایه‌هایی که شبیه آیتم/نوع هستند
+            if (v[0].name != null || v[0].typeName != null || v[0].id != null) {
+              consts = consts.concat(v);
+            }
+          }
+        });
+      }
+    } catch (eS) {}
+
     for (var j = 0; j < consts.length; j++) {
       var c = consts[j];
       if (!c) continue;
       if (!hasDeductFlag(c)) continue;
-      if (tid && (String(c.typeId || '') === tid || String(c.id || '') === tid)) return true;
-      if (tn && (nameMatch(c.name, tn) || nameMatch(c.typeName, tn) || nameMatch(c.label, tn))) return true;
+      if (tid && (String(c.typeId || '') === tid || String(c.id || '') === tid || String(c.attendanceTypeId || '') === tid)) return true;
+      if (tn && (nameMatch(c.name, tn) || nameMatch(c.typeName, tn) || nameMatch(c.label, tn) || nameMatch(c.title, tn))) return true;
     }
+
+    // لیست صریح شناسه/نام در settings
+    try {
+      var lists = [].concat(
+        (obj && obj.settings && obj.settings.pureCountDeductTypeIds) || [],
+        (obj && obj.settings && obj.settings.qtyFlatDeductTypes) || [],
+        (obj && obj.settings && obj.settings.deductFromNetCountTypes) || []
+      );
+      for (var li = 0; li < lists.length; li++) {
+        var item = lists[li];
+        if (tid && String(item) === tid) return true;
+        if (tn && nameMatch(String(item), tn)) return true;
+      }
+    } catch (eL) {}
   } catch (e) {}
   return false;
 }
