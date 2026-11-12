@@ -4185,7 +4185,8 @@ function recountEmpMonthWorkDays(obj, year, month, code) {
     const tn = String(req.typeName || req.type || '');
     const isLeave = kind === 'leave' || kind === 'مرخصی' || /مرخص|leave/i.test(tn);
     const isMission = kind === 'mission' || kind === 'مأموریت' || kind === 'ماموریت' || /مأمور|مامور|mission/i.test(tn);
-    if (!isLeave && !isMission) return;
+    const isRest = kind === 'rest' || kind === 'work_rest' || kind === 'رست' || (tn.indexOf('رست') >= 0 && !/استحقاق|استعلاج|مرخص/.test(tn));
+    if (!isLeave && !isMission && !isRest) return;
     const mode = String(req.mode || 'daily');
     if (mode === 'hourly') {
       // ساعتی: همان روز شروع را فعالیت بدان
@@ -4292,7 +4293,8 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
     const tn = String(req.typeName || req.type || '');
     const isLeave = kind === 'leave' || kind === 'مرخصی' || /مرخص|leave/i.test(tn);
     const isMission = kind === 'mission' || kind === 'مأموریت' || kind === 'ماموریت' || /مأمور|مامور|mission/i.test(tn);
-    if (!isLeave && !isMission) return;
+    const isRest = kind === 'rest' || kind === 'work_rest' || kind === 'رست' || (tn.indexOf('رست') >= 0 && !/استحقاق|استعلاج|مرخص/.test(tn));
+    if (!isLeave && !isMission && !isRest) return;
     const mode = String(req.mode || 'daily');
     if (mode === 'hourly') {
       const p = parseJalaliYMD(req.startDate);
@@ -4614,7 +4616,8 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     total += 1;
   }
 
-  // 1) درخواست‌های تأییدشده با kind/name صریح رست
+  // 1) درخواست‌های تأییدشده با نام/kind صریح رست
+  // توجه: در پرتال غالباً kind=leave و typeName=«رست کاری» است — نباید به‌خاطر kind=leave رد شود
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== String(code)) return;
     if (!approved(x.status)) return;
@@ -4622,8 +4625,11 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     var tn = String(x.typeName || x.type || x.name || '');
     var isRestKind = (k === 'rest' || k === 'work_rest' || k === 'رست' || k === 'رست کاری');
     var isRestName = isExplicitRestOnly(tn) || isExplicitRestOnly(String(x.typeId || ''));
-    if (k === 'leave' || k === 'مرخصی' || /مرخص|استحقاق|استعلاج|mission|مأمور|مامور/.test(tn)) return;
+    // استحقاق / استعلاج / مأموریت واقعی هرگز رست نیست
+    if (/استحقاق|استعلاج|بدون\s*حقوق/.test(tn)) return;
+    if (/مأمور|مامور|mission/i.test(tn) && tn.indexOf('رست') < 0) return;
     if (x.deductFromEntitlement === true) return;
+    // نام صریح رست کافی است حتی اگر kind=leave باشد
     if (!isRestKind && !isRestName) return;
     if (x.mode === 'hourly') return;
     try {
