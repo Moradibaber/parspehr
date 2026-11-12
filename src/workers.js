@@ -6612,18 +6612,34 @@ async function handleAdminTimesheet(request, who, env) {
       if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
       gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
 
+      // فقط کدهای درخواست‌شده — هرگز همه کارکنان وقتی codes آمده
+      var codeSet = null;
+      try {
+        var bodyCodes = (r.body && r.body.codes) || null;
+        if (Array.isArray(bodyCodes) && bodyCodes.length) {
+          codeSet = {};
+          bodyCodes.forEach(function (c) {
+            c = String(c || '').trim();
+            if (c) codeSet[c] = true;
+          });
+        }
+      } catch (eCs) { codeSet = null; }
       const onlyCode = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
+      if (!codeSet && onlyCode) { codeSet = {}; codeSet[onlyCode] = true; }
+      if (!codeSet && filterCode) { codeSet = {}; codeSet[String(filterCode)] = true; }
 
       (gd.obj.employees || []).forEach(function (emp) {
         try {
           if (!emp || emp.status === 'inactive') return;
-          if (onlyCode && String(emp.code) !== onlyCode && String(emp.code) !== String(filterCode)) return;
-          if (!onlyCode) {
-            if (filterCode && String(emp.code) !== String(filterCode)) return;
+          const code = String(emp.code);
+          // اگر لیست codes آمده فقط همان‌ها
+          if (codeSet) {
+            if (!codeSet[code] && !codeSet[String(Number(code))] && !codeSet[code.replace(/^0+/, '')]) return;
+          } else {
+            // بدون codes: فقط فیلتر واحد/مدیر (برای سازگاری) — ولی ترجیح با انتخاب صریح است
             if (filterUnit && String(emp.unit || '') !== filterUnit) return;
             if (filterManager && String(emp.managerCode || '') !== filterManager) return;
           }
-          const code = String(emp.code);
           // فقط recount سبک — نه fill کامل
           let wd = 0, lv = 0, pd = 0, ot = 0, night = 0, hl = 0, mdays = 0, mhrs = 0;
           try { wd = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || 0; } catch (eW) { wd = 0; }
