@@ -4654,36 +4654,11 @@ function countNetDeductionDays(obj, year, month, code) {
  */
 function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (!row) return;
-  var info = { earnDays: 0, absenceDays: 0, tickedDays: 0 };
-  try { info = countQtyFlatEarnDays(obj, year, month, code) || info; } catch (eI) {}
-  var abs = Number(info.absenceDays) || 0;
-  try {
-    var abs2 = countEmpMonthAbsenceDays(obj, year, month, code) || 0;
-    if (abs2 > abs) abs = abs2;
-  } catch (eA) {}
-  row.absenceDays = abs;
-  row.netDeductionDays = Math.max(0, abs + (Number(info.tickedDays) || 0));
-
-  var earn = Math.max(0, Number(info.earnDays) || 0);
-
-  var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
-  var flatNames = {};
-  function collect(list) {
-    (list || []).forEach(function (ci) {
-      if (!ci || !ci.name) return;
-      if (ci.entryType !== 'qty_flat') return;
-      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') return;
-      flatNames[String(ci.name).trim()] = true;
-      var bare = String(ci.name).replace(/^تعداد\s+/, '').trim();
-      if (bare) flatNames[bare] = true;
-      flatNames['تعداد ' + bare] = true;
-    });
-  }
-  collect(emp && emp.customItems);
-  collect(obj.customItemTemplates);
   if (!row.qty) row.qty = {};
   if (!row.qtyAbsBase || typeof row.qtyAbsBase !== 'object') row.qtyAbsBase = {};
 
+  // --- پایه = کارکرد خالص ماه ---
+  var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
   var funcDays = 0;
   try {
     var key = year + '-' + month;
@@ -4693,20 +4668,79 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (!(funcDays > 0)) {
     try { funcDays = countFunctionalDaysInMonth(obj, year, month, (emp && emp.contractType) || 'normal'); } catch (eF2) { funcDays = 0; }
   }
+  if (!(funcDays > 0)) {
+    try {
+      var dim = daysInJalaliMonth(year, month);
+      funcDays = Math.max(1, dim - Math.round(dim * 2 / 7));
+    } catch (eD) { funcDays = 22; }
+  }
 
-  // سقف = کارکرد خالص؛ مقدار نهایی = min(سقف، روزهای مشمول)
-  var finalQty = earn;
-  if (funcDays > 0 && finalQty > funcDays) finalQty = funcDays;
+  // --- فقط روزهای تیک‌دار «کسر از تعداد خالص» کم می‌شوند ---
+  // فرمول: ناهار = پایه − تیک‌دارها  (≡ پانچ + بدون‌تیک روی روزهای موظفی)
+  var info = { earnDays: 0, absenceDays: 0, tickedDays: 0 };
+  try { info = countQtyFlatEarnDays(obj, year, month, code) || info; } catch (eI) {}
+  var ticked = Math.max(0, Number(info.tickedDays) || 0);
+  var abs = Math.max(0, Number(info.absenceDays) || 0);
+  try {
+    var abs2 = countEmpMonthAbsenceDays(obj, year, month, code) || 0;
+    if (abs2 > abs) abs = abs2;
+  } catch (eA) {}
+  row.absenceDays = abs;
+  row.netDeductionDays = ticked; // فقط تیک‌دار؛ غیبت در این فرمول از پایه جدا است
 
-  Object.keys(flatNames).forEach(function (k) {
-    row.qtyAbsBase[k] = funcDays > 0 ? funcDays : finalQty;
-    row.qty[k] = Math.max(0, Math.round(finalQty * 100) / 100);
+  // ترجیح: پایه − تیک‌دار (طبق درخواست کاربر)
+  var finalQty = Math.max(0, funcDays - ticked);
+  // اگر day-count دقیق‌تر بود و بزرگ‌تر از صفر، با پایه − تیک هم‌خوان کن
+  var earn = Math.max(0, Number(info.earnDays) || 0);
+  // وقتی تیک درست شمرده شده، base-ticked مرجع است؛ earn فقط اگر تیک=0 و earn>0 تایید کمکی است
+  if (ticked === 0 && earn > 0 && earn < finalQty) {
+    // تیک خوانده نشد ولی روزهای خالی هست — از earn استفاده کن
+    finalQty = earn;
+  }
+
+  // نام آیتم‌های تعداد خالص (ناهار و …)
+  var flatNames = {};
+  function addName(nm) {
+    nm = String(nm || '').trim();
+    if (!nm) return;
+    flatNames[nm] = true;
+    var bare = nm.replace(/^تعداد\s+/, '').trim();
+    if (bare) flatNames[bare] = true;
+    flatNames['تعداد ' + bare] = true;
+  }
+  function collect(list) {
+    (list || []).forEach(function (ci) {
+      if (!ci || !ci.name) return;
+      if (ci.enabled === false || ci.enabled === 0 || ci.enabled === '0') return;
+      var et = String(ci.entryType || '');
+      if (et && et !== 'qty_flat') return;
+      // اگر entryType خالی است ولی نام ناهار/خالص دارد بپذیر
+      if (!et && !/ناهار|نهار|اهاری|خالص/i.test(String(ci.name))) return;
+      addName(ci.name);
+    });
+  }
+  collect(emp && emp.customItems);
+  collect(obj.customItemTemplates);
+  try {
+    var mc = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
+    mc.forEach(function (c) {
+      if (!c || !c.name) return;
+      if (c.enabled === false || c.enabled === 0 || c.enabled === '0') return;
+      var et = String(c.entryType || '');
+      if (et === 'qty_flat' || /ناهار|نهار|اهاری|خالص/i.test(String(c.name))) addName(c.name);
+    });
+  } catch (eM) {}
+  // کلیدهای موجود در qty که شبیه ناهارند
+  Object.keys(row.qty || {}).forEach(function (k) {
+    if (/ناهار|نهار|اهاری/i.test(k)) addName(k);
   });
-  // کلیدهایی که در qty هستند ولی در flatNames با پیشوند تعداد
-  Object.keys(row.qty).forEach(function (k) {
-    if (!flatNames[k] && !flatNames[String(k).replace(/^تعداد\s+/, '').trim()]) return;
-    row.qtyAbsBase[k] = funcDays > 0 ? funcDays : finalQty;
-    row.qty[k] = Math.max(0, Math.round(finalQty * 100) / 100);
+  // حداقل این نام‌ها
+  ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری'].forEach(addName);
+
+  var val = Math.max(0, Math.round(finalQty * 100) / 100);
+  Object.keys(flatNames).forEach(function (k) {
+    row.qtyAbsBase[k] = funcDays;
+    row.qty[k] = val;
   });
 }
 
