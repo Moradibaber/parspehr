@@ -10957,6 +10957,7 @@ export default [
   "        if (st) {",
   "          st.style.color = '#16a34a';",
   "          st.textContent = 'منتقل شد (' + rows.length + ' نفر / ' + n + ' سلول) — ' + source + ' — ذخیره داده‌ها را بزنید';",
+  "          try { if (rows.length <= 2 && rows[0] && rows[0].netDebug) st.textContent += ' | NET: ' + JSON.stringify(rows[0].netDebug); } catch (eDbg) {}",
   "        }",
   "      }",
   "      // محلی فقط وقتی دکمه دستی نیست؛ انتقال دستی همیشه از سرور (با recount واقعی)",
