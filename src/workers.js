@@ -6627,6 +6627,15 @@ async function handleAdminTimesheet(request, who, env) {
       if (!codeSet && onlyCode) { codeSet = {}; codeSet[onlyCode] = true; }
       if (!codeSet && filterCode) { codeSet = {}; codeSet[String(filterCode)] = true; }
 
+      // بدون کد مشخص: همه را پردازش نکن (جلوگیری از 503 برای ۵۲/۳۰۰ نفر)
+      if (!codeSet || !Object.keys(codeSet).length) {
+        return jsonResponse({
+          ok: false,
+          error: 'no_codes',
+          message: 'هیچ کد کارمندی ارسال نشد — یک نفر را تیک بزنید'
+        }, 400);
+      }
+
       (gd.obj.employees || []).forEach(function (emp) {
         try {
           if (!emp || emp.status === 'inactive') return;
