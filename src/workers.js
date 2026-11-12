@@ -4804,9 +4804,30 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     row.qtyAuto[k] = false;
     written.push(k);
   });
+  var defsDump = [];
+  try {
+    var scan = function (path, arr) {
+      if (!Array.isArray(arr)) return;
+      arr.forEach(function (it) {
+        if (!it || typeof it !== 'object') return;
+        var nm = String(it.name || it.typeName || it.label || it.title || '');
+        if (!/رست|جاب|استحقاق|ناهاری/.test(nm)) return;
+        var f = {};
+        Object.keys(it).forEach(function (k) {
+          var v = it[k];
+          if (typeof v === 'boolean' || v === 1 || v === 0 || v === '1' || v === '0' || k === 'entryType' || k === 'kind') f[k] = v;
+        });
+        if (defsDump.length < 14) defsDump.push({ p: path, n: nm, f: f });
+      });
+    };
+    Object.keys(obj).forEach(function (k) { if (Array.isArray(obj[k]) && k !== 'employees' && k !== 'attendanceRequests') scan(k, obj[k]); });
+    var st0 = obj.settings || {};
+    Object.keys(st0).forEach(function (k) { if (Array.isArray(st0[k])) scan('settings.' + k, st0[k]); });
+    scan('emp.customItems', emp && emp.customItems);
+  } catch (eDump) {}
   row.netDebug = {
     punch: punchN, unticked: untickedN, tickedNoPunch: tickedNoPunch, tickedAll: tickedAll,
-    rowDeduct: rowDeduct, funcDays: funcDays, workDays: Number(row.workDays) || 0,
+    defs: defsDump, rowDeduct: rowDeduct, funcDays: funcDays, workDays: Number(row.workDays) || 0,
     caseTicked: tickedDeduct > 0, finalQty: finalQty, infoErr: info.__err || '',
     qtyNonZero: (function () { var o = {}; Object.keys(row.qty || {}).forEach(function (k) { if (Number(row.qty[k])) o[k] = row.qty[k]; }); return o; })()
   };
