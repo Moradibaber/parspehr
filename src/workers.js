@@ -6810,6 +6810,34 @@ async function handleAdminTimesheet(request, who, env) {
     } catch (eAll) {
       console.error('transfer light', eAll);
     }
+    // وقتی انتقال برای افراد مشخص است، نتیجه را در مخزن هم بنویس تا همگام‌سازی خودکار صفحه
+    // مقدارهای قدیمی را روی جدول برنگرداند. (برای همه کارکنان نمی‌نویسیم؛ سنگین است)
+    let persistedLight = false;
+    try {
+      const wantCodes = [];
+      const c1 = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
+      if (c1) wantCodes.push(c1);
+      if (Array.isArray(r.body && r.body.codes)) r.body.codes.forEach(function (x) { x = String(x).trim(); if (x && wantCodes.indexOf(x) < 0) wantCodes.push(x); });
+      if (wantCodes.length && wantCodes.length <= 10 && cellsTouched > 0) {
+        const mk = year + '-' + month;
+        const who0 = (typeof who !== 'undefined' && who && who.name) || 'admin';
+        let putR = await storePutData(cfg, gd.version, gd.obj, who0);
+        if (putR && putR.conflict) {
+          const gd2 = await storeGetData(cfg);
+          if (!gd2.fail && gd2.obj) {
+            if (!gd2.obj.monthlyData) gd2.obj.monthlyData = {};
+            if (!gd2.obj.monthlyData[mk]) gd2.obj.monthlyData[mk] = {};
+            wantCodes.forEach(function (c) {
+              if (gd.obj.monthlyData[mk] && gd.obj.monthlyData[mk][c]) gd2.obj.monthlyData[mk][c] = gd.obj.monthlyData[mk][c];
+            });
+            if (gd.obj.monthlyData[mk] && gd.obj.monthlyData[mk]._meta) gd2.obj.monthlyData[mk]._meta = gd.obj.monthlyData[mk]._meta;
+            putR = await storePutData(cfg, gd2.version, gd2.obj, who0);
+          }
+        }
+        persistedLight = !!(putR && !putR.fail && !putR.conflict);
+        if (putR && putR.fail) console.error('transfer put fail', putR.fail);
+      }
+    } catch (ePutL) { console.error('transfer persist', ePutL); }
     // همیشه ok با rows
     return jsonResponse({
       ok: true,
@@ -6820,7 +6848,7 @@ async function handleAdminTimesheet(request, who, env) {
       transferred: cellsTouched,
       cells: cellsTouched,
       functionalDays: funcDays,
-      saved: false,
+      saved: persistedLight,
       message: 'منتقل شد (' + cellsTouched + ' نفر) — کارکرد خالص ' + funcDays + ' — ذخیره داده‌ها را بزنید'
     });
   }
