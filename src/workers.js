@@ -4328,6 +4328,79 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 }
 
 /** از آیتم‌های «تعداد خالص» (qty_flat) به اندازه روز غیبت کسر کن — بدون دست زدن به تیک ثابت/مرخصی/رست */
+
+/** همه منابع «ثابت ماهانه / ستون عددی ورود داده» — آیتم جدید هم از اینجا خوانده می‌شود */
+function listMonthlyConstantSources(obj) {
+  var out = [];
+  function add(arr) {
+    if (!arr || !arr.length) return;
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] && typeof arr[i] === 'object') out.push(arr[i]);
+    }
+  }
+  try {
+    add(obj && obj.monthlyConstants);
+    add(obj && obj.fixedMonthlyItems);
+    add(obj && obj.constantItems);
+    add(obj && obj.customItemTemplates);
+    add(obj && obj.payItems);
+    add(obj && obj.dataEntryColumns);
+    add(obj && obj.monthlyQtyItems);
+    var s = (obj && obj.settings) || {};
+    add(s.monthlyConstants);
+    add(s.fixedMonthlyItems);
+    add(s.monthlyFixedItems);
+    add(s.customItemTemplates);
+    add(s.payItems);
+    add(s.dataEntryColumns);
+    add(s.monthlyQtyItems);
+    add(s.qtyItems);
+    add(s.countItems);
+    add(s.fixedCountItems);
+    add(s.systemQtyItems);
+    add(s.entryQtyItems);
+    try {
+      Object.keys(s).forEach(function (sk) {
+        var v = s[sk];
+        if (!Array.isArray(v) || !v.length || !v[0] || typeof v[0] !== 'object') return;
+        if (v[0].name == null && v[0].title == null && v[0].label == null) return;
+        add(v);
+      });
+    } catch (e0) {}
+  } catch (e) {}
+  return out;
+}
+
+function monthlyConstantDeductsFromPure(item) {
+  if (!item || typeof item !== 'object') return false;
+  function truthy(v) {
+    if (v === true || v === 1 || v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (typeof v === 'string') {
+      var s = v.replace(/\s+/g, '');
+      if (s === 'بله' || s === 'بلی' || s === 'آری' || s === 'دارد' || s === '✓' || s === '✔') return true;
+    }
+    return false;
+  }
+  var keys = [
+    'deductFromNetCount', 'deductFromPure', 'deductFromNet', 'deductFromFunctional',
+    'deductFromQtyFlat', 'qtyFlatDeduct', 'deductPure', 'pureCountDeduct', 'deductKhales',
+    'ksrAzKhales', 'ksr_az_khales', 'fromNetCount', 'affectPureCount', 'affectsQtyFlat',
+    'deductFromPureCount', 'netCountDeduct', 'khalesDeduct',
+    'effectOnPureCount', 'pureCountEffect', 'deductPureCount',
+    'effectQtyFlat', 'qtyFlatEffect', 'deductFromKhales'
+  ];
+  for (var i = 0; i < keys.length; i++) if (truthy(item[keys[i]])) return true;
+  try {
+    var ex = item.effects || item.effect || item.flags || {};
+    if (truthy(ex.pureCount) || truthy(ex.qtyFlat) || truthy(ex.deductFromNetCount) || truthy(ex.khales)) return true;
+    if (String(ex.pureCount || '').indexOf('کسر') >= 0) return true;
+  } catch (e1) {}
+  try {
+    if (truthy(item['کسر از تعداد خالص']) || truthy(item['اثر روی تعداد خالص'])) return true;
+  } catch (e2) {}
+  return false;
+}
+
 /** آیا این نوع در ثابت ماهانه / تعریف نوع، تیک «کسر از تعداد خالص» دارد؟ */
 function typeDeductsFromNetCount(obj, typeId, typeName) {
   function truthyFlag(v) {
@@ -4389,6 +4462,17 @@ function typeDeductsFromNetCount(obj, typeId, typeName) {
       if (!match) continue;
       if (hasDeductFlag(t)) return true;
     }
+    // ثابت‌های ماهانه (تیک UI) — هر آیتم جدید هم اینجا دیده می‌شود
+    try {
+      var mc = listMonthlyConstantSources(obj);
+      for (var j = 0; j < mc.length; j++) {
+        var c = mc[j];
+        if (!c) continue;
+        if (!monthlyConstantDeductsFromPure(c) && !hasDeductFlag(c)) continue;
+        if (tid && (String(c.typeId || '') === tid || String(c.id || '') === tid || String(c.attendanceTypeId || '') === tid)) return true;
+        if (tn && (nameMatch(c.name, tn) || nameMatch(c.typeName, tn) || nameMatch(c.label, tn) || nameMatch(c.title, tn))) return true;
+      }
+    } catch (eMC) {}
 
     // ثابت‌های ماهانه + قالب آیتم‌ها (منبع اصلی تیک در UI)
     var consts = [].concat(
@@ -4662,7 +4746,26 @@ function matchQtyItemName(data, empCode, typeName) {
     }
     return null;
   }
-  return hitList(emp && emp.customItems) || hitList(data.customItemTemplates) || null;
+  var hit = hitList(emp && emp.customItems) || hitList(data.customItemTemplates);
+  if (hit) return hit;
+  // ثابت‌های ماهانه — بدون فیلتر entryType تا آیتم جدید/سیستمی هم match شود
+  try {
+    var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(data) : [];
+    for (var ci = 0; ci < consts.length; ci++) {
+      var c = consts[ci];
+      if (!c || !c.name) continue;
+      if (c.enabled === false || c.enabled === 0 || c.enabled === '0') continue;
+      var nm = String(c.name).trim();
+      var nmBare = nm.replace(/^تعداد\s+/, '').trim();
+      for (var c2 = 0; c2 < candidates.length; c2++) {
+        var cand = String(candidates[c2] || '').trim();
+        var candBare = cand.replace(/^تعداد\s+/, '').trim();
+        if (cand === nm || candBare === nmBare || cand === nmBare || candBare === nm) return nm;
+        if (candBare && nmBare && (nmBare.indexOf(candBare) >= 0 || candBare.indexOf(nmBare) >= 0)) return nm;
+      }
+    }
+  } catch (eC) {}
+  return null;
 }
 function addQtyDaysToMonthRow(row, qtyName, days) {
   if (!row || !qtyName || !(days > 0)) return;
@@ -4821,12 +4924,22 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     });
   }
 
+  function isApprovedStatus(st) {
+    st = String(st || '').toLowerCase();
+    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+      st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
+      st === 'accept' || st === 'ok' || st === 'done';
+  }
   const missionReqs = (obj.attendanceRequests || []).filter(function (x) {
-    if (!x || String(x.empCode) !== String(code) || x.status !== 'approved') return false;
-    if (x.kind !== 'mission') return false;
+    if (!x || String(x.empCode) !== String(code) || !isApprovedStatus(x.status)) return false;
+    var kind = String(x.kind || '').toLowerCase();
+    var tn0 = String(x.typeName || x.type || x.name || '');
+    var isMis = kind === 'mission' || kind === 'مأموریت' || kind === 'ماموریت' ||
+      /مأمور|مامور|mission|جاب/i.test(tn0);
+    if (!isMis) return false;
     const p = parseJalaliYMD(x.startDate);
     if (p && p.y === year && p.m === month) return true;
-    if (x.mode === 'daily' && x.endDate) {
+    if ((x.mode === 'daily' || !x.mode) && x.endDate) {
       try {
         const chunks = splitDaysByMonth(x.startDate, x.endDate);
         return chunks.some(function (c) { return Number(c.year) === year && Number(c.month) === month; });
@@ -4839,12 +4952,22 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   md.missionDays = 0;
   md.missionHours = 0;
 
-  if (!missionReqs.length) return;
-
   let mDays = 0, mHrs = 0;
   const qtyAcc = {};
+  const seenQtyDays = {};
+
+  function addQtyDay(qtyName, d) {
+    if (!qtyName) return;
+    d = Number(d);
+    if (!(d >= 1 && d <= 31)) return;
+    if (!seenQtyDays[qtyName]) seenQtyDays[qtyName] = {};
+    if (seenQtyDays[qtyName][d]) return;
+    seenQtyDays[qtyName][d] = 1;
+    qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + 1;
+  }
+
   missionReqs.forEach(function (x) {
-    let tname = x.typeName || x.type || '';
+    let tname = x.typeName || x.type || x.name || '';
     if (!tname && x.typeId) {
       try {
         const types = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
@@ -4860,15 +4983,46 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
       }
       return;
     }
-    if (x.mode === 'daily') {
-      const days = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
-      if (qtyName) {
-        qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + days;
+    try {
+      var keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
+      if (qtyName && keys && keys.length) {
+        keys.forEach(function (dk) {
+          var parts = String(dk).split(/[-/]/);
+          if (parts.length < 3) return;
+          if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+          addQtyDay(qtyName, Number(parts[2]));
+        });
+      } else if (qtyName) {
+        qtyAcc[qtyName] = (qtyAcc[qtyName] || 0) + countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
       } else {
-        mDays += days;
+        mDays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
       }
+    } catch (eD) {
+      if (!qtyName) mDays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month);
     }
   });
+
+  // سلول تایم‌شیت missionDaily → qty آیتم ثابت ماهانه (جاب و هر آیتم جدید)
+  try {
+    var storeM = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
+    Object.keys(storeM).forEach(function (dk) {
+      var cell = storeM[dk];
+      if (!cell) return;
+      var lab = String(cell.missionDaily || cell.mission || '').trim();
+      if (!lab) return;
+      var norm = String(dk).replace(/[\u06f0-\u06f9]/g, function (ch) {
+        return String(ch.charCodeAt(0) - 0x06f0);
+      }).replace(/[\u0660-\u0669]/g, function (ch) {
+        return String(ch.charCodeAt(0) - 0x0660);
+      });
+      var parts = norm.split(/[-/]/);
+      if (parts.length < 3) return;
+      if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+      var qn = matchQtyItemName(obj, code, lab);
+      if (qn) addQtyDay(qn, Number(parts[2]));
+    });
+  } catch (eCellM) {}
+
   md.missionDays = Math.round(mDays * 100) / 100;
   md.missionHours = Math.round(mHrs * 100) / 100;
   Object.keys(qtyAcc).forEach(function (nm) {
@@ -6505,19 +6659,8 @@ async function handleAdminTimesheet(request, who, env) {
             qty: prev.qty || {},
             _fromTimesheet: true
           });
+          try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eM) {}
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
-          // رست: فقط اگر rebuildRest مقدار >0 گذاشت از درخواست صریح؛ وگرنه صفر مطلق
-          try {
-            if (!row.qty) row.qty = {};
-            var rv = Number(row.qty['رست کاری'] != null ? row.qty['رست کاری'] : row.qty['تعداد رست کاری']) || 0;
-            if (!(rv > 0)) {
-              Object.keys(row.qty).forEach(function(qk) {
-                if (String(qk).indexOf('رست') >= 0) row.qty[qk] = 0;
-              });
-              row.qty['رست کاری'] = 0;
-              row.qty['تعداد رست کاری'] = 0;
-            }
-          } catch (eZ) {}
           try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eA) {}
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
