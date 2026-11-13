@@ -4377,10 +4377,11 @@ function listMonthlyConstantSources(obj) {
 function monthlyConstantDeductsFromPure(item) {
   if (!item || typeof item !== 'object') return false;
   function truthy(v) {
-    if (v === true || v === 1 || v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (v === true || v === 1 || v === '1' || v === 'true' || v === 'yes' || v === 'on' || v === 'checked') return true;
     if (typeof v === 'string') {
       var s = v.replace(/\s+/g, '');
-      if (s === 'بله' || s === 'بلی' || s === 'آری' || s === 'دارد' || s === '✓' || s === '✔') return true;
+      if (s === 'بله' || s === 'بلی' || s === 'آری' || s === 'دارد' || s === '✓' || s === '✔' || s === 'کسر') return true;
+      if (s.indexOf('کسر') >= 0 && s.indexOf('خالص') >= 0) return true;
     }
     return false;
   }
@@ -4390,17 +4391,35 @@ function monthlyConstantDeductsFromPure(item) {
     'ksrAzKhales', 'ksr_az_khales', 'fromNetCount', 'affectPureCount', 'affectsQtyFlat',
     'deductFromPureCount', 'netCountDeduct', 'khalesDeduct',
     'effectOnPureCount', 'pureCountEffect', 'deductPureCount',
-    'effectQtyFlat', 'qtyFlatEffect', 'deductFromKhales'
+    'effectQtyFlat', 'qtyFlatEffect', 'deductFromKhales',
+    'pureEffect', 'khalesEffect', 'netCountEffect', 'qtyFlatEffectOnPure'
   ];
   for (var i = 0; i < keys.length; i++) if (truthy(item[keys[i]])) return true;
   try {
-    var ex = item.effects || item.effect || item.flags || {};
+    var ex = item.effects || item.effect || item.flags || item.options || {};
     if (truthy(ex.pureCount) || truthy(ex.qtyFlat) || truthy(ex.deductFromNetCount) || truthy(ex.khales)) return true;
-    if (String(ex.pureCount || '').indexOf('کسر') >= 0) return true;
+    if (truthy(ex.effectOnPureCount) || truthy(ex.deductFromPureCount)) return true;
+    if (String(ex.pureCount || ex.effectOnPureCount || '').indexOf('کسر') >= 0) return true;
   } catch (e1) {}
   try {
     if (truthy(item['کسر از تعداد خالص']) || truthy(item['اثر روی تعداد خالص'])) return true;
+    if (truthy(item['اثر روی خالص']) || truthy(item['کسر از خالص'])) return true;
   } catch (e2) {}
+  // اسکن همه کلیدها: اگر نام کلید به خالص/کسر اشاره دارد و مقدار truthy است
+  try {
+    var ik = Object.keys(item);
+    for (var ii = 0; ii < ik.length; ii++) {
+      var kn = String(ik[ii] || '');
+      var knLow = kn.toLowerCase();
+      if ((/خالص/.test(kn) || /pure|khales|qtyflat|qty_flat/.test(knLow)) &&
+          (/کسر|deduct|effect|اثر|from/.test(kn) || /کسر|deduct|effect|اثر|from/.test(knLow))) {
+        if (truthy(item[ik[ii]])) return true;
+      }
+      // مقدار رشته‌ای که خودش «کسر از تعداد خالص» است
+      var vv = item[ik[ii]];
+      if (typeof vv === 'string' && /کسر/.test(vv) && /خالص/.test(vv)) return true;
+    }
+  } catch (e3) {}
   return false;
 }
 
@@ -4416,19 +4435,21 @@ function typeDeductsFromNetCount(obj, typeId, typeName) {
   }
   function hasDeductFlag(o) {
     if (!o || typeof o !== 'object') return false;
-    // نام‌های رایج فیلد تیک «کسر از تعداد خالص»
+    try {
+      if (typeof monthlyConstantDeductsFromPure === 'function' && monthlyConstantDeductsFromPure(o)) return true;
+    } catch (eM) {}
     var keys = [
       'deductFromNetCount', 'deductFromPure', 'deductFromNet', 'deductFromFunctional',
       'deductFromQtyFlat', 'qtyFlatDeduct', 'deductPure', 'pureCountDeduct', 'deductKhales',
       'ksrAzKhales', 'ksr_az_khales', 'fromNetCount', 'affectPureCount', 'affectsQtyFlat',
-      'deductFromPureCount', 'netCountDeduct', 'khalesDeduct'
+      'deductFromPureCount', 'netCountDeduct', 'khalesDeduct',
+      'effectOnPureCount', 'pureCountEffect', 'deductPureCount', 'pureEffect'
     ];
     for (var ki = 0; ki < keys.length; ki++) {
       if (truthyFlag(o[keys[ki]])) return true;
     }
-    // کلید فارسی احتمالی
     try {
-      var pk = ['کسر از تعداد خالص', 'کسر از خالص', 'از تعداد خالص'];
+      var pk = ['کسر از تعداد خالص', 'کسر از خالص', 'از تعداد خالص', 'اثر روی تعداد خالص', 'اثر روی خالص'];
       for (var pi = 0; pi < pk.length; pi++) {
         if (truthyFlag(o[pk[pi]])) return true;
       }
@@ -4722,92 +4743,130 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (funcDays > monthDays) funcDays = monthDays;
 
   // ─── کسر = فقط آیتم/انواعی که در ثابت ماهانه تیک «کسر از تعداد خالص» دارند ───
-  // مرخصی، رست کاری، جاب خدمات فنی و هر آیتم دیگری که تیک خورده باشد
+  // طبق UI: مرخصی استحقاقی روزانه، تعداد رست کاری، تعداد جاب خدمات فنی (و هر آیتم تیک‌دار دیگر)
   var deduct = 0;
-  var deductedKeys = {}; // جلوگیری از دوباره‌شماری
+  var deductedTags = {};
 
   function addDeduct(amount, tag) {
     amount = Number(amount) || 0;
     if (!(amount > 0)) return;
-    var t = String(tag || '');
-    if (t && deductedKeys[t]) return;
-    if (t) deductedKeys[t] = true;
+    tag = String(tag || ('x' + deduct));
+    if (deductedTags[tag]) return;
+    deductedTags[tag] = true;
     deduct += amount;
   }
 
-  function isTicked(name) {
-    if (!name) return false;
+  function normName(s) {
+    return String(s || '')
+      .replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, ' ')
+      .replace(/ي/g, 'ی').replace(/ك/g, 'ک')
+      .replace(/^تعداد\s+/, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  // همه ثابت‌های ماهانه تیک‌دار را یک‌بار جمع کن
+  var tickedConstNames = []; // نام‌های نرمال‌شده
+  try {
+    var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
+    consts.forEach(function (c) {
+      if (!c) return;
+      var flagged = false;
+      try { flagged = monthlyConstantDeductsFromPure(c); } catch (eF) { flagged = false; }
+      if (!flagged) {
+        try { flagged = typeDeductsFromNetCount(obj, c.id || c.typeId || '', c.name || c.title || c.label || ''); } catch (eT) {}
+      }
+      if (!flagged) return;
+      var nm = c.name || c.title || c.label || '';
+      if (nm) tickedConstNames.push(normName(nm));
+      // اگر نام سیستمی دارد
+      if (c.systemName) tickedConstNames.push(normName(c.systemName));
+      if (c.typeName) tickedConstNames.push(normName(c.typeName));
+    });
+  } catch (eC) {}
+
+  // انواع حضور/مرخصی تیک‌دار
+  try {
+    var types = [].concat(
+      (obj && obj.attendanceTypes) || [],
+      (obj && obj.settings && obj.settings.attendanceTypes) || [],
+      (obj && obj.leaveTypes) || [],
+      (obj && obj.settings && obj.settings.leaveTypes) || []
+    );
+    types.forEach(function (t) {
+      if (!t) return;
+      var flagged = false;
+      try { flagged = monthlyConstantDeductsFromPure(t); } catch (e1) {}
+      if (!flagged) {
+        try { flagged = typeDeductsFromNetCount(obj, t.id || '', t.name || ''); } catch (e2) {}
+      }
+      if (flagged && t.name) tickedConstNames.push(normName(t.name));
+    });
+  } catch (eTy) {}
+
+  // یکتا
+  var seenN = {};
+  tickedConstNames = tickedConstNames.filter(function (n) {
+    if (!n || seenN[n]) return false;
+    seenN[n] = true;
+    return true;
+  });
+
+  function nameIsTicked(qn) {
+    var n = normName(qn);
+    if (!n) return false;
+    for (var i = 0; i < tickedConstNames.length; i++) {
+      var t = tickedConstNames[i];
+      if (t === n) return true;
+      if (t.length >= 3 && n.length >= 3 && (t.indexOf(n) >= 0 || n.indexOf(t) >= 0)) return true;
+    }
+    // fallback به typeDeductsFromNetCount
     try {
-      if (typeDeductsFromNetCount(obj, '', name)) return true;
-      // بدون پیشوند «تعداد»
-      var bare = String(name).replace(/^تعداد\s+/, '').trim();
-      if (bare && bare !== name && typeDeductsFromNetCount(obj, '', bare)) return true;
-      if (bare && typeDeductsFromNetCount(obj, '', 'تعداد ' + bare)) return true;
+      if (typeDeductsFromNetCount(obj, '', qn)) return true;
+      if (typeDeductsFromNetCount(obj, '', n)) return true;
+      if (typeDeductsFromNetCount(obj, '', 'تعداد ' + n)) return true;
     } catch (e) {}
     return false;
   }
 
   try {
-    // ۱) مرخصی روزانه — اگر تیک دارد از leaveDays کسر کن
-    var leaveNames = [
-      'مرخصی استحقاقی روزانه', 'استحقاقی روزانه', 'مرخصی روزانه',
-      'مرخصی', 'استحقاقی', 'مرخصی استحقاقی'
-    ];
-    var leaveTicked = false;
-    for (var li = 0; li < leaveNames.length; li++) {
-      if (isTicked(leaveNames[li])) { leaveTicked = true; break; }
-    }
+    // ۱) مرخصی روزانه از leaveDays
+    var leaveTicked = nameIsTicked('مرخصی استحقاقی روزانه')
+      || nameIsTicked('مرخصی روزانه')
+      || nameIsTicked('استحقاقی روزانه')
+      || nameIsTicked('مرخصی استحقاقی')
+      || nameIsTicked('مرخصی');
     if (leaveTicked) addDeduct(row.leaveDays, 'leaveDays');
 
-    // ۲) همه کلیدهای qty (جاب خدمات فنی، رست کاری، پست کاری، …)
+    // ۲) همه کلیدهای qty (رست، جاب، پست، …) — خود ناهار را کم نکن
     var q = row.qty || {};
     Object.keys(q).forEach(function (qn) {
-      // خود آیتم‌های ناهار را از خودشان کم نکن
       if (/ناهار|نهار|اهاری/i.test(qn)) return;
       var n = Number(q[qn]) || 0;
       if (!(n > 0)) return;
-      if (isTicked(qn)) addDeduct(n, 'qty:' + qn);
+      if (nameIsTicked(qn)) addDeduct(n, 'qty:' + normName(qn));
     });
 
-    // ۳) رست کاری — اگر در qty نبود ولی فیلد جداگانه یا درخواست دارد
-    if (!deductedKeys['qty:رست کاری'] && !deductedKeys['qty:رست'] && !deductedKeys['qty:تعداد رست کاری']) {
-      var restNames = ['رست کاری', 'رست', 'تعداد رست کاری', 'work_rest', 'rest'];
-      var restTicked = false;
-      for (var ri = 0; ri < restNames.length; ri++) {
-        if (isTicked(restNames[ri])) { restTicked = true; break; }
-      }
-      if (restTicked) {
-        var restVal = 0;
-        // از qty با نام‌های مختلف
-        restNames.forEach(function (rn) {
-          if (q[rn] != null) restVal = Math.max(restVal, Number(q[rn]) || 0);
-        });
-        // از فیلدهای ردیف
-        if (!(restVal > 0) && row.restDays != null) restVal = Number(row.restDays) || 0;
-        if (!(restVal > 0) && row.workRestDays != null) restVal = Number(row.workRestDays) || 0;
-        if (restVal > 0) addDeduct(restVal, 'rest');
+    // ۳) رست از فیلدهای جدا اگر در qty نبود
+    if (!Object.keys(deductedTags).some(function (k) { return /رست|rest/.test(k); })) {
+      if (nameIsTicked('رست کاری') || nameIsTicked('رست') || nameIsTicked('تعداد رست کاری')) {
+        var rv = Number(row.restDays) || Number(row.workRestDays) || 0;
+        if (!(rv > 0)) {
+          Object.keys(q).forEach(function (qn) {
+            if (/رست/.test(qn)) rv = Math.max(rv, Number(q[qn]) || 0);
+          });
+        }
+        if (rv > 0) addDeduct(rv, 'rest');
       }
     }
 
-    // ۴) جاب خدمات فنی — اطمینان از کسر حتی اگر نام کمی متفاوت باشد
-    if (!Object.keys(deductedKeys).some(function (k) { return /جاب|خدمات\s*فنی/.test(k); })) {
-      var jabNames = ['جاب خدمات فنی', 'تعداد جاب خدمات فنی', 'جاب', 'خدمات فنی'];
-      var jabTicked = false;
-      for (var ji = 0; ji < jabNames.length; ji++) {
-        if (isTicked(jabNames[ji])) { jabTicked = true; break; }
-      }
-      if (jabTicked) {
-        var jabVal = 0;
-        jabNames.forEach(function (jn) {
-          if (q[jn] != null) jabVal = Math.max(jabVal, Number(q[jn]) || 0);
+    // ۴) جاب خدمات فنی
+    if (!Object.keys(deductedTags).some(function (k) { return /جاب|خدمات/.test(k); })) {
+      if (nameIsTicked('جاب خدمات فنی') || nameIsTicked('جاب') || nameIsTicked('تعداد جاب خدمات فنی')) {
+        var jv = 0;
+        Object.keys(q).forEach(function (qn) {
+          if (/جاب|خدمات\s*فنی/.test(qn)) jv = Math.max(jv, Number(q[qn]) || 0);
         });
-        // جستجوی فازی در کلیدهای qty
-        if (!(jabVal > 0)) {
-          Object.keys(q).forEach(function (qn) {
-            if (/جاب|خدمات\s*فنی/.test(qn)) jabVal = Math.max(jabVal, Number(q[qn]) || 0);
-          });
-        }
-        if (jabVal > 0) addDeduct(jabVal, 'jab');
+        if (jv > 0) addDeduct(jv, 'jab');
       }
     }
   } catch (eDed) {}
@@ -6506,16 +6565,31 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
   if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
   const md = obj.monthlyData[key][code];
-  // انتقال کامل تایم‌شیت → ورود داده ماهانه
-  md.workDays = Math.round(workDaysTs) || 0;
+  // انتقال تایم‌شیت → ورود داده ماهانه
+  // اگر کاربر قبلاً روز کارکرد را دستی وارد کرده (مثلاً ۳۰) و مقدار تردد کمتر است، دستی را حفظ کن
+  var existingWd = Number(md.workDays) || 0;
+  var newWd = Math.round(workDaysTs) || 0;
+  if (!(existingWd > 0) || newWd >= existingWd || md._forceTimesheetWorkDays) {
+    md.workDays = newWd;
+  }
+  // در غیر این صورت workDays دستی باقی می‌ماند
   try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsT) { md.absenceDays = 0; }
   try { md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {} } catch (ePd2) { md.punchDays = 0; }
-  md.leaveDays = Math.round(aLeave * 100) / 100;
+  // leaveDays: اگر دستی بزرگ‌تر است حفظ کن (مگر اینکه از تایم‌شیت اجباری باشد)
+  var newLeave = Math.round(aLeave * 100) / 100;
+  var existingLeave = Number(md.leaveDays) || 0;
+  if (!(existingLeave > 0) || newLeave >= existingLeave || md._forceTimesheetWorkDays) {
+    md.leaveDays = newLeave;
+  } else {
+    md.leaveDays = existingLeave;
+  }
   md.missionDays = Math.round(aMission * 100) / 100;
   // رست را بعد از leaveDays بساز تا مرخصی به رست نرود
   try { rebuildRestQtyFromRequests(obj, year, month, code, md); } catch (eRest0) {}
   try { ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code); } catch (eEns) {}
+  // بعد از تثبیت workDays/leaveDays/رست/جاب، تعداد خالص را با فرمول قطعی بساز
+  try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbsFinal) {}
   md.hourlyLeave = Math.round(aHourly * 100) / 100;
   md.missionHours = Math.round(aMissionH * 100) / 100;
   md.otHours = approvedOt;
