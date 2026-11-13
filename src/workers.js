@@ -4902,20 +4902,56 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     }
   } catch (eDed) {}
 
-  if (!(deduct > 0)) {
-    try {
-      var info = countQtyFlatEarnDays(obj, year, month, code) || {};
+  // ─── مبنای اصلی تعداد خالص = روزهای تردد / حضور بدون نوع تیک‌دار ───
+  // طبق توضیح کاربر: اگر فقط ۸ روز تردد باشد و بقیه مرخصی/رست/جاب (تیک‌دار) باشد → خالص = ۸
+  var punchDays = 0;
+  try {
+    punchDays = Number(row.punchDays) || 0;
+    if (!(punchDays > 0) && typeof countEmpMonthPunchDays === 'function') {
+      punchDays = countEmpMonthPunchDays(obj, year, month, code) || 0;
+      row.punchDays = punchDays;
+    }
+  } catch (ePd) { punchDays = Number(row.punchDays) || 0; }
+
+  var earnDays = null;
+  try {
+    var info = countQtyFlatEarnDays(obj, year, month, code) || {};
+    // earnDays = روزهایی که پانچ یا پوشش بدون‌تیک دارند
+    if (info.earnDays != null) earnDays = Number(info.earnDays) || 0;
+    // tickedDays را برای گزارش نگه دار
+    if (!(deduct > 0) && info.tickedDays != null) {
       var t2 = Number(info.tickedDays) || 0;
       if (t2 > 0) deduct = t2;
-    } catch (e2) {}
-  }
+    }
+  } catch (e2) {}
 
   row.netDeductionDays = Math.max(0, deduct);
   try { row.absenceDays = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { row.absenceDays = 0; }
 
-  // ─── فرمول قطعی (طبق درخواست): ───
-  // تعداد خالص = max(0, min(سقف کارکرد خالص, روزهای ماه − جمع تیک‌دارها))
-  var finalQty = Math.max(0, Math.round(Math.min(funcDays, monthDays - deduct) * 100) / 100);
+  // ─── فرمول قطعی ───
+  // اولویت ۱: روزهای مشمول از روی تقویم حضور (earnDays)
+  // اولویت ۲: تعداد روز تردد (punchDays)
+  // اولویت ۳: روزهای ماه − جمع تیک‌دارها (سقف کارکرد)
+  // در همه حالت‌ها سقف = کارکرد خالص (funcDays)
+  var baseEarn = null;
+  if (earnDays != null && isFinite(earnDays) && earnDays >= 0) {
+    baseEarn = earnDays;
+  } else if (punchDays > 0) {
+    baseEarn = punchDays;
+  } else {
+    baseEarn = Math.max(0, monthDays - deduct);
+  }
+  // اگر deduct از ستون‌های تیک‌دار داریم و punch هم داریم:
+  // خالص نباید از punch بیشتر شود (روز بدون تردد و با نوع تیک‌دار ناهار نمی‌گیرد)
+  if (punchDays > 0 && deduct > 0) {
+    baseEarn = Math.min(baseEarn, punchDays);
+  }
+  // اگر جمع تیک‌دار + punch تقریباً ماه را می‌پوشاند، pure = punch
+  if (punchDays > 0 && deduct > 0 && (punchDays + deduct) >= (monthDays - 2)) {
+    baseEarn = punchDays;
+  }
+
+  var finalQty = Math.max(0, Math.round(Math.min(funcDays, baseEarn) * 100) / 100);
 
   // فقط آیتم‌های «ناهار / تعداد خالص» — نه هر qty_flat (حق موتور و … اگر qty_flat نباشند دست‌نخورده بمانند)
   // اگر آیتمی entryType=qty_flat دارد و نامش ناهار نیست، باز هم اگر در ثابت ماهانه به‌عنوان تعداد خالص تعریف شده اعمال می‌شود
@@ -7011,7 +7047,7 @@ async function handleAdminTimesheet(request, who, env) {
           try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eM) {}
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
 
-          // تعداد خالص — فقط حساب ساده، بدون اسکن روزبه‌روز
+          // تعداد خالص = روزهای تردد (وقتی بقیه روزها تیک‌دارند)
           try {
             var deduct = 0;
             var seenD = {};
@@ -7027,11 +7063,26 @@ async function handleAdminTimesheet(request, who, env) {
               if (/ناهار|نهار|اهاری/i.test(qn)) return;
               if (isTickedName(qn)) addD(q[qn], 'q:' + normN(qn));
             });
+            // punchDays را تازه بگیر
+            var pDays = Number(row.punchDays) || 0;
+            try {
+              if (typeof countEmpMonthPunchDays === 'function') {
+                pDays = countEmpMonthPunchDays(gd.obj, year, month, code) || pDays;
+                row.punchDays = pDays;
+              }
+            } catch (eP2) {}
             var ceiling = Number(row.workDays) || funcDays || monthDays;
             if (ceiling > monthDays) ceiling = monthDays;
-            var finalQty = Math.max(0, Math.round(Math.min(ceiling, monthDays - deduct) * 100) / 100);
+            // پایه: ترجیحاً روز تردد؛ وگرنه ماه − تیک‌دارها
+            var baseEarn = (pDays > 0) ? pDays : Math.max(0, monthDays - deduct);
+            if (pDays > 0 && deduct > 0 && (pDays + deduct) >= (monthDays - 2)) {
+              baseEarn = pDays;
+            }
+            if (pDays > 0 && deduct > 0) {
+              baseEarn = Math.min(baseEarn, pDays);
+            }
+            var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
             row.netDeductionDays = Math.max(0, deduct);
-            // اعمال روی کلیدهای ناهار
             ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
               row.qty[nm] = finalQty;
             });
