@@ -965,9 +965,6 @@ if ((typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناه�
 else if (workDays > 0) qty = workDays; // workDays از قبل با غیبت کم شده
 else if (pNL > 0) qty = Math.max(0, pNL - netDed);
 }
-// مقدار ثبت‌شده در ورود داده‌های ماهانه مرجع نهایی است؛ اگر نبود، سقف کارکرد خالص
-// اعمال می‌شود تا مسیرهای قدیمی نیز از روزهای ماه بیشتر نشوند.
-if (functionalDays > 0 && qty > functionalDays) qty = functionalDays;
 }
 qtyUsed = qty;
 if (functionalDays > 0 && amt > 0 && qty > 0) {
