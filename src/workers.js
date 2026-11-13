@@ -4331,10 +4331,18 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 
 /** همه منابع «ثابت ماهانه / ستون عددی ورود داده» — آیتم جدید هم از اینجا خوانده می‌شود */
 function listMonthlyConstantSources(obj) {
+  if (obj && obj.__pspConstSources && Array.isArray(obj.__pspConstSources)) {
+    return obj.__pspConstSources;
+  }
   var out = [];
+  var seen = [];
   function add(arr) {
     if (!arr || !arr.length) return;
-    for (var i = 0; i < arr.length; i++) {
+    // جلوگیری از دوبار اضافه کردن همان آرایه
+    if (seen.indexOf(arr) >= 0) return;
+    seen.push(arr);
+    var lim = Math.min(arr.length, 300);
+    for (var i = 0; i < lim; i++) {
       if (arr[i] && typeof arr[i] === 'object') out.push(arr[i]);
     }
   }
@@ -4359,18 +4367,22 @@ function listMonthlyConstantSources(obj) {
     add(s.fixedCountItems);
     add(s.systemQtyItems);
     add(s.entryQtyItems);
+    // کلیدهای صریح UI ثابت ماهانه
+    add(s.monthlyFixed);
+    add(s.fixedItems);
+    add(s.entryColumns);
     try {
       var sks = Object.keys(s);
-      // حداکثر ۳۰ کلید برای جلوگیری از سنگینی و 503
-      for (var si = 0; si < sks.length && si < 30; si++) {
+      for (var si = 0; si < sks.length && si < 20; si++) {
         var v = s[sks[si]];
         if (!Array.isArray(v) || !v.length || !v[0] || typeof v[0] !== 'object') continue;
         if (v[0].name == null && v[0].title == null && v[0].label == null) continue;
-        if (v.length > 500) continue;
+        if (v.length > 300) continue;
         add(v);
       }
     } catch (e0) {}
   } catch (e) {}
+  if (obj && typeof obj === 'object') obj.__pspConstSources = out;
   return out;
 }
 
@@ -4706,6 +4718,72 @@ function countNetDeductionDays(obj, year, month, code) {
  * مقدار = روزهای پانچ + پوشش بدون‌تیک (سقف: کارکرد خالص)
  * تیک‌دار و غیبت ناهار نمی‌گیرند.
  */
+
+/** نام‌های نرمال‌شدهٔ ثابت‌هایی که تیک «کسر از تعداد خالص» دارند — یک‌بار در هر آبجکت کش می‌شود */
+function getTickedPureCountNames(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  if (obj.__pspTickedPureNames && Array.isArray(obj.__pspTickedPureNames)) {
+    return obj.__pspTickedPureNames;
+  }
+  function normName(s) {
+    return String(s || '')
+      .replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, ' ')
+      .replace(/ي/g, 'ی').replace(/ك/g, 'ک')
+      .replace(/^تعداد\s+/, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+  var names = [];
+  var seen = {};
+  function push(nm) {
+    nm = normName(nm);
+    if (!nm || seen[nm]) return;
+    seen[nm] = true;
+    names.push(nm);
+  }
+  try {
+    var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
+    // سقف برای جلوگیری از کندی
+    var lim = Math.min(consts.length, 400);
+    for (var i = 0; i < lim; i++) {
+      var c = consts[i];
+      if (!c) continue;
+      var flagged = false;
+      try { flagged = monthlyConstantDeductsFromPure(c); } catch (eF) { flagged = false; }
+      if (!flagged) continue;
+      if (c.name) push(c.name);
+      if (c.title) push(c.title);
+      if (c.label) push(c.label);
+      if (c.systemName) push(c.systemName);
+      if (c.typeName) push(c.typeName);
+    }
+  } catch (eC) {}
+  try {
+    var types = [].concat(
+      (obj && obj.attendanceTypes) || [],
+      (obj && obj.settings && obj.settings.attendanceTypes) || [],
+      (obj && obj.leaveTypes) || [],
+      (obj && obj.settings && obj.settings.leaveTypes) || []
+    );
+    var tlim = Math.min(types.length, 200);
+    for (var ti = 0; ti < tlim; ti++) {
+      var t = types[ti];
+      if (!t) continue;
+      var fl = false;
+      try { fl = monthlyConstantDeductsFromPure(t); } catch (e1) {}
+      if (!fl) {
+        try {
+          if (typeof hasDeductFlag === 'function') { /* skip */ }
+        } catch (e2) {}
+      }
+      if (!fl) continue;
+      if (t.name) push(t.name);
+    }
+  } catch (eTy) {}
+  // پیش‌فرض‌های رایج اگر در لیست نبودند ولی معمولاً تیک می‌خورند — فقط وقتی حداقل یک تیک از settings خوانده شده
+  obj.__pspTickedPureNames = names;
+  return names;
+}
+
 function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (!row) return;
   if (!row.qty) row.qty = {};
@@ -4743,7 +4821,6 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (funcDays > monthDays) funcDays = monthDays;
 
   // ─── کسر = فقط آیتم/انواعی که در ثابت ماهانه تیک «کسر از تعداد خالص» دارند ───
-  // طبق UI: مرخصی استحقاقی روزانه، تعداد رست کاری، تعداد جاب خدمات فنی (و هر آیتم تیک‌دار دیگر)
   var deduct = 0;
   var deductedTags = {};
 
@@ -4764,52 +4841,8 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
       .replace(/\s+/g, ' ').trim();
   }
 
-  // همه ثابت‌های ماهانه تیک‌دار را یک‌بار جمع کن
-  var tickedConstNames = []; // نام‌های نرمال‌شده
-  try {
-    var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
-    consts.forEach(function (c) {
-      if (!c) return;
-      var flagged = false;
-      try { flagged = monthlyConstantDeductsFromPure(c); } catch (eF) { flagged = false; }
-      if (!flagged) {
-        try { flagged = typeDeductsFromNetCount(obj, c.id || c.typeId || '', c.name || c.title || c.label || ''); } catch (eT) {}
-      }
-      if (!flagged) return;
-      var nm = c.name || c.title || c.label || '';
-      if (nm) tickedConstNames.push(normName(nm));
-      // اگر نام سیستمی دارد
-      if (c.systemName) tickedConstNames.push(normName(c.systemName));
-      if (c.typeName) tickedConstNames.push(normName(c.typeName));
-    });
-  } catch (eC) {}
-
-  // انواع حضور/مرخصی تیک‌دار
-  try {
-    var types = [].concat(
-      (obj && obj.attendanceTypes) || [],
-      (obj && obj.settings && obj.settings.attendanceTypes) || [],
-      (obj && obj.leaveTypes) || [],
-      (obj && obj.settings && obj.settings.leaveTypes) || []
-    );
-    types.forEach(function (t) {
-      if (!t) return;
-      var flagged = false;
-      try { flagged = monthlyConstantDeductsFromPure(t); } catch (e1) {}
-      if (!flagged) {
-        try { flagged = typeDeductsFromNetCount(obj, t.id || '', t.name || ''); } catch (e2) {}
-      }
-      if (flagged && t.name) tickedConstNames.push(normName(t.name));
-    });
-  } catch (eTy) {}
-
-  // یکتا
-  var seenN = {};
-  tickedConstNames = tickedConstNames.filter(function (n) {
-    if (!n || seenN[n]) return false;
-    seenN[n] = true;
-    return true;
-  });
+  var tickedConstNames = [];
+  try { tickedConstNames = getTickedPureCountNames(obj) || []; } catch (eG) { tickedConstNames = []; }
 
   function nameIsTicked(qn) {
     var n = normName(qn);
@@ -4819,17 +4852,15 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
       if (t === n) return true;
       if (t.length >= 3 && n.length >= 3 && (t.indexOf(n) >= 0 || n.indexOf(t) >= 0)) return true;
     }
-    // fallback به typeDeductsFromNetCount
     try {
       if (typeDeductsFromNetCount(obj, '', qn)) return true;
       if (typeDeductsFromNetCount(obj, '', n)) return true;
-      if (typeDeductsFromNetCount(obj, '', 'تعداد ' + n)) return true;
     } catch (e) {}
     return false;
   }
 
   try {
-    // ۱) مرخصی روزانه از leaveDays
+    // ۱) مرخصی روزانه
     var leaveTicked = nameIsTicked('مرخصی استحقاقی روزانه')
       || nameIsTicked('مرخصی روزانه')
       || nameIsTicked('استحقاقی روزانه')
@@ -4837,7 +4868,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
       || nameIsTicked('مرخصی');
     if (leaveTicked) addDeduct(row.leaveDays, 'leaveDays');
 
-    // ۲) همه کلیدهای qty (رست، جاب، پست، …) — خود ناهار را کم نکن
+    // ۲) همه qty به‌جز ناهار
     var q = row.qty || {};
     Object.keys(q).forEach(function (qn) {
       if (/ناهار|نهار|اهاری/i.test(qn)) return;
@@ -4846,7 +4877,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
       if (nameIsTicked(qn)) addDeduct(n, 'qty:' + normName(qn));
     });
 
-    // ۳) رست از فیلدهای جدا اگر در qty نبود
+    // ۳) رست
     if (!Object.keys(deductedTags).some(function (k) { return /رست|rest/.test(k); })) {
       if (nameIsTicked('رست کاری') || nameIsTicked('رست') || nameIsTicked('تعداد رست کاری')) {
         var rv = Number(row.restDays) || Number(row.workRestDays) || 0;
@@ -4871,7 +4902,6 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     }
   } catch (eDed) {}
 
-  // اگر هیچ تیکی از روی ثابت ماهانه خوانده نشد، از شمارش روزبه‌روز کمک بگیر
   if (!(deduct > 0)) {
     try {
       var info = countQtyFlatEarnDays(obj, year, month, code) || {};
@@ -6915,9 +6945,16 @@ async function handleAdminTimesheet(request, who, env) {
           } catch (eOt) {}
 
           var prev = gd.obj.monthlyData[mdKey][code] || {};
+          // حفظ کارکرد دستی اگر بزرگ‌تر از recount باشد
+          var prevWd = Number(prev.workDays) || 0;
+          var useWd = wd;
+          if (prevWd > 0 && prevWd > wd) useWd = prevWd;
+          var prevLv = Number(prev.leaveDays) || 0;
+          var useLv = Math.round(lv * 100) / 100;
+          if (prevLv > 0 && prevLv > useLv && !(lv > 0)) useLv = prevLv;
           var row = Object.assign({}, prev, {
-            workDays: wd,
-            leaveDays: Math.round(lv * 100) / 100,
+            workDays: useWd,
+            leaveDays: useLv,
             hourlyLeave: Math.round(hl * 100) / 100,
             missionDays: Math.round(mdays * 100) / 100,
             missionHours: Math.round(mhrs * 100) / 100,
