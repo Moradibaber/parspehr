@@ -6666,6 +6666,14 @@ async function handleAdminAbsenceReport(request, who, env) {
 
   const key = year + '-' + month;
   const md = (gd.obj.monthlyData || {})[key] || {};
+  // مسیر کامل: بدون فیلتر کد، همه را برنگردان (جلوگیری از ۵۰۳ روی ۵۲ نفر)
+  if (!filterCode && !(r.body && (r.body.unit || r.body.managerCode))) {
+    return jsonResponse({
+      ok: false,
+      error: 'need_filter',
+      message: 'برای مشاهده/انتقال تایم‌شیت یک کارمند را انتخاب کنید'
+    }, 400);
+  }
   const reqs = gd.obj.attendanceRequests || [];
   const summary = [];
   const daily = [];
@@ -6824,14 +6832,18 @@ async function handleAdminTimesheet(request, who, env) {
       if (m && Number(m[1]) === year && Number(m[2]) === month) md = gd.obj.monthlyData[k] || md;
     });
   }
-  // انتقال از تایم‌شیت — سبک و مقاوم (هرگز 500 ندهد)
-  const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true));
+  // انتقال از تایم‌شیت — فوق‌سبک؛ فقط کدهای صریح؛ هرگز همهٔ کارکنان
+  // اگر codes/code ارسال شده یا mode=transfer، حتماً مسیر سبک
+  var hasCodesHint = false;
+  try {
+    if (r.body && (r.body.codes || r.body.code || r.body.empCode || r.body.selected || r.body.empCodes || r.body.codesCsv)) hasCodesHint = true;
+  } catch (eH) {}
+  const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true || hasCodesHint));
   if (light) {
     const rowsLight = [];
     let cellsTouched = 0;
     let funcDays = 22;
     try {
-      // انتقال سبک: فقط محاسبات ضروری؛ خطا در یک نفر کل را نخواباند
       if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
       const mdKey = year + '-' + month;
       if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
@@ -6847,50 +6859,112 @@ async function handleAdminTimesheet(request, who, env) {
       if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
       gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
 
-      // فقط کدهای درخواست‌شده — هرگز همه کارکنان وقتی codes آمده
-      var codeSet = null;
+      // —— فقط کدهای انتخاب‌شده ——
+      var codeSet = {};
+      var codeList = [];
+      function addCode(c) {
+        c = String(c || '').trim();
+        if (!c || codeSet[c]) return;
+        codeSet[c] = true;
+        codeList.push(c);
+      }
       try {
         var bodyCodes = (r.body && r.body.codes) || null;
-        if (Array.isArray(bodyCodes) && bodyCodes.length) {
-          codeSet = {};
-          bodyCodes.forEach(function (c) {
-            c = String(c || '').trim();
-            if (c) codeSet[c] = true;
+        if (Array.isArray(bodyCodes)) {
+          bodyCodes.forEach(function (c) { addCode(c); });
+        } else if (bodyCodes && typeof bodyCodes === 'object') {
+          Object.keys(bodyCodes).forEach(function (c) {
+            if (bodyCodes[c]) addCode(c);
           });
         }
-      } catch (eCs) { codeSet = null; }
-      const onlyCode = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
-      if (!codeSet && onlyCode) { codeSet = {}; codeSet[onlyCode] = true; }
-      if (!codeSet && filterCode) { codeSet = {}; codeSet[String(filterCode)] = true; }
+      } catch (eCs) {}
+      try {
+        var single = String((r.body && (r.body.code || r.body.empCode || '')) || '').trim();
+        if (single) addCode(single);
+      } catch (e1) {}
+      try {
+        if (filterCode) addCode(filterCode);
+      } catch (e2) {}
+      // selected / empCodes / codesCsv
+      try {
+        var sel = (r.body && (r.body.selected || r.body.empCodes || r.body.selectedCodes)) || null;
+        if (Array.isArray(sel)) sel.forEach(function (c) { addCode(c); });
+      } catch (e3) {}
+      try {
+        var csv = String((r.body && r.body.codesCsv) || '').trim();
+        if (csv) csv.split(/[,;|\s]+/).forEach(function (c) { addCode(c); });
+      } catch (e4) {}
 
-      // بدون کد مشخص: همه را پردازش نکن (جلوگیری از 503 برای ۵۲/۳۰۰ نفر)
-      if (!codeSet || !Object.keys(codeSet).length) {
+      if (!codeList.length) {
         return jsonResponse({
           ok: false,
           error: 'no_codes',
-          message: 'هیچ کد کارمندی ارسال نشد — یک نفر را تیک بزنید'
+          message: 'هیچ کد کارمندی انتخاب نشده — یک نفر را تیک بزنید و دوباره منتقل کنید'
         }, 400);
       }
+      // سقف سخت: حداکثر ۱۵ نفر در هر درخواست (جلوگیری از ۵۰۳)
+      if (codeList.length > 15) {
+        codeList = codeList.slice(0, 15);
+        codeSet = {};
+        codeList.forEach(function (c) { codeSet[c] = true; });
+      }
 
-      (gd.obj.employees || []).forEach(function (emp) {
+      // کش تیک‌های خالص یک‌بار
+      var tickedNames = [];
+      try { tickedNames = getTickedPureCountNames(gd.obj) || []; } catch (eT) { tickedNames = []; }
+      function normN(s) {
+        return String(s || '').replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, ' ')
+          .replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/^تعداد\s+/, '').replace(/\s+/g, ' ').trim();
+      }
+      function isTickedName(qn) {
+        var n = normN(qn);
+        if (!n) return false;
+        for (var i = 0; i < tickedNames.length; i++) {
+          var t = tickedNames[i];
+          if (t === n) return true;
+          if (t.length >= 3 && n.length >= 3 && (t.indexOf(n) >= 0 || n.indexOf(t) >= 0)) return true;
+        }
+        return false;
+      }
+      var leaveTicked = isTickedName('مرخصی استحقاقی روزانه') || isTickedName('مرخصی روزانه')
+        || isTickedName('استحقاقی روزانه') || isTickedName('مرخصی');
+      var monthDays = 30;
+      try { monthDays = daysInJalaliMonth(year, month) || 30; } catch (eD) { monthDays = 30; }
+
+      // فقط روی codeList (نه همهٔ employees)
+      codeList.forEach(function (code) {
         try {
-          if (!emp || emp.status === 'inactive') return;
-          const code = String(emp.code);
-          // اگر لیست codes آمده فقط همان‌ها
-          if (codeSet) {
-            if (!codeSet[code] && !codeSet[String(Number(code))] && !codeSet[code.replace(/^0+/, '')]) return;
-          } else {
-            // بدون codes: فقط فیلتر واحد/مدیر (برای سازگاری) — ولی ترجیح با انتخاب صریح است
-            if (filterUnit && String(emp.unit || '') !== filterUnit) return;
-            if (filterManager && String(emp.managerCode || '') !== filterManager) return;
+          var emp = (gd.obj.employees || []).find(function (e) { return String(e.code) === String(code); }) || null;
+          if (!emp) {
+            // حتی بدون پروفایل، ردیف ماهانه را لمس کن
+            emp = { code: code, fullName: '', unit: '' };
           }
-          // فقط recount سبک — نه fill کامل
-          let wd = 0, lv = 0, pd = 0, ot = 0, night = 0, hl = 0, mdays = 0, mhrs = 0;
-          try { wd = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || 0; } catch (eW) { wd = 0; }
-          try { pd = countEmpMonthPunchDays(gd.obj, year, month, code) || 0; } catch (eP) { pd = 0; }
+          if (emp.status === 'inactive') return;
+
+          var prev = gd.obj.monthlyData[mdKey][code] || {};
+          var prevWd = Number(prev.workDays) || 0;
+          var prevLv = Number(prev.leaveDays) || 0;
+
+          // recount فقط اگر کارکرد دستی نداریم — و با try سخت
+          var wd = prevWd;
+          var lv = prevLv;
+          var pd = Number(prev.punchDays) || 0;
+          var ot = Number(prev.otHours) || 0;
+          var night = Number(prev.nightHours) || 0;
+          var hl = Number(prev.hourlyLeave) || 0;
+          var mdays = Number(prev.missionDays) || 0;
+          var mhrs = Number(prev.missionHours) || 0;
+
+          if (!(prevWd > 0)) {
+            try { wd = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || 0; } catch (eW) { wd = 0; }
+          }
+          try { pd = countEmpMonthPunchDays(gd.obj, year, month, code) || pd; } catch (eP) {}
+
+          // leave از درخواست‌ها (سبک)
           try {
+            var lvAcc = 0, hlAcc = 0, mAcc = 0, mhAcc = 0;
             (gd.obj.attendanceRequests || []).forEach(function (x) {
-              if (!x || String(x.empCode) !== code) return;
+              if (!x || String(x.empCode) !== String(code)) return;
               var st = String(x.status || '').toLowerCase();
               if (!(st === 'approved' || st === 'approved_l1' || st === 'final' || st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده')) return;
               if (x.kind === 'leave' && x.mode === 'daily') {
@@ -6898,79 +6972,78 @@ async function handleAdminTimesheet(request, who, env) {
                   if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) return;
                 } catch (eS) {}
                 try {
-                  lv += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, emp.contractType || 'normal');
+                  lvAcc += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, (emp && emp.contractType) || 'normal');
                 } catch (eL) {}
               } else if (x.kind === 'leave' && x.mode === 'hourly') {
                 try {
                   var p = parseJalaliYMD(x.startDate);
-                  if (p && p.y === year && p.m === month) hl += hoursBetween(x.fromTime, x.toTime);
+                  if (p && p.y === year && p.m === month) hlAcc += hoursBetween(x.fromTime, x.toTime);
                 } catch (eH) {}
               } else if (x.kind === 'mission' && x.mode === 'daily') {
-                try { mdays += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month); } catch (eM) {}
+                try { mAcc += countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month); } catch (eM) {}
               } else if (x.kind === 'mission' && x.mode === 'hourly') {
                 try {
                   var p2 = parseJalaliYMD(x.startDate);
-                  if (p2 && p2.y === year && p2.m === month) mhrs += hoursBetween(x.fromTime, x.toTime);
+                  if (p2 && p2.y === year && p2.m === month) mhAcc += hoursBetween(x.fromTime, x.toTime);
                 } catch (eMh) {}
               }
             });
+            if (lvAcc > 0 || !(prevLv > 0)) lv = Math.round(lvAcc * 100) / 100;
+            if (hlAcc > 0) hl = Math.round(hlAcc * 100) / 100;
+            if (mAcc > 0) mdays = Math.round(mAcc * 100) / 100;
+            if (mhAcc > 0) mhrs = Math.round(mhAcc * 100) / 100;
           } catch (eReq) {}
-          // مرخصی از سلول
-          try {
-            var store = ((gd.obj.dailyAttendance || {})[code]) || {};
-            Object.keys(store).forEach(function (dk) {
-              var cell = store[dk];
-              if (!cell || !cell.leaveDaily) return;
-              var lab = String(cell.leaveDaily);
-              if (lab.indexOf('رست') >= 0) return;
-              if (lab.indexOf('مرخص') < 0 && lab.indexOf('استحقاق') < 0 && lab.indexOf('استعلاج') < 0) return;
-              var parts = String(dk).split(/[-/]/);
-              if (parts.length < 3) return;
-              if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
-              lv += 1;
-            });
-          } catch (eCell) {}
-          // OT/night از punch ساده
-          try {
-            var store2 = ((gd.obj.dailyAttendance || {})[code]) || {};
-            var dim = daysInJalaliMonth(year, month);
-            for (var d = 1; d <= dim; d++) {
-              var pad = String(d).padStart(2, '0');
-              var mpad = String(month).padStart(2, '0');
-              var cell = store2[year + '-' + mpad + '-' + pad] || store2[year + '/' + mpad + '/' + pad] || {};
-              // اگر calc قبلی روی سلول ذخیره شده
-              if (cell.otHours) ot += Number(cell.otHours) || 0;
-              if (cell.nightHours) night += Number(cell.nightHours) || 0;
-            }
-          } catch (eOt) {}
 
-          var prev = gd.obj.monthlyData[mdKey][code] || {};
-          // حفظ کارکرد دستی اگر بزرگ‌تر از recount باشد
-          var prevWd = Number(prev.workDays) || 0;
-          var useWd = wd;
-          if (prevWd > 0 && prevWd > wd) useWd = prevWd;
-          var prevLv = Number(prev.leaveDays) || 0;
-          var useLv = Math.round(lv * 100) / 100;
-          if (prevLv > 0 && prevLv > useLv && !(lv > 0)) useLv = prevLv;
           var row = Object.assign({}, prev, {
-            workDays: useWd,
-            leaveDays: useLv,
-            hourlyLeave: Math.round(hl * 100) / 100,
-            missionDays: Math.round(mdays * 100) / 100,
-            missionHours: Math.round(mhrs * 100) / 100,
+            workDays: wd,
+            leaveDays: lv,
+            hourlyLeave: hl,
+            missionDays: mdays,
+            missionHours: mhrs,
             punchDays: pd,
-            otHours: Math.round(ot * 100) / 100 || prev.otHours || 0,
-            nightHours: Math.round(night * 100) / 100 || prev.nightHours || 0,
-            qty: prev.qty || {},
+            otHours: ot,
+            nightHours: night,
+            qty: (prev.qty && typeof prev.qty === 'object') ? Object.assign({}, prev.qty) : {},
             _fromTimesheet: true
           });
+
+          // رست/جاب از درخواست — سبک
           try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eM) {}
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
-          try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eA) {}
+
+          // تعداد خالص — فقط حساب ساده، بدون اسکن روزبه‌روز
+          try {
+            var deduct = 0;
+            var seenD = {};
+            function addD(n, tag) {
+              n = Number(n) || 0;
+              if (!(n > 0) || seenD[tag]) return;
+              seenD[tag] = true;
+              deduct += n;
+            }
+            if (leaveTicked) addD(row.leaveDays, 'leave');
+            var q = row.qty || {};
+            Object.keys(q).forEach(function (qn) {
+              if (/ناهار|نهار|اهاری/i.test(qn)) return;
+              if (isTickedName(qn)) addD(q[qn], 'q:' + normN(qn));
+            });
+            var ceiling = Number(row.workDays) || funcDays || monthDays;
+            if (ceiling > monthDays) ceiling = monthDays;
+            var finalQty = Math.max(0, Math.round(Math.min(ceiling, monthDays - deduct) * 100) / 100);
+            row.netDeductionDays = Math.max(0, deduct);
+            // اعمال روی کلیدهای ناهار
+            ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
+              row.qty[nm] = finalQty;
+            });
+            Object.keys(q).forEach(function (qn) {
+              if (/ناهار|نهار|اهاری/i.test(qn)) row.qty[qn] = finalQty;
+            });
+          } catch (ePure) {}
+
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
           rowsLight.push({
-            code: emp.code,
+            code: emp.code || code,
             fullName: emp.fullName || '',
             unit: emp.unit || '',
             workDays: Number(row.workDays) || 0,
@@ -6982,37 +7055,29 @@ async function handleAdminTimesheet(request, who, env) {
             nightHours: row.nightHours || 0,
             hourlyAbsenceHours: Number(row.hourlyAbsenceHours) || 0,
             absenceDays: Number(row.absenceDays) || 0,
-            netDeductionDays: Number(row.netDeductionDays) || Number(row.absenceDays) || 0,
+            netDeductionDays: Number(row.netDeductionDays) || 0,
             punchDays: Number(row.punchDays) || 0,
             qty: row.qty || {},
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
           });
         } catch (eEmp) {
           try {
-            console.error('transfer emp', emp && emp.code, eEmp && eEmp.message);
-            var prevE = {};
-            try { prevE = (gd.obj.monthlyData[mdKey] && gd.obj.monthlyData[mdKey][String(emp.code)]) || {}; } catch (eP) {}
+            console.error('transfer emp', code, eEmp && eEmp.message);
+            var prevE = (gd.obj.monthlyData[mdKey] && gd.obj.monthlyData[mdKey][code]) || {};
             rowsLight.push({
-              code: emp.code,
-              fullName: (emp && emp.fullName) || '',
-              unit: (emp && emp.unit) || '',
+              code: code,
+              fullName: '',
+              unit: '',
               workDays: Number(prevE.workDays) || 0,
               leaveDays: Number(prevE.leaveDays) || 0,
-              hourlyLeave: Number(prevE.hourlyLeave) || 0,
-              missionDays: Number(prevE.missionDays) || 0,
-              missionHours: Number(prevE.missionHours) || 0,
-              otHours: Number(prevE.otHours) || 0,
-              nightHours: Number(prevE.nightHours) || 0,
-              punchDays: Number(prevE.punchDays) || 0,
               qty: (prevE.qty && typeof prevE.qty === 'object') ? prevE.qty : {}
             });
           } catch (e2) {}
         }
       });
     } catch (eAll) {
-      console.error('transfer light', eAll);
+      try { console.error('transfer light', eAll && eAll.message); } catch (eL) {}
     }
-    // همیشه ok با rows
     return jsonResponse({
       ok: true,
       year: year,
@@ -7021,9 +7086,10 @@ async function handleAdminTimesheet(request, who, env) {
       light: true,
       transferred: cellsTouched,
       cells: cellsTouched,
+      codes: codeList || [],
       functionalDays: funcDays,
       saved: false,
-      message: 'منتقل شد (' + cellsTouched + ' نفر) — کارکرد خالص ' + funcDays + ' — ذخیره داده‌ها را بزنید'
+      message: 'منتقل شد (' + cellsTouched + ' نفر از ' + ((codeList && codeList.length) || 0) + ' انتخاب‌شده) — کارکرد خالص ' + funcDays + ' — ذخیره داده‌ها را بزنید'
     });
   }
   const reqs = gd.obj.attendanceRequests || [];
