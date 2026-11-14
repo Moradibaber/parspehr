@@ -6919,7 +6919,8 @@ async function handleAdminTimesheet(request, who, env) {
   // اگر codes/code ارسال شده یا mode=transfer، حتماً مسیر سبک
   var hasCodesHint = false;
   try {
-    if (r.body && (r.body.codes || r.body.code || r.body.empCode || r.body.selected || r.body.empCodes || r.body.codesCsv)) hasCodesHint = true;
+    // توجه: «code» / «empCode» تکی عمداً اینجا نیست — با code تکی باید جدول روزبه‌روز (daily) برگردد
+    if (r.body && (r.body.codes || r.body.selected || r.body.empCodes || r.body.codesCsv)) hasCodesHint = true;
   } catch (eH) {}
   const light = !!(r.body && (r.body.light === true || r.body.mode === 'transfer' || r.body.summary === true || hasCodesHint));
   if (light) {
