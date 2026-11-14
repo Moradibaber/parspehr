@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v271';
+const PSP_BUILD = '2026-11-14-fix-v280';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -7067,37 +7067,51 @@ async function handleAdminTimesheet(request, who, env) {
             _fromTimesheet: true
           });
 
-          // رست/جاب: فقط اگر از درخواست چیزی پیدا شد بنویس؛ مقدار دستی را صفر نکن
+          // ═══════════════════════════════════════════════
+          // قانون قطعی: رست / جاب / ناهاری / موتور / اولاد را پاک نکن
+          // فقط فیلدهای تایم‌شیت (کارکرد، مرخصی درخواست، OT، شب‌کاری، punch)
+          // ═══════════════════════════════════════════════
           try {
-            var prevQtySnap = Object.assign({}, row.qty || {});
-            rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row);
-            // اگر rebuild همه جاب‌ها را صفر کرد و قبلاً مقدار دستی بود → برگردان
-            Object.keys(prevQtySnap).forEach(function (nm) {
-              if (!/جاب|خدمات\s*فنی/.test(nm)) return;
-              var was = Number(prevQtySnap[nm]) || 0;
-              var now = Number(row.qty[nm]) || 0;
-              if (was > 0 && !(now > 0)) row.qty[nm] = was;
-            });
-          } catch (eM) {}
+            // qty را کامل از قبلی نگه دار
+            row.qty = Object.assign({}, (prev.qty && typeof prev.qty === 'object') ? prev.qty : {});
+          } catch (eQ0) { row.qty = row.qty || {}; }
+
+          // رست از درخواست — فقط اگر مقدار > 0 پیدا شد، بنویس؛ وگرنه prev بماند
           try {
-            var prevRestSnap = {
-              a: Number((row.qty || {})['رست کاری']) || 0,
-              b: Number((row.qty || {})['تعداد رست کاری']) || 0
+            var snapRest = {
+              a: Number(row.qty['رست کاری']) || 0,
+              b: Number(row.qty['تعداد رست کاری']) || 0
             };
             rebuildRestQtyFromRequests(gd.obj, year, month, code, row);
-            var nowA = Number((row.qty || {})['رست کاری']) || 0;
-            var nowB = Number((row.qty || {})['تعداد رست کاری']) || 0;
-            if ((prevRestSnap.a > 0 || prevRestSnap.b > 0) && !(nowA > 0) && !(nowB > 0)) {
-              if (prevRestSnap.a > 0) row.qty['رست کاری'] = prevRestSnap.a;
-              if (prevRestSnap.b > 0) row.qty['تعداد رست کاری'] = prevRestSnap.b;
-              // اگر فقط یکی پر بود هر دو را همگام کن
-              if (!(Number(row.qty['تعداد رست کاری']) > 0) && prevRestSnap.a > 0) row.qty['تعداد رست کاری'] = prevRestSnap.a;
-              if (!(Number(row.qty['رست کاری']) > 0) && prevRestSnap.b > 0) row.qty['رست کاری'] = prevRestSnap.b;
+            var na = Number(row.qty['رست کاری']) || 0;
+            var nb = Number(row.qty['تعداد رست کاری']) || 0;
+            if (!(na > 0) && !(nb > 0)) {
+              if (snapRest.a > 0) row.qty['رست کاری'] = snapRest.a;
+              if (snapRest.b > 0) row.qty['تعداد رست کاری'] = snapRest.b;
+              if (snapRest.a > 0 && !(Number(row.qty['تعداد رست کاری']) > 0)) row.qty['تعداد رست کاری'] = snapRest.a;
+              if (snapRest.b > 0 && !(Number(row.qty['رست کاری']) > 0)) row.qty['رست کاری'] = snapRest.b;
             }
           } catch (eR) {}
 
-          // تعداد خالص = روزهای تردد (وقتی بقیه روزها تیک‌دارند)
+          // جاب از درخواست — فقط افزایش/مقدار مثبت؛ صفر نکن
           try {
+            var jabSnap = {};
+            Object.keys(row.qty).forEach(function (nm) {
+              if (/جاب|خدمات\s*فنی/.test(nm)) jabSnap[nm] = Number(row.qty[nm]) || 0;
+            });
+            rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row);
+            Object.keys(jabSnap).forEach(function (nm) {
+              var now = Number(row.qty[nm]) || 0;
+              if (jabSnap[nm] > 0 && !(now > 0)) row.qty[nm] = jabSnap[nm];
+            });
+          } catch (eM) {}
+
+          // ناهاری: فقط اگر مقدار مثبت حساب شد بنویس؛ هرگز صفر روی مقدار قبلی نگذار
+          try {
+            var prevLunch = 0;
+            Object.keys(row.qty).forEach(function (qn) {
+              if (/ناهار|نهار|اهاری/i.test(qn)) prevLunch = Math.max(prevLunch, Number(row.qty[qn]) || 0);
+            });
             var deduct = 0;
             var seenD = {};
             function addD(n, tag) {
@@ -7107,12 +7121,10 @@ async function handleAdminTimesheet(request, who, env) {
               deduct += n;
             }
             if (leaveTicked) addD(row.leaveDays, 'leave');
-            var q = row.qty || {};
-            Object.keys(q).forEach(function (qn) {
+            Object.keys(row.qty).forEach(function (qn) {
               if (/ناهار|نهار|اهاری/i.test(qn)) return;
-              if (isTickedName(qn)) addD(q[qn], 'q:' + normN(qn));
+              if (isTickedName(qn)) addD(row.qty[qn], 'q:' + normN(qn));
             });
-            // punchDays: مقدار قبلی را حفظ کن اگر شمارش تازه صفر شد
             var pDays = Number(row.punchDays) || Number(prev.punchDays) || 0;
             try {
               if (typeof countEmpMonthPunchDays === 'function') {
@@ -7120,51 +7132,29 @@ async function handleAdminTimesheet(request, who, env) {
                 if (counted > 0) pDays = counted;
               }
             } catch (eP2) {}
-            row.punchDays = pDays;
+            if (pDays > 0) row.punchDays = pDays;
             var ceiling = Number(row.workDays) || funcDays || monthDays;
             if (ceiling > monthDays) ceiling = monthDays;
             var baseEarn = (pDays > 0) ? pDays : Math.max(0, monthDays - deduct);
-            if (pDays > 0 && deduct > 0 && (pDays + deduct) >= (monthDays - 2)) {
-              baseEarn = pDays;
-            }
-            if (pDays > 0 && deduct > 0) {
-              baseEarn = Math.min(baseEarn, pDays);
-            }
+            if (pDays > 0 && deduct > 0) baseEarn = Math.min(baseEarn, pDays);
             var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
-            // اگر محاسبه ۰ شد ولی قبلاً ناهار داشت و punch داریم — حفظ کن
-            if (!(finalQty > 0) && pDays > 0) finalQty = Math.min(ceiling, pDays);
-            if (!(finalQty > 0)) {
-              var prevLunch = 0;
-              try {
-                Object.keys(prev.qty || {}).forEach(function (pn) {
-                  if (/ناهار|اهاری/i.test(pn)) prevLunch = Math.max(prevLunch, Number(prev.qty[pn]) || 0);
-                });
-              } catch (ePl) {}
-              if (prevLunch > 0) finalQty = prevLunch;
+            if (!(finalQty > 0) && (Number(row.workDays) || 0) > 0) {
+              finalQty = Math.max(0, Math.round(Math.min(ceiling, Math.max(0, Number(row.workDays) - deduct)) * 100) / 100);
             }
-            // اگر هنوز صفر و کارکرد داریم: حداقل از کارکرد − کسرهای تیک‌دار
-            if (!(finalQty > 0)) {
-              var wd2 = Number(row.workDays) || 0;
-              if (wd2 > 0) {
-                finalQty = Math.max(0, Math.round(Math.min(ceiling, Math.max(0, wd2 - deduct)) * 100) / 100);
-              }
-            }
-            // آخرین پناه: مقدار قبلی ناهار
-            if (!(finalQty > 0)) {
-              try {
-                Object.keys(prev.qty || {}).forEach(function (pn) {
-                  if (/ناهار|اهاری/i.test(pn)) finalQty = Math.max(finalQty, Number(prev.qty[pn]) || 0);
-                });
-              } catch (ePl2) {}
+            // فقط اگر مثبت شد بنویس؛ اگر صفر شد prevLunch را نگه دار
+            if (finalQty > 0) {
+              ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
+                row.qty[nm] = finalQty;
+              });
+              Object.keys(row.qty).forEach(function (qn) {
+                if (/ناهار|نهار|اهاری/i.test(qn)) row.qty[qn] = finalQty;
+              });
+            } else if (prevLunch > 0) {
+              ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
+                row.qty[nm] = prevLunch;
+              });
             }
             row.netDeductionDays = Math.max(0, deduct);
-            row.punchDays = pDays;
-            ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
-              row.qty[nm] = finalQty;
-            });
-            Object.keys(row.qty || {}).forEach(function (qn) {
-              if (/ناهار|نهار|اهاری/i.test(qn)) row.qty[qn] = finalQty;
-            });
           } catch (ePure) {}
 
           gd.obj.monthlyData[mdKey][code] = row;
