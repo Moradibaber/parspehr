@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v290';
+const PSP_BUILD = '2026-11-14-fix-v291';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -7101,82 +7101,88 @@ async function handleAdminTimesheet(request, who, env) {
           });
 
 
-          // ─── پر کردن مستقیم رست / جاب / ناهار از درخواست + سلول ───
-          // هیچ‌وقت این سه را با ۰ بازنویسی نکن
+
+          // ─── همان منطق پرتال تایم‌شیت برای رست/جاب/ناهار ───
           try {
             if (!row.qty || typeof row.qty !== 'object') row.qty = {};
-            // حفظ مقادیر قبلی
             var keepQty = Object.assign({}, row.qty);
+            var diag = { reqs: 0, rest: 0, jab: 0, punch: 0 };
 
-            function _typeName(x) {
+            // دقیقاً مثل handleEmpTimesheet: status === 'approved'
+            var reqs = (gd.obj.attendanceRequests || []).filter(function (x) {
+              if (!x || String(x.empCode) !== String(code)) return false;
+              if (String(x.status) !== 'approved') return false;
+              var p = null;
+              try { p = parseJalaliYMD(x.startDate); } catch (e0) {}
+              if (!p) return false;
+              if (p.y === year && p.m === month) return true;
+              if (x.mode === 'daily' && x.endDate) {
+                try {
+                  var chunks = splitDaysByMonth(x.startDate, x.endDate);
+                  return chunks.some(function (c) { return Number(c.year) === year && Number(c.month) === month; });
+                } catch (e1) { return false; }
+              }
+              return false;
+            });
+            diag.reqs = reqs.length;
+
+            function typeNm(x) {
               var tn = String(x.typeName || x.type || x.name || '').trim();
               if (tn) return tn;
               try {
-                var tid = String(x.typeId || '');
-                if (!tid) return '';
-                var types = (gd.obj.attendanceTypes || []).concat(((gd.obj.settings || {}).attendanceTypes) || []);
-                for (var i = 0; i < types.length; i++) {
-                  if (types[i] && String(types[i].id) === tid) return String(types[i].name || '');
-                }
-              } catch (eT) {}
+                var types = [].concat(gd.obj.attendanceTypes || [], (gd.obj.settings && gd.obj.settings.attendanceTypes) || []);
+                var t = types.find(function (z) { return z && String(z.id) === String(x.typeId); });
+                if (t) return String(t.name || '');
+              } catch (e) {}
               return '';
             }
 
-            function _approved(st) {
-              st = String(st || '').toLowerCase();
-              if (!st) return true;
-              return /approve|final|accept|ok|done|active|تایید|تأیید/.test(st);
-            }
-            function _dayInMonth(startDate, endDate, addFn) {
+            function countDaysReq(x) {
+              var n = 0;
               try {
                 if (typeof listDayKeys === 'function') {
-                  var keys = listDayKeys(startDate, endDate || startDate) || [];
+                  var keys = listDayKeys(x.startDate, x.endDate || x.startDate) || [];
                   keys.forEach(function (dk) {
-                    var p = String(dk).split(/[-/]/);
-                    if (p.length >= 3 && Number(p[0]) === year && Number(p[1]) === month) addFn(Number(p[2]));
+                    var parts = String(dk).split(/[-/]/);
+                    if (parts.length >= 3 && Number(parts[0]) === year && Number(parts[1]) === month) n += 1;
                   });
-                } else {
-                  var p0 = parseJalaliYMD(startDate);
-                  if (p0 && p0.y === year && p0.m === month) addFn(p0.d);
+                } else if (typeof countAllDaysInMonth === 'function') {
+                  n = countAllDaysInMonth(x.startDate, x.endDate || x.startDate, year, month) || 0;
                 }
-              } catch (eD) {}
+              } catch (e) {}
+              return n;
             }
 
-            // رست از درخواست‌ها
-            var restSeen = {};
-            var restTotal = 0;
-            (gd.obj.attendanceRequests || []).forEach(function (x) {
-              if (!x || String(x.empCode) !== String(code)) return;
-              if (!_approved(x.status)) return;
-              var tn = _typeName(x);
-              var k = String(x.kind || '');
-              if (tn.indexOf('رست') < 0 && k.indexOf('رست') < 0 && k !== 'rest' && k !== 'work_rest') return;
-              if (/استحقاق|استعلاج/.test(tn) && tn.indexOf('رست') < 0) return;
-              if (x.mode === 'hourly') return;
-              _dayInMonth(x.startDate, x.endDate, function (d) {
-                if (d < 1 || d > 31 || restSeen[d]) return;
-                restSeen[d] = true;
-                restTotal += 1;
-              });
-            });
-            // رست از سلول dailyAttendance
-            try {
-              var stR = (gd.obj.dailyAttendance || {})[String(code)] || (gd.obj.dailyAttendance || {})[code] || {};
-              Object.keys(stR).forEach(function (dk) {
-                var cell = stR[dk];
-                if (!cell) return;
-                var lab = [cell.leaveDaily, cell.restDaily, cell.leave, cell.typeName, cell.note, cell.dayType]
-                  .map(function (v) { return String(v || ''); }).join(' ');
-                if (lab.indexOf('رست') < 0) return;
-                if (/استحقاق|استعلاج/.test(lab) && lab.indexOf('رست') < 0) return;
-                var p = String(dk).replace(/[\u06f0-\u06f9]/g, function (c) { return String(c.charCodeAt(0) - 0x06f0); })
-                  .replace(/[\u0660-\u0669]/g, function (c) { return String(c.charCodeAt(0) - 0x0660); }).split(/[-/]/);
-                if (p.length >= 3 && Number(p[0]) === year && Number(p[1]) === month) {
-                  var d = Number(p[2]);
-                  if (d >= 1 && d <= 31 && !restSeen[d]) { restSeen[d] = true; restTotal += 1; }
+            var restTotal = 0, jabTotal = 0;
+            reqs.forEach(function (x) {
+              var tn = typeNm(x);
+              var kind = String(x.kind || '').toLowerCase();
+              var mode = String(x.mode || 'daily').toLowerCase();
+              if (mode === 'hourly') return;
+              // رست: kind=leave و نام رست (یا shouldSkip)
+              var isRest = false;
+              if (kind === 'leave' || kind === 'rest' || kind === 'work_rest') {
+                if (tn.indexOf('رست') >= 0 || /\brest\b/i.test(tn)) isRest = true;
+                try {
+                  if (!isRest && typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) {
+                    if (tn.indexOf('استحقاق') < 0) isRest = true;
+                  }
+                } catch (eS) {}
+              }
+              if (isRest) {
+                restTotal += countDaysReq(x);
+                return;
+              }
+              // جاب: kind=mission و نام جاب/خدمات فنی
+              if (kind === 'mission' || kind === 'مأموریت' || kind === 'ماموریت') {
+                if (/جاب|خدمات\s*فنی/.test(tn) || /جاب/.test(String(x.typeId || ''))) {
+                  jabTotal += countDaysReq(x);
                 }
-              });
-            } catch (eR2) {}
+              }
+            });
+            diag.rest = restTotal;
+            diag.jab = jabTotal;
+
             if (restTotal > 0) {
               row.qty['رست کاری'] = restTotal;
               row.qty['تعداد رست کاری'] = restTotal;
@@ -7184,40 +7190,6 @@ async function handleAdminTimesheet(request, who, env) {
               if (Number(keepQty['رست کاری']) > 0) row.qty['رست کاری'] = keepQty['رست کاری'];
               if (Number(keepQty['تعداد رست کاری']) > 0) row.qty['تعداد رست کاری'] = keepQty['تعداد رست کاری'];
             }
-
-            // جاب از درخواست‌ها
-            var jabSeen = {};
-            var jabTotal = 0;
-            (gd.obj.attendanceRequests || []).forEach(function (x) {
-              if (!x || String(x.empCode) !== String(code)) return;
-              if (!_approved(x.status)) return;
-              var tn = _typeName(x);
-              var k = String(x.kind || '');
-              if (!/جاب|خدمات\s*فنی/.test(tn) && !/جاب/.test(k)) return;
-              if (x.mode === 'hourly') return;
-              _dayInMonth(x.startDate, x.endDate, function (d) {
-                if (d < 1 || d > 31 || jabSeen[d]) return;
-                jabSeen[d] = true;
-                jabTotal += 1;
-              });
-            });
-            // جاب از سلول
-            try {
-              var stJ = (gd.obj.dailyAttendance || {})[String(code)] || (gd.obj.dailyAttendance || {})[code] || {};
-              Object.keys(stJ).forEach(function (dk) {
-                var cell = stJ[dk];
-                if (!cell) return;
-                var lab = [cell.missionDaily, cell.mission, cell.typeName, cell.note, cell.dayType]
-                  .map(function (v) { return String(v || ''); }).join(' ');
-                if (!/جاب|خدمات\s*فنی/.test(lab)) return;
-                var p = String(dk).replace(/[\u06f0-\u06f9]/g, function (c) { return String(c.charCodeAt(0) - 0x06f0); })
-                  .replace(/[\u0660-\u0669]/g, function (c) { return String(c.charCodeAt(0) - 0x0660); }).split(/[-/]/);
-                if (p.length >= 3 && Number(p[0]) === year && Number(p[1]) === month) {
-                  var d = Number(p[2]);
-                  if (d >= 1 && d <= 31 && !jabSeen[d]) { jabSeen[d] = true; jabTotal += 1; }
-                }
-              });
-            } catch (eJ2) {}
             if (jabTotal > 0) {
               row.qty['جاب خدمات فنی'] = jabTotal;
               row.qty['تعداد جاب خدمات فنی'] = jabTotal;
@@ -7226,19 +7198,36 @@ async function handleAdminTimesheet(request, who, env) {
               if (Number(keepQty['تعداد جاب خدمات فنی']) > 0) row.qty['تعداد جاب خدمات فنی'] = keepQty['تعداد جاب خدمات فنی'];
             }
 
-            // ناهار = روز تردد (punch)
-            var pDays = Number(row.punchDays) || Number(prev.punchDays) || 0;
+            // punch / ناهار
+            var pDays = 0;
             try {
-              if (typeof countEmpMonthPunchDays === 'function') {
-                var cpd = countEmpMonthPunchDays(gd.obj, year, month, code) || 0;
-                if (cpd > 0) pDays = cpd;
-              }
+              if (typeof countEmpMonthPunchDays === 'function') pDays = countEmpMonthPunchDays(gd.obj, year, month, code) || 0;
             } catch (eP) {}
+            if (!(pDays > 0)) pDays = Number(row.punchDays) || Number(prev.punchDays) || 0;
+            // شمارش مستقیم از سلول‌های دارای ورود/خروج
+            if (!(pDays > 0)) {
+              try {
+                var st = (gd.obj.dailyAttendance || {})[String(code)] || (gd.obj.dailyAttendance || {})[code] || {};
+                var seenP = {};
+                Object.keys(st).forEach(function (dk) {
+                  var cell = st[dk];
+                  if (!cell) return;
+                  var has = cell.in1 || cell.out1 || cell.in2 || cell.out2 || cell.in3 || cell.out3 || cell.in4 || cell.out4;
+                  if (!has) return;
+                  var norm = String(dk).replace(/[\u06f0-\u06f9]/g, function (c) { return String(c.charCodeAt(0) - 0x06f0); })
+                    .replace(/[\u0660-\u0669]/g, function (c) { return String(c.charCodeAt(0) - 0x0660); });
+                  var parts = norm.split(/[-/]/);
+                  if (parts.length >= 3 && Number(parts[0]) === year && Number(parts[1]) === month) {
+                    var d = Number(parts[2]);
+                    if (d >= 1 && d <= 31 && !seenP[d]) { seenP[d] = true; pDays += 1; }
+                  }
+                });
+              } catch (eP2) {}
+            }
             row.punchDays = pDays;
-            var lunchVal = 0;
-            if (pDays > 0) lunchVal = pDays;
-            else {
-              // fallback: prev lunch
+            diag.punch = pDays;
+            var lunchVal = pDays > 0 ? pDays : 0;
+            if (!(lunchVal > 0)) {
               Object.keys(keepQty).forEach(function (k) {
                 if (/ناهار|اهاری/.test(k)) lunchVal = Math.max(lunchVal, Number(keepQty[k]) || 0);
               });
@@ -7250,16 +7239,14 @@ async function handleAdminTimesheet(request, who, env) {
                 row.qty[nm] = lunchVal;
               });
             } else {
-              // صفر ننویس — prev
               Object.keys(keepQty).forEach(function (k) {
                 if (/ناهار|اهاری/.test(k) && Number(keepQty[k]) > 0) row.qty[k] = keepQty[k];
               });
             }
-
-            // سایر qty قبلی که دست نزده‌ایم
             Object.keys(keepQty).forEach(function (k) {
               if (row.qty[k] == null || row.qty[k] === '') row.qty[k] = keepQty[k];
             });
+            row._pspDiag = diag;
           } catch (eFill) {}
 
           gd.obj.monthlyData[mdKey][code] = row;
@@ -7312,7 +7299,11 @@ async function handleAdminTimesheet(request, who, env) {
       codes: codeList || [],
       functionalDays: funcDays,
       saved: false,
-      message: 'منتقل شد (' + cellsTouched + ' نفر / ' + cellsTouched + ' سلول) — سرور ' + (typeof PSP_BUILD !== 'undefined' ? PSP_BUILD : 'unknown') + ' — ذخیره داده‌ها را بزنید'
+      message: (function(){
+      var d = (rowsLight[0] && rowsLight[0]._pspDiag) ? rowsLight[0]._pspDiag : null;
+      var extra = d ? (' | req:' + d.reqs + ' رست:' + d.rest + ' جاب:' + d.jab + ' تردد:' + d.punch) : '';
+      return 'منتقل شد (' + cellsTouched + ' نفر) — سرور ' + (typeof PSP_BUILD !== 'undefined' ? PSP_BUILD : '') + extra + ' — ذخیره داده‌ها را بزنید';
+    })()
     });
   }
   const reqs = gd.obj.attendanceRequests || [];
