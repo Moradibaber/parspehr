@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v293';
+const PSP_BUILD = '2026-11-14-fix-v294';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -2004,7 +2004,11 @@ function applyApprovedRequestToTimesheet(data, req) {
         const months = splitDaysByMonth(req.startDate, req.endDate || req.startDate);
         months.forEach(function (ch) {
           const r = ensureEmpMonthRow(data, ch.year, ch.month, code);
-          r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
+          try {
+            var _pw = Number(r.workDays) || 0;
+            var _rw = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
+            if (!(_pw > 0)) r.workDays = _rw;
+          } catch (eRw) { r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0; }
           try { r.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(data, ch.year, ch.month, code) : 0; } catch (eAbsR) { r.absenceDays = 0; }
         });
       }
@@ -5953,7 +5957,13 @@ async function handleEmpTimesheet(request, env) {
     mdE.leaveDays = reLeaveDays;
     try { rebuildRestQtyFromRequests(gd.obj, year, month, code, mdE); } catch (eRR) {}
     mdE.missionDays = reMissionDays;
-    mdE.workDays = Math.round(workWithAtt) || 0;
+    // کارکرد ماهانه را با شمارش تردد خراب نکن — فقط اگر خالی بود پر کن
+    try {
+      var prevWdE = Number(mdE.workDays) || 0;
+      var recWdE = Math.round(workWithAtt) || 0;
+      if (!(prevWdE > 0) && recWdE > 0) mdE.workDays = recWdE;
+      // در غیر این صورت مقدار قبلی (مثلاً ۳۰) حفظ می‌شود
+    } catch (eWdE) {}
     try { mdE.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, mdE); } catch (eAbs2) {} } catch (ePd) { mdE.punchDays = 0; }
     try { ensureWorkDaysIncludeLeaveMission(mdE, year, month, gd.obj, code); } catch (eEns2) {}
