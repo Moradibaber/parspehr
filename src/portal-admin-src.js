@@ -1,7 +1,7 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-11-14-v261';",
+  "  window.__pspPortalBootVer = '2026-11-14-v262';",
   "  try { console.log('%c[psp] portal-boot 2026-11-10-v256', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  window.__pspPortalBootOk = 1;",
   "  var __pspCardMode = 'edit';",
@@ -11317,7 +11317,10 @@ export default [
   "            }",
   "            if (fEl) { fEl.value = String(fd); try { fEl.dispatchEvent(new Event('change', {bubbles:true})); } catch(e){} }",
   "          } catch (eFd) {}",
-  "          applyOk(j.rows || [], 'سرور');",
+  "          var srcLabel = 'سرور';",
+  "          if (j.build) srcLabel = 'سرور ' + j.build;",
+  "          else if (j.message && String(j.message).indexOf('v270') >= 0) srcLabel = String(j.message).slice(0, 80);",
+  "          applyOk(j.rows || [], srcLabel);",
   "        });",
   "      }).catch(function () {",
   "        if (timer) clearTimeout(timer);",
