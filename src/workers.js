@@ -4337,6 +4337,8 @@ function countEmpMonthAbsenceDays(obj, year, month, code) {
 
 /** همه منابع «ثابت ماهانه / ستون عددی ورود داده» — آیتم جدید هم از اینجا خوانده می‌شود */
 function listMonthlyConstantSources(obj) {
+  // کش نباید همراه داده ذخیره شود (وگرنه تیک‌های جدید «ثابت‌های ماهانه» نادیده گرفته می‌شود)
+  try { if (obj && Object.prototype.propertyIsEnumerable.call(obj, '__pspConstSources')) delete obj.__pspConstSources; } catch (ePg) {}
   if (obj && obj.__pspConstSources && Array.isArray(obj.__pspConstSources)) {
     return obj.__pspConstSources;
   }
@@ -4388,7 +4390,9 @@ function listMonthlyConstantSources(obj) {
       }
     } catch (e0) {}
   } catch (e) {}
-  if (obj && typeof obj === 'object') obj.__pspConstSources = out;
+  if (obj && typeof obj === 'object') {
+    try { Object.defineProperty(obj, '__pspConstSources', { value: out, enumerable: false, writable: true, configurable: true }); } catch (eDp) {}
+  }
   return out;
 }
 
@@ -4700,8 +4704,9 @@ function countQtyFlatEarnDays(obj, year, month, code) {
     if (!f) { abs++; continue; }
     // اولویت: تیک «کسر از تعداد خالص» بر همه‌چیز غالب است (حتی اگر پانچ داشته باشد)
     // سپس پانچ یا پوشش بدون‌تیک → مشمول ناهار؛ وگرنه غیبت
+    if (f.punch) { earn++; continue; }
     if (f.ticked) { tickedOnly++; continue; }
-    if (f.punch || f.unticked) { earn++; continue; }
+    if (f.unticked) { earn++; continue; }
     abs++;
   }
 
@@ -4728,6 +4733,7 @@ function countNetDeductionDays(obj, year, month, code) {
 /** نام‌های نرمال‌شدهٔ ثابت‌هایی که تیک «کسر از تعداد خالص» دارند — یک‌بار در هر آبجکت کش می‌شود */
 function getTickedPureCountNames(obj) {
   if (!obj || typeof obj !== 'object') return [];
+  try { if (Object.prototype.propertyIsEnumerable.call(obj, '__pspTickedPureNames')) delete obj.__pspTickedPureNames; } catch (ePg2) {}
   if (obj.__pspTickedPureNames && Array.isArray(obj.__pspTickedPureNames)) {
     return obj.__pspTickedPureNames;
   }
@@ -4788,7 +4794,7 @@ function getTickedPureCountNames(obj) {
     }
   } catch (eTy) {}
   // پیش‌فرض‌های رایج اگر در لیست نبودند ولی معمولاً تیک می‌خورند — فقط وقتی حداقل یک تیک از settings خوانده شده
-  obj.__pspTickedPureNames = names;
+  try { Object.defineProperty(obj, '__pspTickedPureNames', { value: names, enumerable: false, writable: true, configurable: true }); } catch (eDp2) {}
   return names;
 }
 
@@ -4962,50 +4968,59 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   row.punchDays = punchDays;
   row.netDeductionDays = Math.max(0, deduct);
 
-  // STRICT: فقط ناهاری — هرگز حق موتور / اولاد / رست / جاب / ... را دست نزن
+  // تردد (پانچ) همیشه مشمول است: روز دارای تردد هیچ‌وقت از تعداد خالص کم نمی‌شود
+  var punchFloor = Math.max(0, Math.min(Number(punchDays) || 0, ceiling));
+  if (finalQty < punchFloor) finalQty = punchFloor;
+
+  // ─── همهٔ آیتم‌های «تعداد خالص» (ناهار، موتور، خودرو و …) با همین فرمول ───
+  // رست/جاب/مرخصی/مأموریت/اولاد/سهام/بیمه/کسورات تعداد رویدادی هستند و دست نمی‌خورند
+  var EXCL = /رست|جاب|اولاد|سهام|بیمه|کسور|مأمور|مامور|مرخص|استعلاج|ازدواج|تولد|اضافه|شب\s*کار|مساعده|وام|معوق/;
   var names = {};
-  function isLunchName(nm) {
-    nm = String(nm || '');
-    if (!/ناهار|نهار|اهاری/i.test(nm)) return false;
-    // رد موارد اشتباه
-    if (/موتور|اولاد|رست|جاب|سهام|بیمه|کسور|مأمور|مامور|مرخص/i.test(nm)) return false;
-    return true;
+  function isFlatName(nm) {
+    nm = String(nm || '').trim();
+    if (!nm) return false;
+    return !EXCL.test(nm);
   }
   function addName(nm) {
     nm = String(nm || '').trim();
-    if (!nm || !isLunchName(nm)) return;
+    if (!nm || !isFlatName(nm)) return;
     names[nm] = true;
     var bare = nm.replace(/^تعداد\s+/, '').trim();
-    if (bare && isLunchName(bare)) {
+    if (bare && isFlatName(bare)) {
       names[bare] = true;
       names['تعداد ' + bare] = true;
     }
   }
-  ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری', 'جبران هزینه ناهاری', 'تعداد ناهاری'].forEach(addName);
+  function isQtyFlatItem(ci) {
+    if (!ci || typeof ci !== 'object') return false;
+    var et = String(ci.entryType || ci.type || ci.mode || ci.entry || '').toLowerCase();
+    return et === 'qty_flat' || et === 'qtyflat' || et === 'تعداد خالص';
+  }
+  // نام‌های پیش‌فرض ناهار / موتور / خودرو
+  ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'جبران هزینه ناهاری', 'تعداد ناهاری',
+   'حق موتور', 'حق موتوری', 'حق خودرو', 'کمک هزینه خودرو', 'جبران هزینه خودرو'].forEach(addName);
   try {
-    (emp && emp.customItems || []).forEach(function (ci) {
-      if (ci && ci.name && isLunchName(ci.name)) addName(ci.name);
-    });
+    (emp && emp.customItems || []).forEach(function (ci) { if (isQtyFlatItem(ci) && ci.name) addName(ci.name); });
   } catch (eC) {}
   try {
-    (obj.customItemTemplates || []).forEach(function (ci) {
-      if (ci && ci.name && isLunchName(ci.name)) addName(ci.name);
+    [].concat(obj.customItemTemplates || [], (obj.settings && obj.settings.customItemTemplates) || []).forEach(function (ci) {
+      if (isQtyFlatItem(ci) && ci.name) addName(ci.name);
     });
   } catch (eT) {}
   try {
     var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
-    consts.forEach(function (c) {
-      if (c && c.name && isLunchName(c.name)) addName(c.name);
-    });
+    consts.forEach(function (c) { if (isQtyFlatItem(c) && c.name) addName(c.name); });
   } catch (eCs) {}
+  // ستون‌هایی که همین الان در ردیف هستند و شبیه ناهار/موتور/خودرو هستند
   Object.keys(row.qty || {}).forEach(function (k) {
-    if (isLunchName(k)) addName(k);
+    if (/ناهار|نهار|اهاری|موتور|خودرو/.test(k)) addName(k);
   });
 
+  if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
   Object.keys(names).forEach(function (k) {
-    if (!isLunchName(k)) return;
     row.qtyAbsBase[k] = funcDays;
     row.qty[k] = finalQty;
+    row.qtyAuto[k] = false; // مقدار سرور نهایی است؛ پیشنهاد خودکار برنامه آن را پاک نکند
   });
 }
 
@@ -7110,6 +7125,8 @@ async function handleAdminTimesheet(request, who, env) {
             otHours: ot,
             nightHours: night,
             qty: (prev.qty && typeof prev.qty === 'object') ? Object.assign({}, prev.qty) : {},
+            qtyAuto: (prev.qtyAuto && typeof prev.qtyAuto === 'object') ? Object.assign({}, prev.qtyAuto) : {},
+            qtyAbsBase: (prev.qtyAbsBase && typeof prev.qtyAbsBase === 'object') ? Object.assign({}, prev.qtyAbsBase) : {},
             _fromTimesheet: true
           });
 
@@ -7262,6 +7279,13 @@ async function handleAdminTimesheet(request, who, env) {
             row._pspDiag = diag;
           } catch (eFill) {}
 
+          // منطق قطعی مشترک با پرتال: رست/جاب از درخواست‌ها + سلول‌های تایم‌شیت، سپس تعداد خالص
+          // (کارکرد ماه ۲۹/۳۰/۳۱ − غیبت − آیتم‌های تیک‌خورده؛ تردد همیشه مشمول)
+          try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eRb1) {}
+          try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eRb2) {}
+          try { if (!(Number(row.punchDays) > 0)) row.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code) || 0; } catch (eRb3) {}
+          try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eRb4) {}
+
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
           rowsLight.push({
@@ -7280,6 +7304,7 @@ async function handleAdminTimesheet(request, who, env) {
             netDeductionDays: Number(row.netDeductionDays) || 0,
             punchDays: Number(row.punchDays) || 0,
             qty: row.qty || {},
+            qtyAuto: row.qtyAuto || {},
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
           });
         } catch (eEmp) {
