@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v280';
+const PSP_BUILD = '2026-11-14-fix-v281';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -4874,6 +4874,8 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     var q = row.qty || {};
     Object.keys(q).forEach(function (qn) {
       if (/ناهار|نهار|اهاری/i.test(qn)) return;
+      // روز کارکرد / کارکرد خالص هرگز از تعداد خالص ناهار کسر نمی‌شود
+      if (/روز\s*کارکرد|^کارکرد$|کارکرد\s*خالص/i.test(qn)) return;
       var n = Number(q[qn]) || 0;
       if (!(n > 0)) return;
       if (nameIsTicked(qn)) addDeduct(n, 'qty:' + normName(qn));
@@ -4930,30 +4932,29 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   row.netDeductionDays = Math.max(0, deduct);
   try { row.absenceDays = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { row.absenceDays = 0; }
 
-  // ─── فرمول قطعی ───
-  // اولویت ۱: روزهای مشمول از روی تقویم حضور (earnDays)
-  // اولویت ۲: تعداد روز تردد (punchDays)
-  // اولویت ۳: روزهای ماه − جمع تیک‌دارها (سقف کارکرد)
-  // در همه حالت‌ها سقف = کارکرد خالص (funcDays)
-  var baseEarn = null;
-  if (earnDays != null && isFinite(earnDays) && earnDays >= 0) {
+  // ─── فرمول قطعی کاربر ───
+  // حالت تیک‌دار (مرخصی/رست/جاب): ناهار = فقط روز تردد (punch)
+  // حالت بدون تیک: ناهار = min(سقف، punch یا کارکرد)
+  // هرگز اگر punch>0 نتیجه را ۰ نکن
+  // «روز کارکرد» را هرگز به‌عنوان کسر از خالص حساب نکن
+  var baseEarn;
+  if (punchDays > 0) {
+    baseEarn = punchDays;
+  } else if (earnDays != null && isFinite(earnDays) && earnDays > 0) {
     baseEarn = earnDays;
-  } else if (punchDays > 0) {
-    baseEarn = punchDays;
   } else {
-    baseEarn = Math.max(0, monthDays - deduct);
+    var wd0 = Number(row.workDays) || 0;
+    baseEarn = wd0 > 0 ? Math.max(0, wd0 - deduct) : Math.max(0, monthDays - deduct);
   }
-  // اگر deduct از ستون‌های تیک‌دار داریم و punch هم داریم:
-  // خالص نباید از punch بیشتر شود (روز بدون تردد و با نوع تیک‌دار ناهار نمی‌گیرد)
+  // اگر تیک کسر برای رست/جاب/مرخصی هست → سقف punch (روزهای غیرتردد ناهار نمی‌گیرند)
   if (punchDays > 0 && deduct > 0) {
-    baseEarn = Math.min(baseEarn, punchDays);
-  }
-  // اگر جمع تیک‌دار + punch تقریباً ماه را می‌پوشاند، pure = punch
-  if (punchDays > 0 && deduct > 0 && (punchDays + deduct) >= (monthDays - 2)) {
     baseEarn = punchDays;
   }
-
-  var finalQty = Math.max(0, Math.round(Math.min(funcDays, baseEarn) * 100) / 100);
+  var ceiling = funcDays > 0 ? funcDays : monthDays;
+  var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
+  if (!(finalQty > 0) && punchDays > 0) {
+    finalQty = Math.min(ceiling, punchDays);
+  }
 
   // STRICT: فقط ناهاری — هرگز حق موتور / اولاد / رست / جاب / ... را دست نزن
   var names = {};
