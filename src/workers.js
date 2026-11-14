@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v291';
+const PSP_BUILD = '2026-11-14-fix-v292';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -4847,17 +4847,16 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   try { tickedConstNames = getTickedPureCountNames(obj) || []; } catch (eG) { tickedConstNames = []; }
 
   function nameIsTicked(qn) {
+    // فقط تیک «کسر از تعداد خالص» در ثابت‌های ماهانه — نه فلگ نوع که تیک را بی‌اثر می‌کند
     var n = normName(qn);
     if (!n) return false;
     for (var i = 0; i < tickedConstNames.length; i++) {
       var t = tickedConstNames[i];
+      if (!t) continue;
       if (t === n) return true;
+      // تطبیق محافظه‌کارانه: یکی شامل دیگری باشد و حداقل ۳ کاراکتر
       if (t.length >= 3 && n.length >= 3 && (t.indexOf(n) >= 0 || n.indexOf(t) >= 0)) return true;
     }
-    try {
-      if (typeDeductsFromNetCount(obj, '', qn)) return true;
-      if (typeDeductsFromNetCount(obj, '', n)) return true;
-    } catch (e) {}
     return false;
   }
 
@@ -4932,29 +4931,26 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   row.netDeductionDays = Math.max(0, deduct);
   try { row.absenceDays = countEmpMonthAbsenceDays(obj, year, month, code) || 0; } catch (eA) { row.absenceDays = 0; }
 
-  // ─── فرمول قطعی کاربر ───
-  // حالت تیک‌دار (مرخصی/رست/جاب): ناهار = فقط روز تردد (punch)
-  // حالت بدون تیک: ناهار = min(سقف، punch یا کارکرد)
-  // هرگز اگر punch>0 نتیجه را ۰ نکن
-  // «روز کارکرد» را هرگز به‌عنوان کسر از خالص حساب نکن
-  var baseEarn;
-  if (punchDays > 0) {
-    baseEarn = punchDays;
-  } else if (earnDays != null && isFinite(earnDays) && earnDays > 0) {
-    baseEarn = earnDays;
-  } else {
-    var wd0 = Number(row.workDays) || 0;
-    baseEarn = wd0 > 0 ? Math.max(0, wd0 - deduct) : Math.max(0, monthDays - deduct);
-  }
-  // اگر تیک کسر برای رست/جاب/مرخصی هست → سقف punch (روزهای غیرتردد ناهار نمی‌گیرند)
-  if (punchDays > 0 && deduct > 0) {
-    baseEarn = punchDays;
-  }
-  var ceiling = funcDays > 0 ? funcDays : monthDays;
+  // ─── فرمول قطعی (طبق کاربر) ───
+  // تعداد خالص = روزهای ماه − جمع آیتم‌های تیک‌خوردهٔ ثابت ماهانه (که در تایم‌شیت مقدار دارند) − غیبت
+  // تیک برداشته شود → آن آیتم از کسر حذف می‌شود و خالص بالا می‌رود
+  // هرگز رست را از روی punch کم نکن (باعث صفر شدن اشتباه می‌شود)
+  var absence = 0;
+  try {
+    absence = Number(row.absenceDays) || 0;
+    if (!(absence > 0) && typeof countEmpMonthAbsenceDays === 'function') {
+      absence = Number(countEmpMonthAbsenceDays(obj, year, month, code)) || 0;
+    }
+  } catch (eAb) { absence = Number(row.absenceDays) || 0; }
+  // غیبت ساعتی را به روز تبدیل نکن مگر مقدار روز باشد
+  if (absence > monthDays) absence = 0;
+
+  var baseEarn = Math.max(0, monthDays - deduct - absence);
+  var ceiling = monthDays;
+  if (funcDays > 0 && funcDays < ceiling) ceiling = funcDays;
   var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
-  if (!(finalQty > 0) && punchDays > 0) {
-    finalQty = Math.min(ceiling, punchDays);
-  }
+  row.punchDays = punchDays;
+  row.netDeductionDays = Math.max(0, deduct);
 
   // STRICT: فقط ناهاری — هرگز حق موتور / اولاد / رست / جاب / ... را دست نزن
   var names = {};
