@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v281';
+const PSP_BUILD = '2026-11-14-fix-v282';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -5142,16 +5142,20 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     } catch (e2) {}
   });
 
-  // 2) برچسب سلول تایم‌شیت: فقط «رست» صریح (نه استحقاقی/مرخصی)
-  // منبع واقعی رست در پرتال کارکنان همین leaveDaily/restDaily است
+  // 2) برچسب سلول تایم‌شیت: رست از فیلدهای مختلف
   try {
     var store = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
     Object.keys(store).forEach(function (dk) {
       var cell = store[dk];
       if (!cell) return;
-      var lab = String(cell.leaveDaily || cell.restDaily || cell.leave || '').trim();
+      var lab = String(
+        cell.leaveDaily || cell.restDaily || cell.leave || cell.dayType ||
+        cell.type || cell.typeName || cell.note || cell.statusLabel || cell.tag || ''
+      ).trim();
       if (!lab) return;
-      if (!isExplicitRestOnly(lab)) return;
+      if (!isExplicitRestOnly(lab) && lab.indexOf('رست') < 0) return;
+      // اگر فقط «رست» دارد و مرخصی استحقاقی نیست
+      if (/استحقاق|استعلاج|بدون\s*حقوق/.test(lab) && lab.indexOf('رست') < 0) return;
       var norm = String(dk).replace(/[\u06f0-\u06f9]/g, function (ch) {
         return String(ch.charCodeAt(0) - 0x06f0);
       }).replace(/[\u0660-\u0669]/g, function (ch) {
@@ -5237,7 +5241,7 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     return false;
   });
 
-  zeroMissionLinkedQty();
+  // صفر کردن سراسری حذف شد — فقط مقادیر پیدا‌شده نوشته می‌شوند
   md.missionDays = 0;
   md.missionHours = 0;
 
@@ -5297,8 +5301,12 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     Object.keys(storeM).forEach(function (dk) {
       var cell = storeM[dk];
       if (!cell) return;
-      var lab = String(cell.missionDaily || cell.mission || '').trim();
+      var lab = String(
+        cell.missionDaily || cell.mission || cell.dayType || cell.type ||
+        cell.typeName || cell.note || cell.tag || ''
+      ).trim();
       if (!lab) return;
+      if (!/جاب|مأمور|مامور|mission|خدمات\s*فنی/i.test(lab)) return;
       var norm = String(dk).replace(/[\u06f0-\u06f9]/g, function (ch) {
         return String(ch.charCodeAt(0) - 0x06f0);
       }).replace(/[\u0660-\u0669]/g, function (ch) {
@@ -5318,6 +5326,17 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     md.qty[nm] = Math.round(qtyAcc[nm] * 100) / 100;
     md.qtyAuto[nm] = false;
   });
+  // اگر جاب در qtyAcc با نام دیگری آمده، کلید استاندارد را هم پر کن
+  try {
+    var jabTotal = 0;
+    Object.keys(qtyAcc).forEach(function (nm) {
+      if (/جاب|خدمات\s*فنی/.test(nm)) jabTotal = Math.max(jabTotal, Number(qtyAcc[nm]) || 0);
+    });
+    if (jabTotal > 0) {
+      if (!(Number(md.qty['تعداد جاب خدمات فنی']) > 0)) md.qty['تعداد جاب خدمات فنی'] = jabTotal;
+      if (!(Number(md.qty['جاب خدمات فنی']) > 0)) md.qty['جاب خدمات فنی'] = jabTotal;
+    }
+  } catch (eJ) {}
 }
 
 
