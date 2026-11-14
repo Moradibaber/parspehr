@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v282';
+const PSP_BUILD = '2026-11-14-fix-v284';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -5082,10 +5082,12 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     return (s.indexOf('رست') >= 0) || /\brest\b/i.test(s);
   }
   function approved(st) {
-    st = String(st || '').toLowerCase();
-    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+    st = String(st || '').toLowerCase().trim();
+    if (!st) return true; // بعضی ثبت‌ها بدون status
+    return st === 'approved' || st === 'approved_l1' || st === 'approved_l2' || st === 'final' ||
       st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
-      st === 'accept' || st === 'ok' || st === 'done';
+      st === 'accept' || st === 'ok' || st === 'done' || st === 'active' ||
+      st.indexOf('تایید') >= 0 || st.indexOf('تأیید') >= 0 || st.indexOf('approve') >= 0;
   }
   var seen = {};
   var total = 0;
@@ -5112,11 +5114,10 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
     var k = String(x.kind || '').toLowerCase();
     var tn = String(x.typeName || x.type || x.name || '');
     var isRestKind = (k === 'rest' || k === 'work_rest' || k === 'رست' || k === 'رست کاری');
-    var isRestName = isExplicitRestOnly(tn) || isExplicitRestOnly(String(x.typeId || ''));
-    // استحقاق / استعلاج / مأموریت واقعی هرگز رست نیست
-    if (/استحقاق|استعلاج|بدون\s*حقوق/.test(tn)) return;
+    var isRestName = (tn.indexOf('رست') >= 0) || isExplicitRestOnly(tn) || isExplicitRestOnly(String(x.typeId || ''));
+    // استحقاق / استعلاج خالص (بدون کلمه رست) رست نیست
+    if (/استحقاق|استعلاج/.test(tn) && tn.indexOf('رست') < 0) return;
     if (/مأمور|مامور|mission/i.test(tn) && tn.indexOf('رست') < 0) return;
-    if (x.deductFromEntitlement === true) return;
     // نام صریح رست کافی است حتی اگر kind=leave باشد
     if (!isRestKind && !isRestName) return;
     if (x.mode === 'hourly') return;
@@ -5295,18 +5296,21 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
     }
   });
 
-  // سلول تایم‌شیت missionDaily → qty آیتم ثابت ماهانه (جاب و هر آیتم جدید)
+  // سلول تایم‌شیت — ستون مأموریت با «جاب خدمات فنی»
   try {
     var storeM = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
     Object.keys(storeM).forEach(function (dk) {
       var cell = storeM[dk];
-      if (!cell) return;
-      var lab = String(
-        cell.missionDaily || cell.mission || cell.dayType || cell.type ||
-        cell.typeName || cell.note || cell.tag || ''
-      ).trim();
+      if (!cell || typeof cell !== 'object') return;
+      var labs = [
+        cell.missionDaily, cell.mission, cell.missionType, cell.missionName,
+        cell.dayType, cell.type, cell.typeName, cell.note, cell.tag, cell.label, cell.مأموریت
+      ];
+      var lab = labs.map(function (x) { return String(x || '').trim(); }).filter(Boolean).join(' | ');
       if (!lab) return;
-      if (!/جاب|مأمور|مامور|mission|خدمات\s*فنی/i.test(lab)) return;
+      var isJab = /جاب|خدمات\s*فنی/.test(lab);
+      var isMis = /مأمور|مامور|mission/.test(lab);
+      if (!isJab && !isMis) return;
       var norm = String(dk).replace(/[\u06f0-\u06f9]/g, function (ch) {
         return String(ch.charCodeAt(0) - 0x06f0);
       }).replace(/[\u0660-\u0669]/g, function (ch) {
@@ -5315,8 +5319,17 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
       var parts = norm.split(/[-/]/);
       if (parts.length < 3) return;
       if (Number(parts[0]) !== year || Number(parts[1]) !== month) return;
+      var dd = Number(parts[2]);
       var qn = matchQtyItemName(obj, code, lab);
-      if (qn) addQtyDay(qn, Number(parts[2]));
+      if (qn) {
+        addQtyDay(qn, dd);
+      } else if (isJab) {
+        // حتی اگر matchQtyItemName شکست خورد، کلید استاندارد جاب را پر کن
+        addQtyDay('تعداد جاب خدمات فنی', dd);
+        addQtyDay('جاب خدمات فنی', dd);
+      } else {
+        // مأموریت معمولی → missionDays بعداً
+      }
     });
   } catch (eCellM) {}
 
