@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v292';
+const PSP_BUILD = '2026-11-14-fix-v293';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -4739,6 +4739,8 @@ function getTickedPureCountNames(obj) {
   function push(nm) {
     nm = normName(nm);
     if (!nm || seen[nm]) return;
+    // روز کارکرد / کارکرد خالص هرگز از تعداد خالص کسر نمی‌شود (حتی اگر تیک خورده باشد)
+    if (/^روز\s*کارکرد$|^کارکرد$|کارکرد\s*خالص|^work\s*days?$/i.test(nm)) return;
     seen[nm] = true;
     names.push(nm);
   }
@@ -4844,7 +4846,11 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   }
 
   var tickedConstNames = [];
-  try { tickedConstNames = getTickedPureCountNames(obj) || []; } catch (eG) { tickedConstNames = []; }
+  try {
+    // کش را یک‌بار پاک کن تا حذف «روز کارکرد» از لیست کسر اعمال شود
+    if (obj && obj.__pspTickedPureNames) delete obj.__pspTickedPureNames;
+    tickedConstNames = getTickedPureCountNames(obj) || [];
+  } catch (eG) { tickedConstNames = []; }
 
   function nameIsTicked(qn) {
     // فقط تیک «کسر از تعداد خالص» در ثابت‌های ماهانه — نه فلگ نوع که تیک را بی‌اثر می‌کند
