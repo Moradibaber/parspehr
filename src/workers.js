@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v270';
+const PSP_BUILD = '2026-11-14-fix-v271';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -7142,7 +7142,23 @@ async function handleAdminTimesheet(request, who, env) {
               } catch (ePl) {}
               if (prevLunch > 0) finalQty = prevLunch;
             }
+            // اگر هنوز صفر و کارکرد داریم: حداقل از کارکرد − کسرهای تیک‌دار
+            if (!(finalQty > 0)) {
+              var wd2 = Number(row.workDays) || 0;
+              if (wd2 > 0) {
+                finalQty = Math.max(0, Math.round(Math.min(ceiling, Math.max(0, wd2 - deduct)) * 100) / 100);
+              }
+            }
+            // آخرین پناه: مقدار قبلی ناهار
+            if (!(finalQty > 0)) {
+              try {
+                Object.keys(prev.qty || {}).forEach(function (pn) {
+                  if (/ناهار|اهاری/i.test(pn)) finalQty = Math.max(finalQty, Number(prev.qty[pn]) || 0);
+                });
+              } catch (ePl2) {}
+            }
             row.netDeductionDays = Math.max(0, deduct);
+            row.punchDays = pDays;
             ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
               row.qty[nm] = finalQty;
             });
