@@ -2,6 +2,8 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
+const PSP_BUILD = '2026-11-14-fix-v270';
+
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
 const MAX_DOC_BYTES = 8 * 1024 * 1024;
@@ -7193,12 +7195,13 @@ async function handleAdminTimesheet(request, who, env) {
       month: month,
       rows: rowsLight,
       light: true,
+      build: (typeof PSP_BUILD !== 'undefined' ? PSP_BUILD : ''),
       transferred: cellsTouched,
       cells: cellsTouched,
       codes: codeList || [],
       functionalDays: funcDays,
       saved: false,
-      message: 'منتقل شد (' + cellsTouched + ' نفر از ' + ((codeList && codeList.length) || 0) + ' انتخاب‌شده) — کارکرد خالص ' + funcDays + ' — ذخیره داده‌ها را بزنید'
+      message: 'منتقل شد (' + cellsTouched + ' نفر / ' + cellsTouched + ' سلول) — سرور ' + (typeof PSP_BUILD !== 'undefined' ? PSP_BUILD : 'unknown') + ' — ذخیره داده‌ها را بزنید'
     });
   }
   const reqs = gd.obj.attendanceRequests || [];
