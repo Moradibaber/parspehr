@@ -6938,27 +6938,27 @@ async function handleAdminTimesheet(request, who, env) {
           message: 'هیچ کد کارمندی انتخاب نشده — یک نفر را تیک بزنید و دوباره منتقل کنید'
         }, 400);
       }
-      // اگر فقط یک code تکی هم آمده، فقط همان را پردازش کن (اولویت با انتخاب صریح UI)
+      // اولویت مطلق با code تکی
       try {
         var singleOnly = String((r.body && (r.body.code || r.body.empCode || '')) || filterCode || '').trim();
-        if (singleOnly && codeList.length > 1) {
-          // اگر body.codes لیست بزرگ است ولی code تکی هم هست → فقط تکی
-          // مگر اینکه صریحاً batch خواسته باشند
-          if (!(r.body && (r.body.batch === true || r.body.forceBatch === true || r.body.allowBatch === true))) {
+        if (singleOnly) {
+          // اگر code تکی آمده، فقط همان — حتی اگر codes[] شلوغ باشد
+          // مگر batch و بیش از یک کد معتبر و کوچک
+          var wantBatch = !!(r.body && (r.body.batch === true || r.body.forceBatch === true) && codeList.length > 1 && codeList.length <= 5);
+          if (!wantBatch) {
             codeList = [singleOnly];
             codeSet = {};
             codeSet[singleOnly] = true;
           }
         }
       } catch (eSingle) {}
-      // سقف: بدون batch حداکثر ۳ نفر — دیگر بی‌صدا ۱۵ نفر اول را برنمی‌داریم
-      if (codeList.length > 3 && !(r.body && (r.body.batch === true || r.body.forceBatch === true || r.body.allowBatch === true))) {
+      if (codeList.length > 5) {
         return jsonResponse({
           ok: false,
           error: 'too_many_codes',
           received: codeList.length,
           sample: codeList.slice(0, 5),
-          message: codeList.length + ' کد از کلاینت رسید. فقط افراد تیک‌خورده را بفرستید (حداکثر ۳ نفر). الان ۱ نفر در UI انتخاب شده باشد ولی لیست بزرگ آمده — باگ کلاینت یا انتخاب همه.'
+          message: codeList.length + ' کد رسید. حداکثر ۵ نفر. یک نفر را تیک بزنید یا codes را محدود کنید.'
         }, 400);
       }
       if (codeList.length > 20) {
