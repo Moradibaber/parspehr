@@ -4953,47 +4953,48 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
 
   var finalQty = Math.max(0, Math.round(Math.min(funcDays, baseEarn) * 100) / 100);
 
-  // فقط آیتم‌های «ناهار / تعداد خالص» — نه هر qty_flat (حق موتور و … اگر qty_flat نباشند دست‌نخورده بمانند)
-  // اگر آیتمی entryType=qty_flat دارد و نامش ناهار نیست، باز هم اگر در ثابت ماهانه به‌عنوان تعداد خالص تعریف شده اعمال می‌شود
+  // STRICT: فقط ناهاری — هرگز حق موتور / اولاد / رست / جاب / ... را دست نزن
   var names = {};
+  function isLunchName(nm) {
+    nm = String(nm || '');
+    if (!/ناهار|نهار|اهاری/i.test(nm)) return false;
+    // رد موارد اشتباه
+    if (/موتور|اولاد|رست|جاب|سهام|بیمه|کسور|مأمور|مامور|مرخص/i.test(nm)) return false;
+    return true;
+  }
   function addName(nm) {
     nm = String(nm || '').trim();
-    if (!nm) return;
-    if (!/ناهار|نهار|اهاری|خالص/i.test(nm) && !/qty_flat|تعداد خالص/.test(String(nm))) {
-      // فقط اگر صریحاً ناهار/خالص باشد
-      if (!/ناهار|نهار|اهاری/i.test(nm)) return;
-    }
+    if (!nm || !isLunchName(nm)) return;
     names[nm] = true;
     var bare = nm.replace(/^تعداد\s+/, '').trim();
-    if (bare) names[bare] = true;
-    names['تعداد ' + bare] = true;
+    if (bare && isLunchName(bare)) {
+      names[bare] = true;
+      names['تعداد ' + bare] = true;
+    }
   }
   ['کمک هزینه ناهاری', 'حق ناهاری', 'ناهار', 'تعداد کمک هزینه ناهاری', 'تعداد حق ناهاری', 'جبران هزینه ناهاری', 'تعداد ناهاری'].forEach(addName);
   try {
     (emp && emp.customItems || []).forEach(function (ci) {
-      if (!ci || !ci.name) return;
-      // qty_flat یا نام ناهار
-      if (ci.entryType === 'qty_flat' || /ناهار|نهار|اهاری/i.test(ci.name)) addName(ci.name);
+      if (ci && ci.name && isLunchName(ci.name)) addName(ci.name);
     });
   } catch (eC) {}
   try {
     (obj.customItemTemplates || []).forEach(function (ci) {
-      if (!ci || !ci.name) return;
-      if (ci.entryType === 'qty_flat' || /ناهار|نهار|اهاری/i.test(ci.name)) addName(ci.name);
+      if (ci && ci.name && isLunchName(ci.name)) addName(ci.name);
     });
   } catch (eT) {}
   try {
     var consts = (typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : [];
     consts.forEach(function (c) {
-      if (!c || !c.name) return;
-      if (c.entryType === 'qty_flat' || /ناهار|نهار|اهاری/i.test(c.name)) addName(c.name);
+      if (c && c.name && isLunchName(c.name)) addName(c.name);
     });
   } catch (eCs) {}
   Object.keys(row.qty || {}).forEach(function (k) {
-    if (/ناهار|نهار|اهاری/i.test(k)) addName(k);
+    if (isLunchName(k)) addName(k);
   });
 
   Object.keys(names).forEach(function (k) {
+    if (!isLunchName(k)) return;
     row.qtyAbsBase[k] = funcDays;
     row.qty[k] = finalQty;
   });
@@ -5162,8 +5163,7 @@ function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   } catch (eCell) {}
 
   if (!(total > 0)) {
-    row.qty['رست کاری'] = 0;
-    row.qty['تعداد رست کاری'] = 0;
+    // مقدار دستی قبلی را پاک نکن — فقط وقتی از درخواست چیزی نیست، دست نزن
     return;
   }
   if (!row.qtyAuto) row.qtyAuto = {};
@@ -7065,9 +7065,34 @@ async function handleAdminTimesheet(request, who, env) {
             _fromTimesheet: true
           });
 
-          // رست/جاب از درخواست — سبک
-          try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eM) {}
-          try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eR) {}
+          // رست/جاب: فقط اگر از درخواست چیزی پیدا شد بنویس؛ مقدار دستی را صفر نکن
+          try {
+            var prevQtySnap = Object.assign({}, row.qty || {});
+            rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row);
+            // اگر rebuild همه جاب‌ها را صفر کرد و قبلاً مقدار دستی بود → برگردان
+            Object.keys(prevQtySnap).forEach(function (nm) {
+              if (!/جاب|خدمات\s*فنی/.test(nm)) return;
+              var was = Number(prevQtySnap[nm]) || 0;
+              var now = Number(row.qty[nm]) || 0;
+              if (was > 0 && !(now > 0)) row.qty[nm] = was;
+            });
+          } catch (eM) {}
+          try {
+            var prevRestSnap = {
+              a: Number((row.qty || {})['رست کاری']) || 0,
+              b: Number((row.qty || {})['تعداد رست کاری']) || 0
+            };
+            rebuildRestQtyFromRequests(gd.obj, year, month, code, row);
+            var nowA = Number((row.qty || {})['رست کاری']) || 0;
+            var nowB = Number((row.qty || {})['تعداد رست کاری']) || 0;
+            if ((prevRestSnap.a > 0 || prevRestSnap.b > 0) && !(nowA > 0) && !(nowB > 0)) {
+              if (prevRestSnap.a > 0) row.qty['رست کاری'] = prevRestSnap.a;
+              if (prevRestSnap.b > 0) row.qty['تعداد رست کاری'] = prevRestSnap.b;
+              // اگر فقط یکی پر بود هر دو را همگام کن
+              if (!(Number(row.qty['تعداد رست کاری']) > 0) && prevRestSnap.a > 0) row.qty['تعداد رست کاری'] = prevRestSnap.a;
+              if (!(Number(row.qty['رست کاری']) > 0) && prevRestSnap.b > 0) row.qty['رست کاری'] = prevRestSnap.b;
+            }
+          } catch (eR) {}
 
           // تعداد خالص = روزهای تردد (وقتی بقیه روزها تیک‌دارند)
           try {
@@ -7085,17 +7110,17 @@ async function handleAdminTimesheet(request, who, env) {
               if (/ناهار|نهار|اهاری/i.test(qn)) return;
               if (isTickedName(qn)) addD(q[qn], 'q:' + normN(qn));
             });
-            // punchDays را تازه بگیر
-            var pDays = Number(row.punchDays) || 0;
+            // punchDays: مقدار قبلی را حفظ کن اگر شمارش تازه صفر شد
+            var pDays = Number(row.punchDays) || Number(prev.punchDays) || 0;
             try {
               if (typeof countEmpMonthPunchDays === 'function') {
-                pDays = countEmpMonthPunchDays(gd.obj, year, month, code) || pDays;
-                row.punchDays = pDays;
+                var counted = countEmpMonthPunchDays(gd.obj, year, month, code) || 0;
+                if (counted > 0) pDays = counted;
               }
             } catch (eP2) {}
+            row.punchDays = pDays;
             var ceiling = Number(row.workDays) || funcDays || monthDays;
             if (ceiling > monthDays) ceiling = monthDays;
-            // پایه: ترجیحاً روز تردد؛ وگرنه ماه − تیک‌دارها
             var baseEarn = (pDays > 0) ? pDays : Math.max(0, monthDays - deduct);
             if (pDays > 0 && deduct > 0 && (pDays + deduct) >= (monthDays - 2)) {
               baseEarn = pDays;
@@ -7104,11 +7129,22 @@ async function handleAdminTimesheet(request, who, env) {
               baseEarn = Math.min(baseEarn, pDays);
             }
             var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
+            // اگر محاسبه ۰ شد ولی قبلاً ناهار داشت و punch داریم — حفظ کن
+            if (!(finalQty > 0) && pDays > 0) finalQty = Math.min(ceiling, pDays);
+            if (!(finalQty > 0)) {
+              var prevLunch = 0;
+              try {
+                Object.keys(prev.qty || {}).forEach(function (pn) {
+                  if (/ناهار|اهاری/i.test(pn)) prevLunch = Math.max(prevLunch, Number(prev.qty[pn]) || 0);
+                });
+              } catch (ePl) {}
+              if (prevLunch > 0) finalQty = prevLunch;
+            }
             row.netDeductionDays = Math.max(0, deduct);
             ['حق ناهاری', 'کمک هزینه ناهاری', 'ناهار', 'تعداد ناهاری', 'تعداد حق ناهاری', 'تعداد کمک هزینه ناهاری', 'جبران هزینه ناهاری'].forEach(function (nm) {
               row.qty[nm] = finalQty;
             });
-            Object.keys(q).forEach(function (qn) {
+            Object.keys(row.qty || {}).forEach(function (qn) {
               if (/ناهار|نهار|اهاری/i.test(qn)) row.qty[qn] = finalQty;
             });
           } catch (ePure) {}
