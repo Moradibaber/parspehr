@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-15-fix-v298';
+const PSP_BUILD = '2026-11-15-fix-v300';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -5102,13 +5102,9 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   row.untickedAddDays = Math.round(unticked * 100) / 100;
   var baseQty;
   if ((Number(punchDays) || 0) > 0 || unticked > 0) {
-    // ساده: تردد + پوشش بدون‌تیک − مرخصی تیک‌دار (رست/جاب تیک‌دار از قبل در unticked نیستند)
     baseQty = (Number(punchDays) || 0) + unticked;
-    if (leaveTicked || leaveFlatRule) baseQty -= Math.max(0, Number(row.leaveDays) || 0);
-    if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
-    if (missionFlatRule) baseQty -= Math.max(0, Number(row.missionDays) || 0);
   } else {
-    // بدون تردد و بدون آیتم بدون‌تیک: کارکرد منهای تیک‌دارها
+    // بدون تردد و بدون آیتم بدون‌تیک (مثلاً پرسنل بدون ثبت تردد): کارکرد منهای تیک‌دارها
     baseQty = Math.min(Number(row.workDays) || 0, ceiling) - deduct;
     if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
   }
@@ -5338,7 +5334,6 @@ function rebuildMissionAndQtyFromRequests(obj, year, month, code, md) {
   }
 
   function isApprovedStatus(st) {
-    try { if (typeof isApprovedAttStatus === 'function') return isApprovedAttStatus(st); } catch (e) {}
     st = String(st || '').toLowerCase();
     return st === 'approved' || st === 'approved_l1' || st === 'final' ||
       st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده' ||
@@ -7402,51 +7397,20 @@ async function handleAdminTimesheet(request, who, env) {
           try { rebuildMissionAndQtyFromRequests(gd.obj, year, month, code, row); } catch (eRb1) {}
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eRb2) {}
           try { if (!(Number(row.punchDays) > 0)) row.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code) || 0; } catch (eRb3) {}
-          // اگر rebuild رست/جاب را خالی کرد، از شمارش diag برگردان (منبع حقیقت همان درخواست‌هاست)
-          try {
-            if (!row.qty || typeof row.qty !== 'object') row.qty = {};
-            if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
-            var dRest = Number(diag && diag.rest) || 0;
-            var dJab = Number(diag && diag.jab) || 0;
-            if (dRest > 0 && !(Number(row.qty['رست کاری']) > 0) && !(Number(row.qty['تعداد رست کاری']) > 0)) {
-              row.qty['رست کاری'] = dRest;
-              row.qty['تعداد رست کاری'] = dRest;
-              row.qtyAuto['رست کاری'] = false;
-              row.qtyAuto['تعداد رست کاری'] = false;
-            }
-            if (dJab > 0 && !(Number(row.qty['جاب خدمات فنی']) > 0) && !(Number(row.qty['تعداد جاب خدمات فنی']) > 0)) {
-              row.qty['جاب خدمات فنی'] = dJab;
-              row.qty['تعداد جاب خدمات فنی'] = dJab;
-              row.qtyAuto['جاب خدمات فنی'] = false;
-              row.qtyAuto['تعداد جاب خدمات فنی'] = false;
-            }
-          } catch (eDiagQ) {}
-          try {
-            // leaveDays و workDays را از درخواست‌ها + تایم‌شیت هم‌تراز کن
-            if (typeof ensureWorkDaysIncludeLeaveMission === 'function') {
-              ensureWorkDaysIncludeLeaveMission(row, year, month, gd.obj, code);
-            }
-            row.workDays = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || Number(row.workDays) || 0;
-            row.absenceDays = (typeof countEmpMonthAbsenceDays === 'function')
-              ? (countEmpMonthAbsenceDays(gd.obj, year, month, code) || 0) : (Number(row.absenceDays) || 0);
-          } catch (eEnsF) {}
           try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eRb4) {}
-          // بعد از تعداد خالص هم رست/جاب را دوباره تضمین کن (applyAbsence نباید آن‌ها را بسازد)
-          try {
-            var dRest2 = Number(diag && diag.rest) || 0;
-            var dJab2 = Number(diag && diag.jab) || 0;
-            if (dRest2 > 0) {
-              row.qty['رست کاری'] = dRest2;
-              row.qty['تعداد رست کاری'] = dRest2;
-            }
-            if (dJab2 > 0) {
-              row.qty['جاب خدمات فنی'] = dJab2;
-              row.qty['تعداد جاب خدمات فنی'] = dJab2;
-            }
-          } catch (eDiagQ2) {}
 
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
+          // تضمین نهایی qty قبل از پاسخ
+          try {
+            if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+            if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
+            var _d = row._pspDiag || diag || {};
+            var _rs = Number(_d.rest) || 0, _jb = Number(_d.jab) || 0;
+            if (_rs > 0) { row.qty['رست کاری'] = _rs; row.qty['تعداد رست کاری'] = _rs; row.qtyAuto['رست کاری'] = false; row.qtyAuto['تعداد رست کاری'] = false; }
+            if (_jb > 0) { row.qty['جاب خدمات فنی'] = _jb; row.qty['تعداد جاب خدمات فنی'] = _jb; row.qtyAuto['جاب خدمات فنی'] = false; row.qtyAuto['تعداد جاب خدمات فنی'] = false; }
+            if (!(Number(row.punchDays) > 0) && Number(_d.punch) > 0) row.punchDays = Number(_d.punch);
+          } catch (eFinQ) {}
           rowsLight.push({
             code: emp.code || code,
             fullName: emp.fullName || '',
@@ -7462,9 +7426,10 @@ async function handleAdminTimesheet(request, who, env) {
             absenceDays: Number(row.absenceDays) || 0,
             netDeductionDays: Number(row.netDeductionDays) || 0,
             punchDays: Number(row.punchDays) || 0,
-            qty: row.qty || {},
-            qtyAuto: row.qtyAuto || {},
-            diag: row._pspDiag || null,
+            qty: (row.qty && typeof row.qty === 'object') ? Object.assign({}, row.qty) : {},
+            qtyAuto: (row.qtyAuto && typeof row.qtyAuto === 'object') ? Object.assign({}, row.qtyAuto) : {},
+            diag: row._pspDiag || diag || null,
+            _pspDiag: row._pspDiag || diag || null,
             untickedAddDays: Number(row.untickedAddDays) || 0,
             funcDaysUsed: funcDays,
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
