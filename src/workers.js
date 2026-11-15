@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-14-fix-v294';
+const PSP_BUILD = '2026-11-15-fix-v295';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -216,6 +216,19 @@ async function storeGetData(cfg) {
         }
       }
     } catch (eFloatHeal) {}
+    // ثابت‌های ماهانه و قوانین کسر در سند settings هستند؛ در خواندن data ادغام شوند
+    try {
+      const sdoc = await storeGetSettingsDoc(cfg);
+      if (sdoc && obj) {
+        if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+        ['monthlyVars', 'countRules', 'builtinLabels', 'attendanceTypes', 'leaveTypes', 'customItemTemplates', 'defaultFunctionalDays', 'monthlyVarsDeleted'].forEach(function (k) {
+          const v = sdoc[k];
+          if (v === undefined || v === null) return;
+          if (Array.isArray(v) && !v.length && Array.isArray(obj.settings[k]) && obj.settings[k].length) return;
+          obj.settings[k] = v;
+        });
+      }
+    } catch (eSMerge) {}
   }
   return { version: Number(row.version) || 0, obj: obj };
 }
