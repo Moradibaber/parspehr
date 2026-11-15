@@ -6363,8 +6363,6 @@ function loadDataEntry() {
       Object.keys(row.qty).forEach(function(nm) {
         if (/جاب/.test(String(nm))) jab += Number(row.qty[nm]) || 0;
       });
-      // اگر از تایم‌شیت آمده، جاب را صفر نکن (مقادیر سرور معتبرند)
-      if (row._fromTimesheet) return;
       if (jab > 0 && lv > 0 && (jab + lv > wd + 0.5)) {
         Object.keys(row.qty).forEach(function(nm) {
           if (/جاب/.test(String(nm))) {
@@ -6431,8 +6429,6 @@ function loadDataEntry() {
       };
     }
     const row = data.monthlyData[key][emp.code];
-    if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
-    if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
     let wd = Number(row.workDays);
     if (isNaN(wd) || row.workDays == null || row.workDays === '') {
       wd = isHourly ? 0 : defaultWd;
@@ -6543,16 +6539,6 @@ function updateDataField(code, field, value, el) {
   const monthDays = getMonthDays(y, m) || 30;
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
-  // qty یک آبجکت است؛ هرگز با عدد جایگزین نشود (باگ انتقال تایم‌شیت)
-  if (field === 'qty' || field === 'qtyAuto' || field === 'vars') {
-    try { console.warn('[psp] updateDataField ignored for object field:', field); } catch (eW) {}
-    return;
-  }
-  if (typeof field === 'string' && field.indexOf('qty:') === 0) {
-    var qn = field.slice(4);
-    if (typeof updateDataQty === 'function') updateDataQty(code, qn, value);
-    return;
-  }
   var hourFields = { otHours:1, nightHours:1, hourlyLeave:1, missionHours:1, excessAbsenceHours:1 };
   let num = hourFields[field] ? parseFlexibleHours(value) : (Number(value) || 0);
   if (field === 'workDays') {
@@ -6594,8 +6580,8 @@ function updateDataQty(code, name, value) {
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
   const row = data.monthlyData[key][code];
-  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
-  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
   if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
   else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
   refreshCountCells(code);
@@ -9805,7 +9791,21 @@ function sbMergeLocalSecrets(remote, local) {
       if (!v || !v.id) return;
       var id = String(v.id);
       if (tombM[id]) return;
-      byId[id] = Object.assign({}, byId[id] || {}, v);
+      var prev = byId[id] || {};
+      var merged = Object.assign({}, prev, v);
+      if (prev.deductQtyFlat === true || v.deductQtyFlat === true) {
+        if (v.deductQtyFlat === false && Object.prototype.hasOwnProperty.call(v, 'deductQtyFlat'))
+          merged.deductQtyFlat = false;
+        else
+          merged.deductQtyFlat = true;
+      }
+      if (prev.deductCounts === true || v.deductCounts === true) {
+        if (v.deductCounts === false && Object.prototype.hasOwnProperty.call(v, 'deductCounts'))
+          merged.deductCounts = false;
+        else
+          merged.deductCounts = true;
+      }
+      byId[id] = merged;
     });
     // هم‌نام محلی بدون id یکسان
     (Array.isArray(local.monthlyVars) ? local.monthlyVars : []).forEach(function(v) {
@@ -10783,12 +10783,24 @@ function countExpected(emp, row, F, M) {
   });
   var total, usedPunch;
   if ((isFinite(punchN) && punchN > 0) || added > 0) {
-    // قانون: min( کارکرد خالص ، تردد + آیتم‌های بدون تیک )
+    // قانون: min( کارکرد خالص ، تردد + آیتم‌های بدون تیک ) سپس کسر مرخصی/مأموریت تیک‌دار
     usedPunch = true;
     var pn = (isFinite(punchN) && punchN > 0) ? punchN : 0;
     total = Math.min(F, pn + added);
     if (pn > 0) parts.push('تردد ' + mvFmt(pn));
     addParts.forEach(function(x) { parts.push(x); });
+    if (rules.leaveDaysFlat) {
+      var ld = mvNum(row.leaveDays);
+      if (ld > 0) { total -= ld; parts.push(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه') + ' (−' + mvFmt(ld) + ')'); }
+    }
+    if (rules.hourlyLeaveFlat) {
+      var hl = mvNum(row.hourlyLeave) / H;
+      if (hl > 0) { total -= hl; parts.push(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی') + ' (−' + mvFmt(hl) + ')'); }
+    }
+    if (rules.missionDaysFlat) {
+      var md = mvNum(row.missionDays);
+      if (md > 0) { total -= md; parts.push(getBuiltinLabel('missionDays', 'روز مأموریت') + ' (−' + mvFmt(md) + ')'); }
+    }
   } else {
     // بدون تردد و بدون آیتم بدون‌تیک: کارکرد منهای تیک‌دارها
     total = Math.min(workD, F);
@@ -10827,8 +10839,8 @@ function countExpected(emp, row, F, M) {
 
 // One "تعداد" cell. Auto-suggest ONLY for «تعداد خالص» (qty_flat); «بر اساس تعداد» stays manual.
 function countCellView(emp, row, n, F, M) {
-  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
-  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
@@ -11082,11 +11094,16 @@ function setCountRule(rule, checked) {
   data.settings.countRules[rule] = !!checked;
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
+  try { persistMonthlyVarsBackup(); } catch (eB) {}
+  try { forcePushSettingsNow(); } catch (eP) {}
 }
 
 function mvFind(id) {
   var list = (data.settings && data.settings.monthlyVars) || [];
-  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === id) return list[i]; }
+  var sid = String(id == null ? '' : id);
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].id) === sid) return list[i];
+  }
   return null;
 }
 
@@ -11179,7 +11196,24 @@ function restoreMonthlyVarsBackup() {
     });
     list.forEach(function(v) {
       if (!v || !v.id || tomb[String(v.id)]) return;
-      byId[String(v.id)] = Object.assign({}, byId[String(v.id)] || {}, v);
+      var id = String(v.id);
+      var cur = byId[id] || {};
+      var merged = Object.assign({}, cur, v);
+      // تیک کسر از تعداد خالص را اگر در یکی از دو طرف true است حفظ کن
+      // مگر کاربر در data.settings صریحاً false گذاشته باشد
+      if (cur.deductQtyFlat === true || v.deductQtyFlat === true) {
+        if (cur.deductQtyFlat === false && Object.prototype.hasOwnProperty.call(cur, 'deductQtyFlat'))
+          merged.deductQtyFlat = false;
+        else
+          merged.deductQtyFlat = true;
+      }
+      if (cur.deductCounts === true || v.deductCounts === true) {
+        if (cur.deductCounts === false && Object.prototype.hasOwnProperty.call(cur, 'deductCounts'))
+          merged.deductCounts = false;
+        else
+          merged.deductCounts = true;
+      }
+      byId[id] = merged;
     });
     data.settings.monthlyVars = Object.keys(byId).map(function(k) { return byId[k]; });
     data.settings.monthlyVarsDeleted = Object.keys(tomb);
@@ -11187,6 +11221,7 @@ function restoreMonthlyVarsBackup() {
     if (rr) {
       try {
         var rules = JSON.parse(rr);
+        // قوانین محلی (شامل تیک‌های سیستمی) روی سرور اولویت دارند
         data.settings.countRules = Object.assign({}, rules || {}, data.settings.countRules || {});
       } catch (e2) {}
     }
