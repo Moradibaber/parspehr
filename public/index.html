@@ -6539,15 +6539,6 @@ function updateDataField(code, field, value, el) {
   const monthDays = getMonthDays(y, m) || 30;
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
-  // qty آبجکت است — هرگز با عدد جایگزین نشود
-  if (field === 'qty' || field === 'qtyAuto' || field === 'vars') {
-    try { console.warn('[psp] updateDataField ignored object field', field); } catch (e) {}
-    return;
-  }
-  if (typeof field === 'string' && field.indexOf('qty:') === 0) {
-    if (typeof updateDataQty === 'function') updateDataQty(code, field.slice(4), value);
-    return;
-  }
   var hourFields = { otHours:1, nightHours:1, hourlyLeave:1, missionHours:1, excessAbsenceHours:1 };
   let num = hourFields[field] ? parseFlexibleHours(value) : (Number(value) || 0);
   if (field === 'workDays') {
@@ -6589,8 +6580,8 @@ function updateDataQty(code, name, value) {
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
   const row = data.monthlyData[key][code];
-  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
-  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
+  if (!row.qty) row.qty = {};
+  if (!row.qtyAuto) row.qtyAuto = {};
   if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
   else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
   refreshCountCells(code);
@@ -11040,7 +11031,7 @@ function setBuiltinLabel(key, value) {
 function renderMonthlyVars() {
   var box = document.getElementById('monthlyVarsList');
   if (!box) return;
-  try { restoreMonthlyVarsBackup(); } catch (eR) {}
+  // restore در رندر باعث برگشت فوری تیک می‌شد؛ فقط در بارگذاری اولیه صدا زده می‌شود
   var rules = getCountRules();
   var html = '<div style="' + MV_GRID + 'font-weight:600;"><span>نام</span><span>واحد</span><span>نوع</span><span>اثر روی بر اساس تعداد</span><span>اثر روی تعداد خالص</span><span>فعال</span><span></span></div>';
   MV_BUILTINS.forEach(function(b) {
@@ -11075,13 +11066,18 @@ function setCountRule(rule, checked) {
   if (!data.settings) data.settings = {};
   data.settings.countRules = Object.assign({}, data.settings.countRules || {});
   data.settings.countRules[rule] = !!checked;
+  try { persistMonthlyVarsBackup(); } catch (eB) {}
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
+  try { forcePushSettingsNow(); } catch (eP) {}
 }
 
 function mvFind(id) {
   var list = (data.settings && data.settings.monthlyVars) || [];
-  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === id) return list[i]; }
+  var sid = String(id);
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].id) === sid) return list[i];
+  }
   return null;
 }
 
@@ -11112,14 +11108,18 @@ function updateMonthlyVar(id, field, value) {
     } catch (e) {}
   } else if (field === 'deductCounts' || field === 'deductQtyFlat' || field === 'active') {
     v[field] = !!value;
-    try {
-      if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none')
-        loadDataEntry();
-    } catch (e) {}
   }
+  try { persistMonthlyVarsBackup(); } catch (eB) {}
   saveToCache();
   try { if (typeof syncNoteChange === 'function') syncNoteChange(); } catch (eS) {}
   try { forcePushSettingsNow(); } catch (eP) {}
+  if (field === 'deductCounts' || field === 'deductQtyFlat' || field === 'active') {
+    try {
+      if (document.getElementById('dataEntryArea') && document.getElementById('dataEntryArea').style.display !== 'none') {
+        setTimeout(function(){ try { loadDataEntry(); } catch (eL) {} }, 400);
+      }
+    } catch (e) {}
+  }
 }
 
 
@@ -11169,10 +11169,13 @@ function restoreMonthlyVarsBackup() {
     if (!Array.isArray(list) || !list.length) return;
     var tomb = mvTombstones();
     var byId = {};
-    (Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : []).forEach(function(v) {
-      if (v && v.id && !tomb[String(v.id)]) byId[String(v.id)] = Object.assign({}, v);
-    });
+    // ابتدا پشتیبان برای آیتم‌های گم‌شده
     list.forEach(function(v) {
+      if (!v || !v.id || tomb[String(v.id)]) return;
+      byId[String(v.id)] = Object.assign({}, v);
+    });
+    // نسخهٔ فعلی همیشه غالب است تا تیک تازه از بین نرود
+    (Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : []).forEach(function(v) {
       if (!v || !v.id || tomb[String(v.id)]) return;
       byId[String(v.id)] = Object.assign({}, byId[String(v.id)] || {}, v);
     });
@@ -11274,7 +11277,7 @@ function deleteMonthlyVar(id) {
     data.settings.monthlyVarsDeleted = _dl;
     localStorage.setItem(MV_LS_KEY + '_deleted', JSON.stringify(_dl.concat(Object.keys(mvTombstones())).filter(function(x, i, a) { return a.indexOf(x) === i; })));
   } catch (eTb) {}
-  data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
+  data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && String(o.id) !== String(id); });
   try { persistMonthlyVarsBackup(); } catch (eB0) {}
   try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
   saveToCache();
