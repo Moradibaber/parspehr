@@ -4812,12 +4812,9 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   if (!(monthDays >= 28 && monthDays <= 31)) monthDays = 30;
 
   // ─── سقف = کارکرد خالص ───
-  // اولویت: روز کارکرد واردشده در ردیف ماهانه → meta.functionalDays → شمارش تقویمی
+  // سقف = «کارکرد خالص» همان ماه (فیلد بالای ورود داده)، نه «روز کارکرد» کارمند
+  // اولویت: meta.functionalDays → پیش‌فرض تنظیمات → شمارش تقویمی
   var funcDays = 0;
-  try {
-    var wdRow = Number(row.workDays);
-    if (isFinite(wdRow) && wdRow > 0) funcDays = wdRow;
-  } catch (eW0) {}
   if (!(funcDays > 0)) {
     try {
       var key = year + '-' + month;
@@ -4961,16 +4958,11 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   // غیبت ساعتی را به روز تبدیل نکن مگر مقدار روز باشد
   if (absence > monthDays) absence = 0;
 
-  var baseEarn = Math.max(0, monthDays - deduct - absence);
   var ceiling = monthDays;
   if (funcDays > 0 && funcDays < ceiling) ceiling = funcDays;
-  var finalQty = Math.max(0, Math.round(Math.min(ceiling, baseEarn) * 100) / 100);
+  var finalQty = 0; // بعد از شناخت نام آیتم‌ها محاسبه می‌شود
   row.punchDays = punchDays;
   row.netDeductionDays = Math.max(0, deduct);
-
-  // تردد (پانچ) همیشه مشمول است: روز دارای تردد هیچ‌وقت از تعداد خالص کم نمی‌شود
-  var punchFloor = Math.max(0, Math.min(Number(punchDays) || 0, ceiling));
-  if (finalQty < punchFloor) finalQty = punchFloor;
 
   // ─── همهٔ آیتم‌های «تعداد خالص» (ناهار، موتور، خودرو و …) با همین فرمول ───
   // رست/جاب/مرخصی/مأموریت/اولاد/سهام/بیمه/کسورات تعداد رویدادی هستند و دست نمی‌خورند
@@ -5015,6 +5007,40 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   Object.keys(row.qty || {}).forEach(function (k) {
     if (/ناهار|نهار|اهاری|موتور|خودرو/.test(k)) addName(k);
   });
+
+  // ─── فرمول: تردد + آیتم‌های «بدون تیک کسر از تعداد خالص» (رست، جاب، ...) — تا سقف کارکرد خالص ماه ───
+  // آیتم‌های تیک‌دار (مثل مرخصی استحقاقی) و غیبت اضافه نمی‌شوند؛ مقدار هیچ‌وقت از کارکرد خالص ماه بیشتر نمی‌شود
+  var dayUnit = {};
+  try {
+    ((typeof listMonthlyConstantSources === 'function') ? listMonthlyConstantSources(obj) : []).forEach(function (c) {
+      if (!c) return;
+      var u = String(c.unit || c['واحد'] || c.uom || '');
+      if (!/روز|day/i.test(u)) return;
+      [c.name, c.title, c.label, c.systemName].forEach(function (n) { n = normName(n); if (n) dayUnit[n] = true; });
+    });
+  } catch (eU) {}
+  var SKIP_Q = /کارکرد|نوبت|ساعت|مأموریت\s*روزانه|ماموریت\s*روزانه|^مرخصی/;
+  var DAYLIKE = /رست|جاب|خدمات\s*فنی|استعلاج|تعلیق/;
+  var addBy = {};
+  Object.keys(row.qty || {}).forEach(function (qn) {
+    var nn = normName(qn);
+    if (!nn || names[qn] || names[nn] || names['تعداد ' + nn]) return;
+    if (SKIP_Q.test(nn)) return;
+    if (!(dayUnit[nn] || DAYLIKE.test(nn))) return;
+    if (nameIsTicked(qn)) return;
+    var n = Number(row.qty[qn]) || 0;
+    if (!(n > 0)) return;
+    addBy[nn] = Math.max(addBy[nn] || 0, n); // «رست کاری» و «تعداد رست کاری» یک آیتم‌اند
+  });
+  var unticked = 0;
+  Object.keys(addBy).forEach(function (k) { unticked += addBy[k]; });
+  // مرخصی / مأموریت روزانه فقط اگر تیک «کسر از تعداد خالص» ندارند
+  if (!leaveTicked) unticked += Math.max(0, Number(row.leaveDays) || 0);
+  if (!(nameIsTicked('روز مأموریت') || nameIsTicked('مأموریت روزانه') || nameIsTicked('ماموریت روزانه') || nameIsTicked('مأموریت'))) {
+    unticked += Math.max(0, Number(row.missionDays) || 0);
+  }
+  row.untickedAddDays = Math.round(unticked * 100) / 100;
+  finalQty = Math.max(0, Math.round(Math.min(ceiling, (Number(punchDays) || 0) + unticked) * 100) / 100);
 
   if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
   Object.keys(names).forEach(function (k) {
@@ -6956,6 +6982,11 @@ async function handleAdminTimesheet(request, who, env) {
         } catch (e1) { funcDays = 22; }
       }
       if (!gd.obj.monthlyData[mdKey]._meta) gd.obj.monthlyData[mdKey]._meta = {};
+      // «کارکرد خالص» واردشده در صفحه (مثلاً ۲۱) بر شمارش تقویمی مقدم است
+      try {
+        var reqFd = Math.round(Number(r.body && r.body.functionalDays) || 0);
+        if (reqFd >= 1 && reqFd <= 31) funcDays = reqFd;
+      } catch (eFd) {}
       gd.obj.monthlyData[mdKey]._meta.functionalDays = funcDays;
 
       // —— فقط کدهای انتخاب‌شده ——
