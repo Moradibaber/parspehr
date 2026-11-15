@@ -6539,6 +6539,14 @@ function updateDataField(code, field, value, el) {
   const monthDays = getMonthDays(y, m) || 30;
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
+  if (field === 'qty' || field === 'qtyAuto' || field === 'vars') {
+    try { console.warn('[psp] updateDataField ignored object field', field); } catch (e) {}
+    return;
+  }
+  if (typeof field === 'string' && field.indexOf('qty:') === 0) {
+    if (typeof updateDataQty === 'function') updateDataQty(code, field.slice(4), value);
+    return;
+  }
   var hourFields = { otHours:1, nightHours:1, hourlyLeave:1, missionHours:1, excessAbsenceHours:1 };
   let num = hourFields[field] ? parseFlexibleHours(value) : (Number(value) || 0);
   if (field === 'workDays') {
@@ -6580,8 +6588,8 @@ function updateDataQty(code, name, value) {
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
   const row = data.monthlyData[key][code];
-  if (!row.qty) row.qty = {};
-  if (!row.qtyAuto) row.qtyAuto = {};
+  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
+  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
   if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
   else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
   refreshCountCells(code);
@@ -11031,7 +11039,6 @@ function setBuiltinLabel(key, value) {
 function renderMonthlyVars() {
   var box = document.getElementById('monthlyVarsList');
   if (!box) return;
-  // restore در رندر باعث برگشت فوری تیک می‌شد؛ فقط در بارگذاری اولیه صدا زده می‌شود
   var rules = getCountRules();
   var html = '<div style="' + MV_GRID + 'font-weight:600;"><span>نام</span><span>واحد</span><span>نوع</span><span>اثر روی بر اساس تعداد</span><span>اثر روی تعداد خالص</span><span>فعال</span><span></span></div>';
   MV_BUILTINS.forEach(function(b) {
@@ -11169,12 +11176,10 @@ function restoreMonthlyVarsBackup() {
     if (!Array.isArray(list) || !list.length) return;
     var tomb = mvTombstones();
     var byId = {};
-    // ابتدا پشتیبان برای آیتم‌های گم‌شده
     list.forEach(function(v) {
       if (!v || !v.id || tomb[String(v.id)]) return;
       byId[String(v.id)] = Object.assign({}, v);
     });
-    // نسخهٔ فعلی همیشه غالب است تا تیک تازه از بین نرود
     (Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : []).forEach(function(v) {
       if (!v || !v.id || tomb[String(v.id)]) return;
       byId[String(v.id)] = Object.assign({}, byId[String(v.id)] || {}, v);
@@ -11277,7 +11282,7 @@ function deleteMonthlyVar(id) {
     data.settings.monthlyVarsDeleted = _dl;
     localStorage.setItem(MV_LS_KEY + '_deleted', JSON.stringify(_dl.concat(Object.keys(mvTombstones())).filter(function(x, i, a) { return a.indexOf(x) === i; })));
   } catch (eTb) {}
-  data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && String(o.id) !== String(id); });
+  data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
   try { persistMonthlyVarsBackup(); } catch (eB0) {}
   try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
   saveToCache();
