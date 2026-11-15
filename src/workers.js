@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-15-fix-v300';
+const PSP_BUILD = '2026-11-15-fix-v301';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -7401,16 +7401,6 @@ async function handleAdminTimesheet(request, who, env) {
 
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
-          // تضمین نهایی qty قبل از پاسخ
-          try {
-            if (!row.qty || typeof row.qty !== 'object') row.qty = {};
-            if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
-            var _d = row._pspDiag || diag || {};
-            var _rs = Number(_d.rest) || 0, _jb = Number(_d.jab) || 0;
-            if (_rs > 0) { row.qty['رست کاری'] = _rs; row.qty['تعداد رست کاری'] = _rs; row.qtyAuto['رست کاری'] = false; row.qtyAuto['تعداد رست کاری'] = false; }
-            if (_jb > 0) { row.qty['جاب خدمات فنی'] = _jb; row.qty['تعداد جاب خدمات فنی'] = _jb; row.qtyAuto['جاب خدمات فنی'] = false; row.qtyAuto['تعداد جاب خدمات فنی'] = false; }
-            if (!(Number(row.punchDays) > 0) && Number(_d.punch) > 0) row.punchDays = Number(_d.punch);
-          } catch (eFinQ) {}
           rowsLight.push({
             code: emp.code || code,
             fullName: emp.fullName || '',
@@ -7426,10 +7416,9 @@ async function handleAdminTimesheet(request, who, env) {
             absenceDays: Number(row.absenceDays) || 0,
             netDeductionDays: Number(row.netDeductionDays) || 0,
             punchDays: Number(row.punchDays) || 0,
-            qty: (row.qty && typeof row.qty === 'object') ? Object.assign({}, row.qty) : {},
-            qtyAuto: (row.qtyAuto && typeof row.qtyAuto === 'object') ? Object.assign({}, row.qtyAuto) : {},
-            diag: row._pspDiag || diag || null,
-            _pspDiag: row._pspDiag || diag || null,
+            qty: row.qty || {},
+            qtyAuto: row.qtyAuto || {},
+            diag: row._pspDiag || null,
             untickedAddDays: Number(row.untickedAddDays) || 0,
             funcDaysUsed: funcDays,
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
