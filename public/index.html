@@ -6363,6 +6363,8 @@ function loadDataEntry() {
       Object.keys(row.qty).forEach(function(nm) {
         if (/جاب/.test(String(nm))) jab += Number(row.qty[nm]) || 0;
       });
+      // اگر از تایم‌شیت آمده، جاب را صفر نکن (مقادیر سرور معتبرند)
+      if (row._fromTimesheet) return;
       if (jab > 0 && lv > 0 && (jab + lv > wd + 0.5)) {
         Object.keys(row.qty).forEach(function(nm) {
           if (/جاب/.test(String(nm))) {
@@ -6429,6 +6431,8 @@ function loadDataEntry() {
       };
     }
     const row = data.monthlyData[key][emp.code];
+    if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
+    if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
     let wd = Number(row.workDays);
     if (isNaN(wd) || row.workDays == null || row.workDays === '') {
       wd = isHourly ? 0 : defaultWd;
@@ -6539,6 +6543,16 @@ function updateDataField(code, field, value, el) {
   const monthDays = getMonthDays(y, m) || 30;
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
+  // qty یک آبجکت است؛ هرگز با عدد جایگزین نشود (باگ انتقال تایم‌شیت)
+  if (field === 'qty' || field === 'qtyAuto' || field === 'vars') {
+    try { console.warn('[psp] updateDataField ignored for object field:', field); } catch (eW) {}
+    return;
+  }
+  if (typeof field === 'string' && field.indexOf('qty:') === 0) {
+    var qn = field.slice(4);
+    if (typeof updateDataQty === 'function') updateDataQty(code, qn, value);
+    return;
+  }
   var hourFields = { otHours:1, nightHours:1, hourlyLeave:1, missionHours:1, excessAbsenceHours:1 };
   let num = hourFields[field] ? parseFlexibleHours(value) : (Number(value) || 0);
   if (field === 'workDays') {
@@ -6580,8 +6594,8 @@ function updateDataQty(code, name, value) {
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key][code]) data.monthlyData[key][code] = { workDays:30, leaveDays:0, hourlyLeave:0, otHours:0, nightHours:0, shiftType:'none', shiftDays:0, vars:{}, qty:{} };
   const row = data.monthlyData[key][code];
-  if (!row.qty) row.qty = {};
-  if (!row.qtyAuto) row.qtyAuto = {};
+  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
+  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
   if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
   else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
   refreshCountCells(code);
@@ -10813,8 +10827,8 @@ function countExpected(emp, row, F, M) {
 
 // One "تعداد" cell. Auto-suggest ONLY for «تعداد خالص» (qty_flat); «بر اساس تعداد» stays manual.
 function countCellView(emp, row, n, F, M) {
-  if (!row.qty) row.qty = {};
-  if (!row.qtyAuto) row.qtyAuto = {};
+  if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
+  if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
   var ctx = mvDataContext();
   var active = typeof empQtyItemActive === 'function' ? empQtyItemActive(emp, n, ctx.y, ctx.m) : true;
   if (!active) {
