@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-15-fix-v295';
+const PSP_BUILD = '2026-11-15-fix-v297';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -216,19 +216,6 @@ async function storeGetData(cfg) {
         }
       }
     } catch (eFloatHeal) {}
-    // ثابت‌های ماهانه و قوانین کسر در سند settings هستند؛ در خواندن data ادغام شوند
-    try {
-      const sdoc = await storeGetSettingsDoc(cfg);
-      if (sdoc && obj) {
-        if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
-        ['monthlyVars', 'countRules', 'builtinLabels', 'attendanceTypes', 'leaveTypes', 'customItemTemplates', 'defaultFunctionalDays', 'monthlyVarsDeleted'].forEach(function (k) {
-          const v = sdoc[k];
-          if (v === undefined || v === null) return;
-          if (Array.isArray(v) && !v.length && Array.isArray(obj.settings[k]) && obj.settings[k].length) return;
-          obj.settings[k] = v;
-        });
-      }
-    } catch (eSMerge) {}
   }
   return { version: Number(row.version) || 0, obj: obj };
 }
@@ -2022,8 +2009,22 @@ function leaveDaysForMonthChunk(data, req, chunk) {
   return Number(chunk.days) || 0;
 }
 
+function isApprovedAttStatus(st) {
+  st = String(st == null ? '' : st).toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!st) return false;
+  if (st === 'approved' || st === 'approved_l1' || st === 'approved_l2' || st === 'final') return true;
+  if (st === 'accept' || st === 'ok' || st === 'done') return true;
+  // فارسی
+  if (st.indexOf('تأیید') >= 0 || st.indexOf('تایید') >= 0) {
+    if (st.indexOf('رد') >= 0) return false;
+    if (st.indexOf('نهایی') >= 0 || st.indexOf('شده') >= 0 || st === 'تأیید' || st === 'تایید') return true;
+    if (st.indexOf('سطح') >= 0) return true; // تأیید سطح ۱/۲
+  }
+  return false;
+}
+
 function applyApprovedRequestToTimesheet(data, req) {
-  if (!req || req.status !== 'approved') return;
+  if (!req || !isApprovedAttStatus(req.status)) return;
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
     if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req)) {
@@ -2067,10 +2068,9 @@ function applyApprovedRequestToTimesheet(data, req) {
         months.forEach(function (ch) {
           const r = ensureEmpMonthRow(data, ch.year, ch.month, code);
           try {
-            var _pw = Number(r.workDays) || 0;
-            var _rw = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
-            if (!(_pw > 0)) r.workDays = _rw;
-          } catch (eRw) { r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0; }
+            // همیشه از نو حساب شود تا تغییر بازه مرخصی/مأموریت روی کارکرد اعمال شود
+            r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
+          } catch (eRw) { try { r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0; } catch (e2) {} }
           try { r.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(data, ch.year, ch.month, code) : 0; } catch (eAbsR) { r.absenceDays = 0; }
         });
       }
@@ -2567,7 +2567,7 @@ function sumUsedLeaveDaysForYear(obj, empCode, year) {
   // از درخواست‌های تأییدشده استحقاقی
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== code) return;
-    if (x.status !== 'approved') return;
+    if (!isApprovedAttStatus(x.status)) return;
     if (x.kind !== 'leave') return;
     // فقط استحقاقی (کسر از مانده) — اگر فلگ نبود و نوع استحقاقی است هم حساب کن
     var deduct = x.deductFromEntitlement;
@@ -4005,7 +4005,7 @@ function dailyLeaveMissionFlags(obj, code, year, month, day) {
   const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
   let fullDay = false, unpaid = false;
   (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (String(x.empCode) !== String(code) || !isApprovedAttStatus(x.status)) return;
     if (x.mode !== 'daily') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
     const keys = (typeof listDayKeys === 'function') ? listDayKeys(x.startDate, x.endDate || x.startDate) : [];
@@ -4032,7 +4032,7 @@ function hourlyCoverMinutesOnDay(obj, code, year, month, day) {
   let mins = 0;
   const iv = [];
   (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (String(x.empCode) !== String(code) || !isApprovedAttStatus(x.status)) return;
     if (x.mode !== 'hourly') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
     const sk = String(x.startDate || '').replace(/-/g, '/');
@@ -4062,7 +4062,7 @@ function hourlyCoverIntervalsOnDay(obj, code, year, month, day) {
   const dateDash = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
   const iv = [];
   (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== String(code) || x.status !== 'approved') return;
+    if (String(x.empCode) !== String(code) || !isApprovedAttStatus(x.status)) return;
     if (x.mode !== 'hourly') return;
     if (x.kind !== 'leave' && x.kind !== 'mission') return;
     const sk = String(x.startDate || '').replace(/-/g, '/');
@@ -5595,7 +5595,7 @@ function countLeaveDays(req, obj, contractType) {
 
 /** کسر از سال جاری؛ در صورت نیاز و موافقت، از سال‌های قبلِ تسویه‌نشده */
 function applyLeaveDeduction(obj, req) {
-  if (!req || req.status !== 'approved') return;
+  if (!req || !isApprovedAttStatus(req.status)) return;
   // فقط وقتی صریحاً false باشد کسر نکن (undefined = کسر کن برای سازگاری)
   if (req.deductFromEntitlement === false) return;
   if (req.kind !== 'leave') return;
@@ -5705,7 +5705,7 @@ function rebuildEmpLeaveUsedFromRequests(obj, empCode) {
     let used = 0;
     (obj.attendanceRequests || []).forEach(function (req) {
       if (String(req.empCode) !== String(empCode)) return;
-      if (req.status !== 'approved') return;
+      if (!isApprovedAttStatus(req.status)) return;
       if (!req.deductFromEntitlement) return;
       if (req.kind !== 'leave') return;
       const detail = req.leaveDeductDetail;
@@ -5919,7 +5919,7 @@ async function handleEmpTimesheet(request, env) {
   const key = year + '-' + month;
   const row = ((gd.obj.monthlyData || {})[key] || {})[code] || {};
   const reqs = ((gd.obj.attendanceRequests || []).filter(function (x) {
-    if (String(x.empCode) !== code || x.status !== 'approved') return false;
+    if (String(x.empCode) !== code || !isApprovedAttStatus(x.status)) return false;
     const p = parseJalaliYMD(x.startDate);
     if (!p) return false;
     if (p.y === year && p.m === month) return true;
@@ -6732,7 +6732,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
 
   let aHourly = 0, aMissionH = 0;
   (obj.attendanceRequests || []).forEach(function (x) {
-    if (String(x.empCode) !== code || x.status !== 'approved') return;
+    if (String(x.empCode) !== code || !isApprovedAttStatus(x.status)) return;
     const p = parseJalaliYMD(x.startDate);
     if (!p || p.y !== year || p.m !== month) return;
     if (x.kind === 'leave' && x.mode === 'hourly') aHourly += hoursBetween(x.fromTime, x.toTime);
@@ -6889,7 +6889,7 @@ async function handleAdminAbsenceReport(request, who, env) {
     try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
     const row = filled || md[emp.code] || {};
     const empReqs = reqs.filter(function (x) {
-      if (String(x.empCode) !== String(emp.code) || x.status !== 'approved') return false;
+      if (String(x.empCode) !== String(emp.code) || !isApprovedAttStatus(x.status)) return false;
       const p = parseJalaliYMD(x.startDate);
       if (!p) return false;
       if (p.y === year && p.m === month) return true;
@@ -7267,7 +7267,7 @@ async function handleAdminTimesheet(request, who, env) {
             // دقیقاً مثل handleEmpTimesheet: status === 'approved'
             var reqs = (gd.obj.attendanceRequests || []).filter(function (x) {
               if (!x || String(x.empCode) !== String(code)) return false;
-              if (String(x.status) !== 'approved') return false;
+              if (!isApprovedAttStatus(x.status)) return false;
               var p = null;
               try { p = parseJalaliYMD(x.startDate); } catch (e0) {}
               if (!p) return false;
@@ -7411,6 +7411,18 @@ async function handleAdminTimesheet(request, who, env) {
           try { rebuildRestQtyFromRequests(gd.obj, year, month, code, row); } catch (eRb2) {}
           try { if (!(Number(row.punchDays) > 0)) row.punchDays = countEmpMonthPunchDays(gd.obj, year, month, code) || 0; } catch (eRb3) {}
           try { applyAbsenceToQtyFlatItems(gd.obj, year, month, code, row); } catch (eRb4) {}
+          try {
+            row.workDays = Math.round(recountEmpMonthWorkDays(gd.obj, year, month, code)) || 0;
+            row.leaveDays = (function () {
+              try {
+                if (typeof ensureWorkDaysIncludeLeaveMission === 'function') {
+                  ensureWorkDaysIncludeLeaveMission(row, year, month, gd.obj, code);
+                }
+              } catch (eE) {}
+              return Number(row.leaveDays) || 0;
+            })();
+            row.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? (countEmpMonthAbsenceDays(gd.obj, year, month, code) || 0) : (Number(row.absenceDays) || 0);
+          } catch (eForceWd) {}
 
           gd.obj.monthlyData[mdKey][code] = row;
           cellsTouched++;
@@ -7482,7 +7494,7 @@ async function handleAdminTimesheet(request, who, env) {
     if (filterManager && String(emp.managerCode || '') !== filterManager) return;
     const row = md[emp.code] || {};
     const empReqs = reqs.filter(function (x) {
-      if (String(x.empCode) !== String(emp.code) || x.status !== 'approved') return false;
+      if (String(x.empCode) !== String(emp.code) || !isApprovedAttStatus(x.status)) return false;
       const p = parseJalaliYMD(x.startDate);
       if (!p) return false;
       if (p.y === year && p.m === month) return true;
@@ -9264,7 +9276,7 @@ async function handleAdminSaveTimesheetDays(request, who, env) {
         let leaveMis = 0;
         const ct = (emp && emp.contractType) || 'normal';
         (gd.obj.attendanceRequests || []).forEach(function (x) {
-          if (String(x.empCode) !== empCode || x.status !== 'approved') return;
+          if (String(x.empCode) !== empCode || !isApprovedAttStatus(x.status)) return;
           if (x.mode !== 'daily') return;
           if (x.kind !== 'leave' && x.kind !== 'mission') return;
           leaveMis += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
@@ -10203,6 +10215,15 @@ async function handleAdminUpdateAttendanceRequest(request, who, env) {
     if (!gd.obj || !Array.isArray(gd.obj.attendanceRequests)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
     const req = gd.obj.attendanceRequests.find(function (x) { return x.id === id; });
     if (!req) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    // اسنپ‌شات قبل از ویرایش — برای برگشت اثر روی بازه قبلی
+    const prevSnap = {
+      empCode: req.empCode, typeId: req.typeId, typeName: req.typeName,
+      kind: req.kind, mode: req.mode, status: req.status,
+      startDate: req.startDate, endDate: req.endDate,
+      fromTime: req.fromTime, toTime: req.toTime,
+      _timesheetApplied: !!req._timesheetApplied,
+      _leaveDeducted: !!req._leaveDeducted
+    };
     if (b.empCode != null) req.empCode = String(b.empCode).trim();
     if (b.typeId != null) req.typeId = String(b.typeId).trim();
     if (b.startDate != null) req.startDate = String(b.startDate).trim();
@@ -10211,22 +10232,46 @@ async function handleAdminUpdateAttendanceRequest(request, who, env) {
     if (b.toTime != null) req.toTime = String(b.toTime).trim();
     if (b.place != null) req.place = String(b.place).trim();
     if (b.reason != null) req.reason = String(b.reason).trim();
-    const prevStatus = req.status;
+    const prevStatus = prevSnap.status;
     if (b.status != null) req.status = String(b.status);
-    // اگر از تأیید نهایی خارج شد → برگرداندن اثر؛ اگر تازه تأیید شد → اعمال
-    if (prevStatus === 'approved' && req.status !== 'approved') {
-      try { restoreLeaveDeduction(gd.obj, req); } catch (e) {}
+    const datesChanged = String(prevSnap.startDate || '') !== String(req.startDate || '')
+      || String(prevSnap.endDate || '') !== String(req.endDate || '')
+      || String(prevSnap.fromTime || '') !== String(req.fromTime || '')
+      || String(prevSnap.toTime || '') !== String(req.toTime || '')
+      || String(prevSnap.typeId || '') !== String(req.typeId || '')
+      || String(prevSnap.empCode || '') !== String(req.empCode || '');
+    // اگر از تأیید نهایی خارج شد → برگرداندن اثر بازه قبلی
+    if (isApprovedAttStatus(prevStatus) && !isApprovedAttStatus(req.status)) {
+      try { restoreLeaveDeduction(gd.obj, Object.assign({}, req, prevSnap, { status: 'approved' })); } catch (e) {}
       try {
-        reverseApprovedRequestFromTimesheet(gd.obj, req);
+        reverseApprovedRequestFromTimesheet(gd.obj, Object.assign({}, req, prevSnap, { status: 'approved' }));
         req._timesheetApplied = false;
+        req._leaveDeducted = false;
       } catch (e) {}
-    } else if (prevStatus !== 'approved' && req.status === 'approved') {
+    } else if (!isApprovedAttStatus(prevStatus) && isApprovedAttStatus(req.status)) {
+      // تازه تأیید شد
       try { applyLeaveDeduction(gd.obj, req); } catch (e) {}
       try {
-        if (!req._timesheetApplied) {
-          applyApprovedRequestToTimesheet(gd.obj, req);
-          req._timesheetApplied = true;
+        applyApprovedRequestToTimesheet(gd.obj, req);
+        req._timesheetApplied = true;
+      } catch (e) {}
+    } else if (isApprovedAttStatus(req.status) && (datesChanged || !req._timesheetApplied)) {
+      // تأییدشده بود و بازه/نوع عوض شد (یا قبلاً اعمال نشده) → برگشت بازه قدیم + اعمال بازه جدید
+      try {
+        if (prevSnap._timesheetApplied || isApprovedAttStatus(prevStatus)) {
+          reverseApprovedRequestFromTimesheet(gd.obj, Object.assign({}, req, prevSnap, { status: 'approved' }));
         }
+      } catch (eR) {}
+      try {
+        if (prevSnap._leaveDeducted) {
+          restoreLeaveDeduction(gd.obj, Object.assign({}, req, prevSnap, { status: 'approved', _leaveDeducted: true }));
+          req._leaveDeducted = false;
+        }
+      } catch (eL) {}
+      try { applyLeaveDeduction(gd.obj, req); } catch (e) {}
+      try {
+        applyApprovedRequestToTimesheet(gd.obj, req);
+        req._timesheetApplied = true;
       } catch (e) {}
     }
     // resolve type name
