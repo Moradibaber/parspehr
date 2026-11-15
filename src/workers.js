@@ -221,6 +221,44 @@ async function storeGetData(cfg) {
 }
 
 
+/** سند «settings» (ثابت‌های ماهانه، قوانین کسر، برچسب‌ها) جدا از سند «data» ذخیره می‌شود */
+async function storeGetSettingsDoc(cfg) {
+  try {
+    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings&select=version,data',
+      { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+    if (!r.ok) return null;
+    const row = await r.json();
+    if (!row || !row.data) return null;
+    const o = (typeof row.data === 'string') ? JSON.parse(row.data) : row.data;
+    return (o && typeof o === 'object') ? o : null;
+  } catch (e) { return null; }
+}
+
+/** ثابت‌های ماهانه فقط با حذف صریح (tombstone) پاک می‌شوند؛ ذخیرهٔ ناقص یک کلاینت قدیمی آن‌ها را نمی‌برد */
+function protectMonthlyVarsOnPut(prev, inc) {
+  if (!prev || typeof prev !== 'object' || !inc || typeof inc !== 'object') return inc;
+  const tomb = {};
+  [].concat(Array.isArray(prev.monthlyVarsDeleted) ? prev.monthlyVarsDeleted : [],
+            Array.isArray(inc.monthlyVarsDeleted) ? inc.monthlyVarsDeleted : []).forEach(function (id) { if (id) tomb[String(id)] = true; });
+  const prevList = Array.isArray(prev.monthlyVars) ? prev.monthlyVars : [];
+  const curList = Array.isArray(inc.monthlyVars) ? inc.monthlyVars : [];
+  const byId = {};
+  const order = [];
+  prevList.concat(curList).forEach(function (v) {
+    if (!v || !v.id) return;
+    const id = String(v.id);
+    if (tomb[id]) return;
+    if (!byId[id]) order.push(id);
+    byId[id] = v; // نسخهٔ کلاینت (آخرین ویرایش) مقدم است
+  });
+  curList.forEach(function (v) { // آیتم بدون id را هم نگه دار
+    if (v && !v.id) { const k = 'noid:' + String(v.name || ''); if (!byId[k]) { order.push(k); byId[k] = v; } }
+  });
+  if (order.length || prevList.length || curList.length) inc.monthlyVars = order.map(function (k) { return byId[k]; });
+  inc.monthlyVarsDeleted = Object.keys(tomb);
+  return inc;
+}
+
 function employeeFieldLabels() {
   return {
     fullName: 'نام و نام خانوادگی',
@@ -1353,6 +1391,17 @@ async function handleState(request, who, env, path) {
             text = JSON.stringify(incoming);
           }
         } catch (eMergeCt) { /* non-fatal — keep original text */ }
+      }
+
+      if (rest === 'settings' && base > 0) {
+        try {
+          const incS = JSON.parse(text);
+          const prevS = await storeGetSettingsDoc(cfg);
+          if (incS && typeof incS === 'object' && prevS) {
+            protectMonthlyVarsOnPut(prevS, incS);
+            text = JSON.stringify(incS);
+          }
+        } catch (eMvp) { /* non-fatal — keep original text */ }
       }
 
       if (base === 0) {
@@ -4363,6 +4412,7 @@ function listMonthlyConstantSources(obj) {
     add(obj && obj.dataEntryColumns);
     add(obj && obj.monthlyQtyItems);
     var s = (obj && obj.settings) || {};
+    add(s.monthlyVars);
     add(s.monthlyConstants);
     add(s.fixedMonthlyItems);
     add(s.monthlyFixedItems);
@@ -4407,6 +4457,10 @@ function monthlyConstantDeductsFromPure(item) {
     }
     return false;
   }
+  // ثابت‌های ماهانهٔ ساخت‌شده در برنامه (settings.monthlyVars): تیک «کسر از تعداد خالص» = deductQtyFlat
+  // (اگر تعریف نشده بود، مثل کلاینت: deductCounts)
+  if (item.deductQtyFlat !== undefined) return truthy(item.deductQtyFlat);
+  if (item.deductCounts !== undefined && /^mv_/.test(String(item.id || ''))) return truthy(item.deductCounts);
   var keys = [
     'deductFromNetCount', 'deductFromPure', 'deductFromNet', 'deductFromFunctional',
     'deductFromQtyFlat', 'qtyFlatDeduct', 'deductPure', 'pureCountDeduct', 'deductKhales',
@@ -4761,6 +4815,7 @@ function getTickedPureCountNames(obj) {
     for (var i = 0; i < lim; i++) {
       var c = consts[i];
       if (!c) continue;
+      if (c.active === false) continue; // ثابت غیرفعال اثری ندارد
       var flagged = false;
       try { flagged = monthlyConstantDeductsFromPure(c); } catch (eF) { flagged = false; }
       if (!flagged) continue;
@@ -4834,6 +4889,11 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   // ─── کسر = فقط آیتم/انواعی که در ثابت ماهانه تیک «کسر از تعداد خالص» دارند ───
   var deduct = 0;
   var deductedTags = {};
+  // تیک‌های آیتم‌های سیستمی در settings.countRules (مثل کلاینت: پیش‌فرض‌ها)
+  var _rules = (obj.settings && obj.settings.countRules) || {};
+  var leaveFlatRule = (_rules.leaveDaysFlat !== undefined) ? !!_rules.leaveDaysFlat : (_rules.leaveDays !== false);
+  var missionFlatRule = (_rules.missionDaysFlat !== undefined) ? !!_rules.missionDaysFlat : false;
+  var hourlyFlatRule = (_rules.hourlyLeaveFlat !== undefined) ? !!_rules.hourlyLeaveFlat : (_rules.hourlyLeave !== false);
 
   function addDeduct(amount, tag) {
     amount = Number(amount) || 0;
@@ -4880,7 +4940,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
       || nameIsTicked('استحقاقی روزانه')
       || nameIsTicked('مرخصی استحقاقی')
       || nameIsTicked('مرخصی');
-    if (leaveTicked) addDeduct(row.leaveDays, 'leaveDays');
+    if (leaveTicked || leaveFlatRule) addDeduct(row.leaveDays, 'leaveDays');
 
     // ۲) همه qty به‌جز ناهار
     var q = row.qty || {};
@@ -5035,12 +5095,20 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
   var unticked = 0;
   Object.keys(addBy).forEach(function (k) { unticked += addBy[k]; });
   // مرخصی / مأموریت روزانه فقط اگر تیک «کسر از تعداد خالص» ندارند
-  if (!leaveTicked) unticked += Math.max(0, Number(row.leaveDays) || 0);
-  if (!(nameIsTicked('روز مأموریت') || nameIsTicked('مأموریت روزانه') || nameIsTicked('ماموریت روزانه') || nameIsTicked('مأموریت'))) {
+  if (!(leaveTicked || leaveFlatRule)) unticked += Math.max(0, Number(row.leaveDays) || 0);
+  if (!(missionFlatRule || nameIsTicked('روز مأموریت') || nameIsTicked('مأموریت روزانه') || nameIsTicked('ماموریت روزانه') || nameIsTicked('مأموریت'))) {
     unticked += Math.max(0, Number(row.missionDays) || 0);
   }
   row.untickedAddDays = Math.round(unticked * 100) / 100;
-  finalQty = Math.max(0, Math.round(Math.min(ceiling, (Number(punchDays) || 0) + unticked) * 100) / 100);
+  var baseQty;
+  if ((Number(punchDays) || 0) > 0 || unticked > 0) {
+    baseQty = (Number(punchDays) || 0) + unticked;
+  } else {
+    // بدون تردد و بدون آیتم بدون‌تیک (مثلاً پرسنل بدون ثبت تردد): کارکرد منهای تیک‌دارها
+    baseQty = Math.min(Number(row.workDays) || 0, ceiling) - deduct;
+    if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
+  }
+  finalQty = Math.max(0, Math.round(Math.min(ceiling, baseQty) * 100) / 100);
 
   if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
   Object.keys(names).forEach(function (k) {
@@ -6972,6 +7040,20 @@ async function handleAdminTimesheet(request, who, env) {
       if (!gd.obj.monthlyData) gd.obj.monthlyData = {};
       const mdKey = year + '-' + month;
       if (!gd.obj.monthlyData[mdKey]) gd.obj.monthlyData[mdKey] = {};
+      // تیک‌های «کسر از تعداد خالص» و قوانین در سند settings هستند (فقط در حافظهٔ همین درخواست؛ ذخیره نمی‌شود)
+      try {
+        const sdoc = await storeGetSettingsDoc(cfg);
+        if (sdoc) {
+          if (!gd.obj.settings || typeof gd.obj.settings !== 'object') gd.obj.settings = {};
+          ['monthlyVars', 'countRules', 'builtinLabels', 'attendanceTypes', 'leaveTypes', 'customItemTemplates', 'defaultFunctionalDays'].forEach(function (k) {
+            const v = sdoc[k];
+            if (v === undefined || v === null) return;
+            if (Array.isArray(v) && !v.length) return;
+            gd.obj.settings[k] = v;
+          });
+          try { delete gd.obj.__pspConstSources; delete gd.obj.__pspTickedPureNames; } catch (eDl) {}
+        }
+      } catch (eSdoc) {}
       try {
         funcDays = countFunctionalDaysInMonth(gd.obj, year, month, 'normal') || 0;
       } catch (e0) { funcDays = 0; }
@@ -7336,6 +7418,9 @@ async function handleAdminTimesheet(request, who, env) {
             punchDays: Number(row.punchDays) || 0,
             qty: row.qty || {},
             qtyAuto: row.qtyAuto || {},
+            diag: row._pspDiag || null,
+            untickedAddDays: Number(row.untickedAddDays) || 0,
+            funcDaysUsed: funcDays,
             childrenEligibleCount: emp.childrenEligibleCount != null ? Number(emp.childrenEligibleCount) : (Number(emp.children) || 0)
           });
         } catch (eEmp) {
