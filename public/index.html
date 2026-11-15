@@ -9780,13 +9780,17 @@ function sbMergeLocalSecrets(remote, local) {
   }
   // ثابت‌های ماهانه / قوانین کسر / برچسب‌ها: اتحاد با اولویت محلی تا با همگام پاک نشوند
   try {
+    var tombM = {};
+    [].concat(Array.isArray(r.monthlyVarsDeleted) ? r.monthlyVarsDeleted : [], Array.isArray(local.monthlyVarsDeleted) ? local.monthlyVarsDeleted : []).forEach(function(id) { if (id) tombM[String(id)] = true; });
+    r.monthlyVarsDeleted = Object.keys(tombM);
     var byId = {};
     (Array.isArray(r.monthlyVars) ? r.monthlyVars : []).forEach(function(v) {
-      if (v && v.id) byId[String(v.id)] = Object.assign({}, v);
+      if (v && v.id && !tombM[String(v.id)]) byId[String(v.id)] = Object.assign({}, v);
     });
     (Array.isArray(local.monthlyVars) ? local.monthlyVars : []).forEach(function(v) {
       if (!v || !v.id) return;
       var id = String(v.id);
+      if (tombM[id]) return;
       byId[id] = Object.assign({}, byId[id] || {}, v);
     });
     // هم‌نام محلی بدون id یکسان
@@ -9806,7 +9810,7 @@ function sbMergeLocalSecrets(remote, local) {
         var listB = JSON.parse(rawB);
         if (Array.isArray(listB)) {
           listB.forEach(function(v) {
-            if (!v || !v.id) return;
+            if (!v || !v.id || tombM[String(v.id)]) return;
             if (!byId[String(v.id)]) byId[String(v.id)] = Object.assign({}, v);
             else byId[String(v.id)] = Object.assign({}, byId[String(v.id)], v);
           });
@@ -10737,30 +10741,6 @@ function countExpected(emp, row, F, M) {
     });
   }
   var workD = Math.max(0, mvNum(row.workDays));
-  var total, usedPunch;
-  if (isFinite(punchN) && punchN > 0) {
-    total = Math.min(punchN, F);
-    usedPunch = true;
-    parts.push('تردد ' + mvFmt(total));
-  } else {
-    // بدون تردد ثبت‌شده: کارکرد منهای مرخصی/مأموریت تیک‌خورده
-    total = Math.min(workD, F);
-    usedPunch = false;
-    if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
-    else parts.push('بدون کارکرد');
-  }
-  var take = function(label, days) {
-    days = mvNum(days);
-    if (!(days > 0)) return;
-    total -= days;
-    parts.push(label + ' (−' + mvFmt(days) + ')');
-  };
-  // با پایه تردد: مرخصی/مأموریت سیستمی دوباره کم نشود
-  if (!usedPunch) {
-    if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
-    if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
-    if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
-  }
   function qtyByName(name) {
     var bare = String(name || '').trim().replace(/^تعداد\s+/, '');
     var best = 0;
@@ -10770,16 +10750,57 @@ function countExpected(emp, row, F, M) {
     });
     return best;
   }
+  // آیتم‌های روزیِ «بدون تیک کسر از تعداد خالص» (رست، جاب، ...) به تردد اضافه می‌شوند
+  var added = 0, addParts = [];
+  var put = function(label, days) {
+    days = mvNum(days);
+    if (!(days > 0)) return;
+    added += days;
+    addParts.push(label + ' (+' + mvFmt(days) + ')');
+  };
+  if (!rules.leaveDaysFlat) put(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
+  if (!rules.missionDaysFlat) put(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
   getMonthlyVars(true).forEach(function(v) {
-    if (!v) return;
-    var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
-    if (!useFlat) return;
-    var fromVar = mvNum((row.vars || {})[v.id]);
-    var fromQty = qtyByName(v.name);
-    var val = fromQty > 0 ? fromQty : fromVar;
-    if (v.unit === 'hour') val = val / H;
-    take(v.name, val);
+    if (!v || v.unit === 'hour') return;
+    var useFlat0 = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
+    if (useFlat0) return;
+    var fromQty0 = qtyByName(v.name);
+    put(v.name, fromQty0 > 0 ? fromQty0 : mvNum((row.vars || {})[v.id]));
   });
+  var total, usedPunch;
+  if ((isFinite(punchN) && punchN > 0) || added > 0) {
+    // قانون: min( کارکرد خالص ، تردد + آیتم‌های بدون تیک )
+    usedPunch = true;
+    var pn = (isFinite(punchN) && punchN > 0) ? punchN : 0;
+    total = Math.min(F, pn + added);
+    if (pn > 0) parts.push('تردد ' + mvFmt(pn));
+    addParts.forEach(function(x) { parts.push(x); });
+  } else {
+    // بدون تردد و بدون آیتم بدون‌تیک: کارکرد منهای تیک‌دارها
+    total = Math.min(workD, F);
+    usedPunch = false;
+    if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
+    else parts.push('بدون کارکرد');
+    var take = function(label, days) {
+      days = mvNum(days);
+      if (!(days > 0)) return;
+      total -= days;
+      parts.push(label + ' (−' + mvFmt(days) + ')');
+    };
+    if (rules.leaveDaysFlat) take(getBuiltinLabel('leaveDays', 'مرخصی استحقاقی روزانه'), row.leaveDays);
+    if (rules.hourlyLeaveFlat) take(getBuiltinLabel('hourlyLeave', 'مرخصی ساعتی'), mvNum(row.hourlyLeave) / H);
+    if (rules.missionDaysFlat) take(getBuiltinLabel('missionDays', 'روز مأموریت'), row.missionDays);
+    getMonthlyVars(true).forEach(function(v) {
+      if (!v) return;
+      var useFlat = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
+      if (!useFlat) return;
+      var fromVar = mvNum((row.vars || {})[v.id]);
+      var fromQty = qtyByName(v.name);
+      var val = fromQty > 0 ? fromQty : fromVar;
+      if (v.unit === 'hour') val = val / H;
+      take(v.name, val);
+    });
+  }
   var value = Math.max(0, Math.min(F, Math.round(total * 10) / 10));
   return { value: value, full: F, parts: parts };
 }
@@ -11095,12 +11116,39 @@ function updateMonthlyVar(id, field, value) {
 
 
 var MV_LS_KEY = 'parssepehr_monthly_vars_v1';
+function mvTombstones() {
+  // شناسه‌ی ثابت‌هایی که کاربر عمداً حذف کرده (settings + پشتیبان محلی)
+  var tomb = {};
+  try {
+    ((data.settings && data.settings.monthlyVarsDeleted) || []).forEach(function(id) { if (id) tomb[String(id)] = true; });
+  } catch (e) {}
+  try {
+    var raw = localStorage.getItem(MV_LS_KEY + '_deleted');
+    if (raw) (JSON.parse(raw) || []).forEach(function(id) { if (id) tomb[String(id)] = true; });
+  } catch (e2) {}
+  return tomb;
+}
 function persistMonthlyVarsBackup() {
   try {
     if (!data.settings) data.settings = {};
-    var list = Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : [];
+    var tomb = mvTombstones();
+    var cur = Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : [];
+    // پشتیبان قبلی هرگز با فهرست ناقص جایگزین نشود: هر آیتمی که حذف صریح نشده، می‌ماند
+    var byId = {}, order = [];
+    var prevList = [];
+    try { prevList = JSON.parse(localStorage.getItem(MV_LS_KEY) || '[]') || []; } catch (eP) {}
+    prevList.concat(cur).forEach(function(v) {
+      if (!v || !v.id) return;
+      var id = String(v.id);
+      if (tomb[id]) return;
+      if (!byId[id]) order.push(id);
+      byId[id] = v;
+    });
+    var list = order.map(function(k) { return byId[k]; });
     localStorage.setItem(MV_LS_KEY, JSON.stringify(list));
+    localStorage.setItem(MV_LS_KEY + '_deleted', JSON.stringify(Object.keys(tomb)));
     localStorage.setItem(MV_LS_KEY + '_rules', JSON.stringify(data.settings.countRules || {}));
+    data.settings.monthlyVarsDeleted = Object.keys(tomb);
   } catch (e) {}
 }
 function restoreMonthlyVarsBackup() {
@@ -11110,15 +11158,17 @@ function restoreMonthlyVarsBackup() {
     if (!raw) return;
     var list = JSON.parse(raw);
     if (!Array.isArray(list) || !list.length) return;
+    var tomb = mvTombstones();
     var byId = {};
     (Array.isArray(data.settings.monthlyVars) ? data.settings.monthlyVars : []).forEach(function(v) {
-      if (v && v.id) byId[String(v.id)] = Object.assign({}, v);
+      if (v && v.id && !tomb[String(v.id)]) byId[String(v.id)] = Object.assign({}, v);
     });
     list.forEach(function(v) {
-      if (!v || !v.id) return;
+      if (!v || !v.id || tomb[String(v.id)]) return;
       byId[String(v.id)] = Object.assign({}, byId[String(v.id)] || {}, v);
     });
     data.settings.monthlyVars = Object.keys(byId).map(function(k) { return byId[k]; });
+    data.settings.monthlyVarsDeleted = Object.keys(tomb);
     var rr = localStorage.getItem(MV_LS_KEY + '_rules');
     if (rr) {
       try {
@@ -11209,6 +11259,12 @@ function deleteMonthlyVar(id) {
   var v = mvFind(id);
   if (!v) return;
   if (!confirm('ثابت «' + v.name + '» حذف شود؟\nمقدارهای واردشده در ماه‌های قبل نگه داشته می‌شود، فقط ستون آن دیگر نمایش داده نمی‌شود.\n(برای پنهان کردن موقت، تیک «فعال» را بردارید.)')) return;
+  try {
+    var _dl = Array.isArray(data.settings.monthlyVarsDeleted) ? data.settings.monthlyVarsDeleted.slice() : [];
+    if (_dl.indexOf(String(id)) < 0) _dl.push(String(id));
+    data.settings.monthlyVarsDeleted = _dl;
+    localStorage.setItem(MV_LS_KEY + '_deleted', JSON.stringify(_dl.concat(Object.keys(mvTombstones())).filter(function(x, i, a) { return a.indexOf(x) === i; })));
+  } catch (eTb) {}
   data.settings.monthlyVars = (data.settings.monthlyVars || []).filter(function(o) { return o && o.id !== id; });
   try { persistMonthlyVarsBackup(); } catch (eB0) {}
   try { addChangeLog('ثابت ماهانه', '-', 'حذف ثابت: ' + v.name); } catch (e) {}
