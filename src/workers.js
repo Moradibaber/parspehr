@@ -1157,23 +1157,7 @@ async function handlePayroll(request, user, env) {
   let out;
   try {
     try { data = syncCardSalaryIntoDecreeData(data) || data; } catch (eS2) {}
-    // قبل از محاسبه: روز کارکرد را از تایم‌شیت/درخواست‌ها بازشماری کن (منبع حقیقت)
-    try {
-      const cfg2 = storeConfig(env);
-      if (cfg2) {
-        const gd2 = await storeGetData(cfg2);
-        if (!gd2.fail && gd2.obj) {
-          if (gd2.obj.dailyAttendance) data.dailyAttendance = gd2.obj.dailyAttendance;
-          if (gd2.obj.attendanceRequests) data.attendanceRequests = gd2.obj.attendanceRequests;
-          if (gd2.obj.settings && !data.settings) data.settings = gd2.obj.settings;
-          if (gd2.obj.settings) {
-            data.settings = Object.assign({}, gd2.obj.settings, data.settings || {});
-            // تقویم قرارداد و شناوری از سرور
-            if (gd2.obj.settings.contractCalendars) data.settings.contractCalendars = gd2.obj.settings.contractCalendars;
-          }
-        }
-      }
-    } catch (eAtt) {}
+    // پر کردن punchDays برای تعداد خالص قبل از محاسبه
     try {
       const key = year + '-' + month;
       if (!data.monthlyData) data.monthlyData = {};
@@ -1183,48 +1167,11 @@ async function handlePayroll(request, user, env) {
         const row = data.monthlyData[key][code];
         if (!row) return;
         try {
-          if (typeof recountEmpMonthWorkDays === 'function') {
-            const rw = Math.round(recountEmpMonthWorkDays(data, year, month, code));
-            if (rw >= 0) {
-              row.workDays = rw;
-              row._fromTimesheet = true;
-            }
-          }
-        } catch (eRw) {}
-        try {
-          if (typeof countEmpMonthAbsenceDays === 'function') {
-            row.absenceDays = countEmpMonthAbsenceDays(data, year, month, code) || 0;
-          }
-        } catch (eA) {}
-        try {
           if (typeof countEmpMonthPunchDays === 'function') {
             row.punchDays = countEmpMonthPunchDays(data, year, month, code);
             try { applyAbsenceToQtyFlatItems(data, year, month, code, row); } catch (eAbs) {}
           }
         } catch (eP) {}
-      });
-      // کارکنانی که در monthlyData نیستند ولی در لیست محاسبه هستند
-      (data.employees || []).forEach(function (emp) {
-        if (!emp || emp.code == null || emp.status === 'inactive') return;
-        const code = String(emp.code);
-        if (data.monthlyData[key][code]) return;
-        try {
-          if (typeof recountEmpMonthWorkDays !== 'function') return;
-          const rw = Math.round(recountEmpMonthWorkDays(data, year, month, code));
-          if (!(rw > 0)) return;
-          data.monthlyData[key][code] = {
-            workDays: rw,
-            leaveDays: 0,
-            hourlyLeave: 0,
-            otHours: 0,
-            nightHours: 0,
-            shiftType: 'none',
-            shiftDays: 0,
-            vars: {},
-            qty: {},
-            _fromTimesheet: true
-          };
-        } catch (eE) {}
       });
     } catch (ePD) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -2067,7 +2014,7 @@ function applyApprovedRequestToTimesheet(data, req) {
   const code = String(req.empCode);
   if (req.kind === 'leave' && req.mode === 'daily') {
     if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(data, req)) {
-      // فقط رست واقعی → ستون «تعداد رست کاری»؛ مرخصی استحقاقی/بدون‌حقوق هرگز رست نشود
+      // غیر استحقاقی: به qty با نام نوع (ازدواج/تولد/…) یا رست
       let tname = req.typeName || req.type || '';
       if (!tname && req.typeId) {
         try {
@@ -2090,8 +2037,16 @@ function applyApprovedRequestToTimesheet(data, req) {
           addQtyDaysToMonthRow(row, qtyName, days);
           try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRR) {}
         });
+      } else if (tname) {
+        // ازدواج، تولد، فوت، بدون حقوق، … → ستون تعداد همان نام
+        const qtyName = matchQtyItemName(data, code, tname) || tname;
+        splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+          const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+          const days = leaveDaysForMonthChunk(data, req, chunk);
+          addQtyDaysToMonthRow(row, qtyName, days);
+          try { rebuildLeaveTypeQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eLt) {}
+        });
       }
-      // unpaid / skip بدون نام رست: هیچ qty رستی نوشته نشود
     } else {
       splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
         const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
@@ -2107,9 +2062,9 @@ function applyApprovedRequestToTimesheet(data, req) {
         months.forEach(function (ch) {
           const r = ensureEmpMonthRow(data, ch.year, ch.month, code);
           try {
-            var _pw = Number(r.workDays) || 0;
             var _rw = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0;
-            if (!(_pw > 0)) r.workDays = _rw;
+            r.workDays = _rw;
+            r._fromTimesheet = true;
           } catch (eRw) { r.workDays = Math.round(recountEmpMonthWorkDays(data, ch.year, ch.month, code)) || 0; }
           try { r.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(data, ch.year, ch.month, code) : 0; } catch (eAbsR) { r.absenceDays = 0; }
         });
@@ -4006,19 +3961,20 @@ function shouldSkipLeaveDaysColumn(obj, req) {
     tdef = types.find(function (x) { return x && (String(x.id) === String(req.typeId) || (nm && String(x.name || '') === nm)); }) || null;
   } catch (eT) {}
   if (tdef && !nm) nm = String(tdef.name || '');
-  // مرخصی استحقاقی همیشه ستون «روز مرخصی» — هرگز skip
+  // مرخصی استحقاقی → ستون leaveDays (skip نکن)
   if (nm.indexOf('استحقاق') >= 0) return false;
   if (req.deductFromEntitlement === true) return false;
   if (tdef && tdef.deductFromEntitlement === true) return false;
   if (tid.indexOf('leave_annual') >= 0 || tid === 'annual') return false;
   if (tdef && /leave_annual|annual/i.test(String(tdef.id || ''))) return false;
-  // فقط رست واقعی از ستون مرخصی حذف شود
+  // صریحاً از استحقاقی کسر نمی‌شود → ستون جدا (ازدواج، تولد، فوت، بدون حقوق، …)
+  if (req.deductFromEntitlement === false) return true;
+  if (tdef && tdef.deductFromEntitlement === false) return true;
+  if (/ازدواج|تولد|فوت|بدون\s*حقوق|استعلاج|خاص|marriage|birth|death|unpaid|sick/i.test(nm)) return true;
+  if (/leave_marriage|leave_birth|leave_death|leave_unpaid|leave_special|leave_sick/i.test(tid)) return true;
   if (isUnpaidLeaveRequest(obj, req)) return true;
-  if (typeof isRestOrNonLeaveColumnType === 'function' && isRestOrNonLeaveColumnType(obj, req)) {
-    // اگر kind=leave و نام صریحاً رست نیست، به ستون مرخصی برود
-    if (nm.indexOf('رست') < 0 && !/\brest\b/i.test(nm) && tid.indexOf('rest') < 0) return false;
-    return true;
-  }
+  if (typeof isRestOrNonLeaveColumnType === 'function' && isRestOrNonLeaveColumnType(obj, req)) return true;
+  // پیش‌فرض: اگر مشخص نیست استحقاقی است یا نه — فقط وقتی نام/نوع مبهم است در leaveDays نگذار
   return false;
 }
 function isLongTermSickLeaveRequest(obj, req) {
@@ -5239,6 +5195,62 @@ function addQtyDaysToMonthRow(row, qtyName, days) {
 }
 
 
+
+/** ستون‌های qty برای مرخصی‌های غیر استحقاقی (ازدواج، تولد، فوت، …) از درخواست‌های تأییدشده */
+function rebuildLeaveTypeQtyFromRequests(obj, year, month, code, md) {
+  if (!md) return;
+  if (!md.qty || typeof md.qty !== 'object') md.qty = {};
+  if (!md.qtyAuto || typeof md.qtyAuto !== 'object') md.qtyAuto = {};
+  year = Number(year); month = Number(month);
+  const emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+  const ct = (emp && emp.contractType) || 'normal';
+  // صفر کردن قبلی‌های خودکار این نوع
+  const autoKeys = Object.keys(md.qtyAuto).filter(function (k) {
+    return md.qtyAuto[k] === 'leaveType' || md.qtyAuto[k] === true && /مرخصی|ازدواج|تولد|فوت|استعلاج|بدون/.test(k);
+  });
+  // جمع بر اساس نام نوع
+  const byName = {};
+  function isApprovedStatus(st) {
+    st = String(st || '').toLowerCase();
+    return st === 'approved' || st === 'approved_l1' || st === 'final' ||
+      st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده';
+  }
+  (obj.attendanceRequests || []).forEach(function (x) {
+    if (!x || String(x.empCode) !== String(code)) return;
+    if (!isApprovedStatus(x.status)) return;
+    if (x.kind !== 'leave' || x.mode !== 'daily') return;
+    // فقط غیر استحقاقی
+    if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x))) return;
+    let nm = String(x.typeName || '').trim();
+    if (!nm && x.typeId) {
+      try {
+        const types = [].concat(obj.attendanceTypes || [], (obj.settings && obj.settings.attendanceTypes) || []);
+        const td = types.find(function (t) { return t && String(t.id) === String(x.typeId); });
+        if (td) nm = String(td.name || '').trim();
+      } catch (e) {}
+    }
+    if (!nm) return;
+    // رست جداست
+    if (nm.indexOf('رست') >= 0) return;
+    const days = (typeof countWorkingDaysInMonth === 'function')
+      ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct)
+      : 0;
+    if (!(days > 0)) return;
+    byName[nm] = (byName[nm] || 0) + days;
+  });
+  Object.keys(byName).forEach(function (nm) {
+    const keys = [nm, 'تعداد ' + nm];
+    // نام‌های رایج ازدواج
+    if (/ازدواج/.test(nm)) keys.push('مرخصی ازدواج', 'تعداد مرخصی ازدواج');
+    if (/تولد/.test(nm)) keys.push('مرخصی تولد فرزند', 'تعداد مرخصی تولد فرزند');
+    if (/فوت/.test(nm)) keys.push('مرخصی فوت بستگان', 'تعداد مرخصی فوت بستگان');
+    keys.forEach(function (k) {
+      md.qty[k] = byName[nm];
+      md.qtyAuto[k] = 'leaveType';
+    });
+  });
+}
+
 function rebuildRestQtyFromRequests(obj, year, month, code, row) {
   if (!row) return;
   if (!row.qty) row.qty = {};
@@ -5564,7 +5576,11 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
         var lab = String(cell.leaveDaily || '').trim();
         if (!lab) return;
         if (lab.indexOf('رست') >= 0 || /\brest\b/i.test(lab)) return;
-        if (!(lab.indexOf('مرخص') >= 0 || lab.indexOf('استحقاق') >= 0 || lab.indexOf('استعلاج') >= 0)) return;
+        // فقط استحقاقی در leaveDays — ازدواج/تولد/فوت/بدون‌حقوق به qty می‌روند
+        if (/ازدواج|تولد|فوت|بدون\s*حقوق|استعلاج|خاص/.test(lab) && lab.indexOf('استحقاق') < 0) return;
+        if (!(lab.indexOf('استحقاق') >= 0 || /مرخصی\s*استحقاق/.test(lab) || lab === 'مرخصی' || lab.indexOf('مرخصی روزانه') >= 0)) {
+          if (!(lab.indexOf('مرخص') >= 0 && lab.indexOf('استحقاق') >= 0)) return;
+        }
         if (lab.indexOf('بدون حقوق') >= 0) return;
         var parts = String(dk).split(/[-\/]/);
         if (parts.length < 3) return;
@@ -5585,13 +5601,8 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
     }
     if (typeof recountEmpMonthWorkDays === 'function') {
       var recountedWd = Math.round(recountEmpMonthWorkDays(obj, year, month, code)) || 0;
-      var existingWd = Number(md.workDays) || 0;
-      // اگر کاربر قبلاً روز کارکرد را دستی وارد کرده (مثلاً ۳۰) و مقدار حضور/تردد کمتر است، دستی را حفظ کن
-      // فقط وقتی خالی/صفر است یا مقدار جدید بزرگ‌تر است جایگزین کن
-      if (!(existingWd > 0) || recountedWd >= existingWd) {
-        md.workDays = recountedWd;
-      }
-      // در غیر این صورت md.workDays دستی باقی می‌ماند
+      md.workDays = recountedWd;
+      md._fromTimesheet = true;
     try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsD) { md.absenceDays = 0; }
     }
     if (typeof countEmpMonthPunchDays === 'function') {
@@ -6842,14 +6853,10 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   if (!obj.monthlyData[key]) obj.monthlyData[key] = {};
   if (!obj.monthlyData[key][code]) obj.monthlyData[key][code] = {};
   const md = obj.monthlyData[key][code];
-  // انتقال تایم‌شیت → ورود داده ماهانه
-  // اگر کاربر قبلاً روز کارکرد را دستی وارد کرده (مثلاً ۳۰) و مقدار تردد کمتر است، دستی را حفظ کن
-  var existingWd = Number(md.workDays) || 0;
+  // انتقال تایم‌شیت → ورود داده ماهانه — منبع حقیقت تایم‌شیت
   var newWd = Math.round(workDaysTs) || 0;
-  if (!(existingWd > 0) || newWd >= existingWd || md._forceTimesheetWorkDays) {
-    md.workDays = newWd;
-  }
-  // در غیر این صورت workDays دستی باقی می‌ماند
+  md.workDays = newWd;
+  md._fromTimesheet = true;
   try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsT) { md.absenceDays = 0; }
   try { md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {} } catch (ePd2) { md.punchDays = 0; }
@@ -6864,6 +6871,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   md.missionDays = Math.round(aMission * 100) / 100;
   // رست را بعد از leaveDays بساز تا مرخصی به رست نرود
   try { rebuildRestQtyFromRequests(obj, year, month, code, md); } catch (eRest0) {}
+  try { rebuildLeaveTypeQtyFromRequests(obj, year, month, code, md); } catch (eLt0) {}
   try { ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code); } catch (eEns) {}
   // بعد از تثبیت workDays/leaveDays/رست/جاب، تعداد خالص را با فرمول قطعی بساز
   try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbsFinal) {}
@@ -6943,7 +6951,10 @@ async function handleAdminAbsenceReport(request, who, env) {
     const ct = emp.contractType || 'normal';
     let aLeave = 0, aHourly = 0, aMission = 0, aMissionH = 0;
     empReqs.forEach(function (x) {
-      if (x.kind === 'leave' && x.mode === 'daily') aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      if (x.kind === 'leave' && x.mode === 'daily') {
+        if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) return;
+        aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      }
       else if (x.kind === 'leave' && x.mode === 'hourly') {
         const p = parseJalaliYMD(x.startDate);
         if (p && p.y === year && p.m === month) aHourly += hoursBetween(x.fromTime, x.toTime);
@@ -7558,7 +7569,10 @@ async function handleAdminTimesheet(request, who, env) {
     const ct = emp.contractType || 'normal';
     let aLeave = 0, aHourly = 0, aMission = 0, aMissionH = 0;
     empReqs.forEach(function (x) {
-      if (x.kind === 'leave' && x.mode === 'daily') aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      if (x.kind === 'leave' && x.mode === 'daily') {
+        if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(gd.obj, x)) return;
+        aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, gd.obj, ct);
+      }
       else if (x.kind === 'leave' && x.mode === 'hourly') {
         const p = parseJalaliYMD(x.startDate);
         if (p && p.y === year && p.m === month) aHourly += hoursBetween(x.fromTime, x.toTime);
@@ -10385,7 +10399,7 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
     const req = {
       id: newRequestId(),
       empCode: String(emp.code),
-      empName: (emp.fullName || emp.name || '').trim() || String(emp.code),
+      empName: emp.fullName || '',
       managerCode: String(emp.managerCode || ''),
       managerName: '',
       typeId: typeId || '',
