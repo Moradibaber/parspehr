@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-16-fix-v311';
+const PSP_BUILD = '2026-11-16-fix-v312';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -2187,10 +2187,13 @@ async function handleEmpCreateRequest(request, env) {
       frequency = normalizeFreq(tdef.frequency);
       requiresAdminGrant = !!tdef.requiresAdminGrant;
       if (fixedDays && mode === 'daily' && startDate) {
-        const endBlank = !endDate || endDate === startDate;
-        if (endBlank && fixedDays > 1) {
+        // فقط اگر پایان اصلاً نیامده — ثبت یک‌روزه (از=تا) را ۳روزه نکن
+        var endWasSentEmp = (typeof endDate === 'string' && endDate && endDate !== startDate);
+        // اگر endDate از body آمده و پر است، حتی اگر = start باشد، گسترش نده
+        // در پرتال کارمند: endDate معمولاً بعد از نرمال‌سازی = start می‌شود؛ فقط وقتی واقعاً خالی بود گسترش بده
+        if (!endDate) {
           const p = parseJalaliYMD(startDate);
-          if (p) {
+          if (p && fixedDays > 1) {
             let d = p.d + fixedDays - 1;
             let m = p.m, y = p.y;
             while (d > daysInJalaliMonth(y, m)) {
@@ -10374,7 +10377,7 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
   const empCode = String(b.empCode || '').trim();
   const typeId = String(b.typeId || '').trim();
   let startDate = String(b.startDate || '').trim();
-  let endDate = String(b.endDate || b.startDate || '').trim();
+  let endDate = (b.endDate != null && String(b.endDate).trim() !== '') ? String(b.endDate).trim() : String(b.startDate || '').trim();
   const fromTime = String(b.fromTime || '').trim();
   const toTime = String(b.toTime || '').trim();
   const place = String(b.place || '').trim();
@@ -10399,10 +10402,10 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
       typeName = tdef.name || '';
       fixedDays = tdef.fixedDays != null && tdef.fixedDays !== '' ? Number(tdef.fixedDays) : null;
       deduct = kind === 'leave' && !!tdef.deductFromEntitlement;
-      // fixedDays فقط وقتی تاریخ پایان خالی یا همان شروع است اعمال شود (ثبت ۱روزه عمدی را خراب نکند)
+      // fixedDays فقط وقتی کاربر تاریخ پایان نفرستاده — اگر از=تا یک روز باشد، همان ۱ روز می‌ماند
       if (fixedDays && mode === 'daily') {
-        const endBlank = !endDate || endDate === startDate;
-        if (endBlank && fixedDays > 1) {
+        var endWasSent = (b.endDate != null && String(b.endDate).trim() !== '');
+        if (!endWasSent && fixedDays > 1) {
           const p = parseJalaliYMD(startDate);
           if (p) {
             let d = p.d + fixedDays - 1, m = p.m, y = p.y;
