@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-16-fix-v310';
+const PSP_BUILD = '2026-11-16-fix-v311';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -6809,6 +6809,9 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   (obj.attendanceRequests || []).forEach(function (x) {
     if (String(x.empCode) !== code || !isApprovedStatus(x.status)) return;
     if (x.kind === 'leave' && x.mode === 'daily') {
+      try {
+        if (typeof enrichLeaveRequestFromTypes === 'function') x = enrichLeaveRequestFromTypes(obj, x);
+      } catch (eEn) {}
       if (!x.typeName && x.typeId) {
         try {
           var _ts = (obj.attendanceTypes || []).concat(((obj.settings || {}).attendanceTypes) || []);
@@ -6818,6 +6821,7 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
           }
         } catch (eTn) {}
       }
+      // ازدواج و غیر استحقاقی به leaveDays نروند
       if (typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x)) return;
       aLeave += countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct);
     } else if (x.kind === 'mission' && x.mode === 'daily') {
@@ -6866,14 +6870,9 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   try { md.absenceDays = (typeof countEmpMonthAbsenceDays === 'function') ? countEmpMonthAbsenceDays(obj, year, month, code) : 0; } catch (eAbsT) { md.absenceDays = 0; }
   try { md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {} } catch (ePd2) { md.punchDays = 0; }
-  // leaveDays: اگر دستی بزرگ‌تر است حفظ کن (مگر اینکه از تایم‌شیت اجباری باشد)
+  // leaveDays فقط استحقاقی از درخواست‌ها — همیشه از شمارش تازه
   var newLeave = Math.round(aLeave * 100) / 100;
-  var existingLeave = Number(md.leaveDays) || 0;
-  if (!(existingLeave > 0) || newLeave >= existingLeave || md._forceTimesheetWorkDays) {
-    md.leaveDays = newLeave;
-  } else {
-    md.leaveDays = existingLeave;
-  }
+  md.leaveDays = newLeave;
   md.missionDays = Math.round(aMission * 100) / 100;
   // رست را بعد از leaveDays بساز تا مرخصی به رست نرود
   try { rebuildRestQtyFromRequests(obj, year, month, code, md); } catch (eRest0) {}
@@ -9449,20 +9448,21 @@ function listDayKeys(startStr, endStr) {
 }
 
 function requestsOverlap(a, b) {
-  // ignore rejected
   if (!a || !b) return false;
-  const daysA = a.mode === 'hourly' ? [dateKey(a.startDate)] : listDayKeys(a.startDate, a.endDate || a.startDate);
-  const daysB = b.mode === 'hourly' ? [dateKey(b.startDate)] : listDayKeys(b.startDate, b.endDate || b.startDate);
-  const setB = {};
-  daysB.forEach(function (k) { setB[k] = true; });
-  const shared = daysA.filter(function (k) { return setB[k]; });
-  if (!shared.length) return false;
-  // if either is daily, any shared day = conflict
-  if (a.mode === 'daily' || b.mode === 'daily') return true;
-  // both hourly on same day: check time overlap
-  const a0 = timeToMin(a.fromTime), a1 = timeToMin(a.toTime);
-  const b0 = timeToMin(b.fromTime), b1 = timeToMin(b.toTime);
-  return a0 < b1 && b0 < a1;
+  if (!a.startDate || !b.startDate) return false;
+  try {
+    const daysA = a.mode === 'hourly' ? [dateKey(a.startDate)] : listDayKeys(a.startDate, a.endDate || a.startDate);
+    const daysB = b.mode === 'hourly' ? [dateKey(b.startDate)] : listDayKeys(b.startDate, b.endDate || b.startDate);
+    if (!daysA.length || !daysB.length) return false;
+    const setB = {};
+    daysB.forEach(function (k) { if (k) setB[k] = true; });
+    const shared = daysA.filter(function (k) { return k && setB[k]; });
+    if (!shared.length) return false;
+    if (a.mode === 'daily' || b.mode === 'daily') return true;
+    const a0 = timeToMin(a.fromTime), a1 = timeToMin(a.toTime);
+    const b0 = timeToMin(b.fromTime), b1 = timeToMin(b.toTime);
+    return a0 < b1 && b0 < a1;
+  } catch (e) { return false; }
 }
 
 function countTypeUsage(requests, empCode, typeId, year) {
@@ -10214,6 +10214,7 @@ async function handleAdminListAttendanceRequests(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
+  try {
   const r = await readBody(request);
   if (r.error) return r.error;
   const year = Number(r.body.year);
@@ -10267,13 +10268,25 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     const ta = Date.parse(a && a.createdAt) || 0;
     const tb = Date.parse(b && b.createdAt) || 0;
     if (tb !== ta) return tb - ta;
-    return String((b && b.startDate) || '').localeCompare(String((a && a.startDate) || ''), 'fa');
+    const sb = String((b && b.startDate) || '');
+    const sa = String((a && a.startDate) || '');
+    if (sb < sa) return -1;
+    if (sb > sa) return 1;
+    return 0;
   });
   const out = list.slice(0, filtered ? 5000 : 500).map(function (x) {
-    const t = typeById[String(x.typeId)];
-    return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
+    try {
+      const t = typeById[String(x.typeId)];
+      return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
+    } catch (eM) {
+      return Object.assign({}, x, { typeName: x.typeName || '', typeKind: x.kind || '' });
+    }
   });
   return jsonResponse({ ok: true, requests: out });
+  } catch (eList) {
+    console.log(JSON.stringify({ event: 'admin_list_requests_error', message: String(eList && eList.message || eList) }));
+    return jsonResponse({ ok: false, error: 'list_failed', message: String(eList && eList.message || eList) }, 500);
+  }
 }
 
 async function handleAdminUpdateAttendanceRequest(request, who, env) {
@@ -10438,7 +10451,10 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
     };
     // overlap check
     const conflict = gd.obj.attendanceRequests.find(function (x) {
-      if (String(x.empCode) !== String(emp.code) || x.status === 'rejected') return false;
+      if (!x || String(x.empCode) !== String(emp.code)) return false;
+      var st = String(x.status || '').toLowerCase();
+      if (st === 'rejected' || st === 'رد' || st === 'رد شده' || st === 'cancelled' || st === 'canceled') return false;
+      // فقط با درخواست‌های تأیید/فعال تداخل معنی دارد
       return requestsOverlap(req, x);
     });
     if (conflict) {
