@@ -5991,7 +5991,7 @@ function getAllQuantityItemNames(year, month) {
       names.add(nm);
     });
   });
-  // ستون‌هایی که در داده ماه هست (مثلاً رست از تایم‌شیت) حتی اگر روی کارت quantity نباشد
+  // ستون‌هایی که در داده ماه هست (مثلاً رست از تایم‌شیت) — فقط نام بدون پیشوند «تعداد»
   try {
     var key = y + '-' + m;
     var bucket = (data.monthlyData && data.monthlyData[key]) || {};
@@ -6001,22 +6001,31 @@ function getAllQuantityItemNames(year, month) {
       if (!q) return;
       Object.keys(q).forEach(function(nm) {
         if (!nm || !String(nm).trim()) return;
-        names.add(String(nm).trim());
+        var bare = String(nm).trim().replace(/^تعداد\s+/, '');
+        if (bare) names.add(bare);
       });
     });
   } catch (eQ) {}
-  // نوع حضور/مرخصی با نام رست از تنظیمات
+  // نوع حضور/مرخصی با نام رست — یک نام یکتا
   try {
     var types = ((data.settings && data.settings.attendanceTypes) || []).concat(data.attendanceTypes || []);
     types.forEach(function(t) {
       if (!t || !t.name) return;
       if (String(t.name).indexOf('رست') >= 0) {
-        names.add(String(t.name).trim());
-        names.add('تعداد ' + String(t.name).trim());
+        var bareT = String(t.name).trim().replace(/^تعداد\s+/, '');
+        if (bareT) names.add(bareT);
       }
     });
   } catch (eT) {}
-  return Array.from(names).sort(function(a, b) { return a.localeCompare(b, 'fa'); });
+  // یکتاسازی نهایی بر اساس نام بدون «تعداد»
+  var uniq = {}, out = [];
+  Array.from(names).forEach(function(nm) {
+    var b = String(nm || '').trim().replace(/^تعداد\s+/, '');
+    if (!b || uniq[b]) return;
+    uniq[b] = true;
+    out.push(b);
+  });
+  return out.sort(function(a, b) { return a.localeCompare(b, 'fa'); });
 }
 
 /** حذف کلیدهای qty که دیگر در لیست آیتم‌های تعداد/تعداد خالص فعال نیستند */
@@ -6183,20 +6192,23 @@ function collectDataEntryDynamicCols() {
   var seen = {};
   function addQty(name, entryType, isDed) {
     var n = String(name || '').trim();
-    if (!n || seen[n]) return;
-    var bare = n.replace(/^تعداد\s+/, '');
-    if ((function(s){s=String(s||'').replace(/^تعداد\s+/,'').replace(/\u200c/g,'').replace(/\s+/g,' ');return (/ماموریت/.test(s)||/مأموریت/.test(s))&&/روزانه/.test(s);})(bare||n||'')) return;
-    seen[n] = true;
+    if (!n) return;
+    var bare = n.replace(/^تعداد\s+/, '').trim();
+    if (!bare) return;
+    // یک ستون برای «رست کاری» و «تعداد رست کاری»
+    if (seen[bare]) return;
+    if ((function(s){s=String(s||'').replace(/^تعداد\s+/,'').replace(/\u200c/g,'').replace(/\s+/g,' ');return (/ماموریت/.test(s)||/مأموریت/.test(s))&&/روزانه/.test(s);})(bare)) return;
+    seen[bare] = true;
     var tLabel = 'سفارشی';
-    if (isDed || /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'کسورات';
-    else if (/^معوقه(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(n)) tLabel = 'معوقه';
+    if (isDed || /^(کسورات|کسر)(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(bare)) tLabel = 'کسورات';
+    else if (/^معوقه(?=$|[\s\(\)\[\]\{\}\-\–\—_\/،,.:：])/.test(bare)) tLabel = 'معوقه';
     else if (entryType === 'qty_flat') tLabel = 'تعداد خالص';
     else tLabel = 'بر اساس تعداد';
     cols.push({
-      key: 'qty:' + n,
+      key: 'qty:' + bare,
       type: 'qty',
       typeLabel: tLabel,
-      name: n,
+      name: bare,
       entryType: entryType || 'quantity'
     });
   }
@@ -6601,8 +6613,14 @@ function updateDataQty(code, name, value) {
   const row = data.monthlyData[key][code];
   if (!row.qty || typeof row.qty !== 'object' || Array.isArray(row.qty)) row.qty = {};
   if (!row.qtyAuto || typeof row.qtyAuto !== 'object' || Array.isArray(row.qtyAuto)) row.qtyAuto = {};
-  if (String(value).trim() === '') { delete row.qty[name]; row.qtyAuto[name] = true; }
-  else { row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false; }
+  var bare = typeof qtyBareName === 'function' ? qtyBareName(name) : String(name || '').replace(/^تعداد\s+/, '');
+  if (String(value).trim() === '') {
+    [name, bare, 'تعداد ' + bare].forEach(function(k){ delete row.qty[k]; if (row.qtyAuto) row.qtyAuto[k] = true; });
+  } else if (typeof qtySetVal === 'function') {
+    qtySetVal(row, name, Number(value) || 0, false);
+  } else {
+    row.qty[name] = Number(value) || 0; row.qtyAuto[name] = false;
+  }
   refreshCountCells(code);
 }
 function updateFunctionalDays() {
@@ -10831,6 +10849,31 @@ function countExpected(emp, row, F, M) {
 
 
 // One "تعداد" cell. Auto-suggest ONLY for «تعداد خالص» (qty_flat); «بر اساس تعداد» stays manual.
+function qtyBareName(n) {
+  return String(n || '').trim().replace(/^تعداد\s+/, '');
+}
+function qtyGetVal(row, n) {
+  if (!row || !row.qty || typeof row.qty !== 'object') return undefined;
+  var bare = qtyBareName(n);
+  if (row.qty[n] !== undefined && row.qty[n] !== '') return row.qty[n];
+  if (row.qty[bare] !== undefined && row.qty[bare] !== '') return row.qty[bare];
+  var withPrefix = 'تعداد ' + bare;
+  if (row.qty[withPrefix] !== undefined && row.qty[withPrefix] !== '') return row.qty[withPrefix];
+  return row.qty[n];
+}
+function qtySetVal(row, n, val, isAuto) {
+  if (!row.qty || typeof row.qty !== 'object') row.qty = {};
+  if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
+  var bare = qtyBareName(n);
+  row.qty[bare] = val;
+  row.qty[n] = val;
+  row.qty['تعداد ' + bare] = val;
+  if (isAuto === true) {
+    row.qtyAuto[bare] = true; row.qtyAuto[n] = true; row.qtyAuto['تعداد ' + bare] = true;
+  } else if (isAuto === false) {
+    row.qtyAuto[bare] = false; row.qtyAuto[n] = false; row.qtyAuto['تعداد ' + bare] = false;
+  }
+}
 function countCellView(emp, row, n, F, M) {
   if (!row.qty) row.qty = {};
   if (!row.qtyAuto) row.qtyAuto = {};
@@ -10868,7 +10911,7 @@ function countCellView(emp, row, n, F, M) {
     // was previously auto (when both types shared logic) — stop treating as auto for quantity items
     delete row.qtyAuto[n];
   }
-  var value = row.qty[n] !== undefined ? row.qty[n] : 0;
+  var value = (function(){ var g = qtyGetVal(row, n); return g !== undefined && g !== '' ? g : 0; })();
   var view = { value: value, cls: 'qcell', title: '', note: '', expected: exp ? exp.value : null, auto: isFlat && row.qtyAuto[n] === true };
   if (exp === null) {
     if (!isFlat) view.title = 'آیتم «بر اساس تعداد» — ورود دستی (بدون پیشنهاد خودکار)';
