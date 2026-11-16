@@ -10190,6 +10190,15 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   const filtered = !!(codes.length || fromKey || toKey || kindF);
+  // جدیدترین درخواست‌ها بالا (createdAt نزولی؛ بدون تاریخ در انتها)
+  list = list.slice().sort(function (a, b) {
+    const ta = Date.parse(a && a.createdAt) || 0;
+    const tb = Date.parse(b && b.createdAt) || 0;
+    if (tb !== ta) return tb - ta;
+    const sa = String((a && a.startDate) || '');
+    const sb = String((b && b.startDate) || '');
+    return sb.localeCompare(sa, 'fa');
+  });
   const out = list.slice(0, filtered ? 5000 : 500).map(function (x) {
     const t = typeById[String(x.typeId)];
     return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
