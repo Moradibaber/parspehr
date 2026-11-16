@@ -1157,7 +1157,23 @@ async function handlePayroll(request, user, env) {
   let out;
   try {
     try { data = syncCardSalaryIntoDecreeData(data) || data; } catch (eS2) {}
-    // پر کردن punchDays برای تعداد خالص قبل از محاسبه
+    // قبل از محاسبه: روز کارکرد را از تایم‌شیت/درخواست‌ها بازشماری کن (منبع حقیقت)
+    try {
+      const cfg2 = storeConfig(env);
+      if (cfg2) {
+        const gd2 = await storeGetData(cfg2);
+        if (!gd2.fail && gd2.obj) {
+          if (gd2.obj.dailyAttendance) data.dailyAttendance = gd2.obj.dailyAttendance;
+          if (gd2.obj.attendanceRequests) data.attendanceRequests = gd2.obj.attendanceRequests;
+          if (gd2.obj.settings && !data.settings) data.settings = gd2.obj.settings;
+          if (gd2.obj.settings) {
+            data.settings = Object.assign({}, gd2.obj.settings, data.settings || {});
+            // تقویم قرارداد و شناوری از سرور
+            if (gd2.obj.settings.contractCalendars) data.settings.contractCalendars = gd2.obj.settings.contractCalendars;
+          }
+        }
+      }
+    } catch (eAtt) {}
     try {
       const key = year + '-' + month;
       if (!data.monthlyData) data.monthlyData = {};
@@ -1167,11 +1183,48 @@ async function handlePayroll(request, user, env) {
         const row = data.monthlyData[key][code];
         if (!row) return;
         try {
+          if (typeof recountEmpMonthWorkDays === 'function') {
+            const rw = Math.round(recountEmpMonthWorkDays(data, year, month, code));
+            if (rw >= 0) {
+              row.workDays = rw;
+              row._fromTimesheet = true;
+            }
+          }
+        } catch (eRw) {}
+        try {
+          if (typeof countEmpMonthAbsenceDays === 'function') {
+            row.absenceDays = countEmpMonthAbsenceDays(data, year, month, code) || 0;
+          }
+        } catch (eA) {}
+        try {
           if (typeof countEmpMonthPunchDays === 'function') {
             row.punchDays = countEmpMonthPunchDays(data, year, month, code);
             try { applyAbsenceToQtyFlatItems(data, year, month, code, row); } catch (eAbs) {}
           }
         } catch (eP) {}
+      });
+      // کارکنانی که در monthlyData نیستند ولی در لیست محاسبه هستند
+      (data.employees || []).forEach(function (emp) {
+        if (!emp || emp.code == null || emp.status === 'inactive') return;
+        const code = String(emp.code);
+        if (data.monthlyData[key][code]) return;
+        try {
+          if (typeof recountEmpMonthWorkDays !== 'function') return;
+          const rw = Math.round(recountEmpMonthWorkDays(data, year, month, code));
+          if (!(rw > 0)) return;
+          data.monthlyData[key][code] = {
+            workDays: rw,
+            leaveDays: 0,
+            hourlyLeave: 0,
+            otHours: 0,
+            nightHours: 0,
+            shiftType: 'none',
+            shiftDays: 0,
+            vars: {},
+            qty: {},
+            _fromTimesheet: true
+          };
+        } catch (eE) {}
       });
     } catch (ePD) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -10190,15 +10243,6 @@ async function handleAdminListAttendanceRequests(request, who, env) {
     });
   }
   const filtered = !!(codes.length || fromKey || toKey || kindF);
-  // جدیدترین درخواست‌ها بالا (createdAt نزولی؛ بدون تاریخ در انتها)
-  list = list.slice().sort(function (a, b) {
-    const ta = Date.parse(a && a.createdAt) || 0;
-    const tb = Date.parse(b && b.createdAt) || 0;
-    if (tb !== ta) return tb - ta;
-    const sa = String((a && a.startDate) || '');
-    const sb = String((b && b.startDate) || '');
-    return sb.localeCompare(sa, 'fa');
-  });
   const out = list.slice(0, filtered ? 5000 : 500).map(function (x) {
     const t = typeById[String(x.typeId)];
     return Object.assign({}, x, { typeName: x.typeName || (t && t.name) || '', typeKind: (t && t.kind) || x.kind || '' });
@@ -10341,7 +10385,7 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
     const req = {
       id: newRequestId(),
       empCode: String(emp.code),
-      empName: emp.fullName || '',
+      empName: (emp.fullName || emp.name || '').trim() || String(emp.code),
       managerCode: String(emp.managerCode || ''),
       managerName: '',
       typeId: typeId || '',
