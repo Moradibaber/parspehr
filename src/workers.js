@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-16-fix-v312';
+const PSP_BUILD = '2026-11-16-fix-v313';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -1983,6 +1983,13 @@ function reverseApprovedRequestFromTimesheet(data, req) {
         const days = leaveDaysForMonthChunk(data, req, chunk);
         row.leaveDays = Math.round(Math.max(0, (Number(row.leaveDays) || 0) - days) * 100) / 100;
       });
+    } else {
+      // ازدواج/تولد/… را از qty بازسازی کن (نه کم‌کردن دستی که دوبل می‌شود)
+      splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
+        const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
+        try { rebuildLeaveTypeQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eLtR) {}
+        try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRR) {}
+      });
     }
   } else if (req.kind === 'leave' && req.mode === 'hourly') {
     const p = parseJalaliYMD(req.startDate);
@@ -2053,15 +2060,18 @@ function applyApprovedRequestToTimesheet(data, req) {
           try { rebuildRestQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eRR) {}
         });
       } else if (tname) {
-        const qtyName = matchQtyItemName(data, code, tname) || tname;
+        // شمارش مطلق از همه درخواست‌ها — جلوگیری از دو برابر شدن
         splitDaysByMonth(req.startDate, req.endDate || req.startDate).forEach(function (chunk) {
           const row = ensureEmpMonthRow(data, chunk.year, chunk.month, code);
-          const days = leaveDaysForMonthChunk(data, req, chunk);
-          addQtyDaysToMonthRow(row, qtyName, days);
-          // نام‌های رایج ستون ورود داده
-          if (/ازدواج/.test(tname)) {
-            addQtyDaysToMonthRow(row, 'مرخصی ازدواج', days);
-            addQtyDaysToMonthRow(row, 'تعداد مرخصی ازدواج', days);
+          try { rebuildLeaveTypeQtyFromRequests(data, chunk.year, chunk.month, code, row); } catch (eLt) {
+            const days = leaveDaysForMonthChunk(data, req, chunk);
+            const qtyName = matchQtyItemName(data, code, tname) || tname;
+            if (!row.qty) row.qty = {};
+            row.qty[qtyName] = days;
+            if (/ازدواج/.test(tname)) {
+              row.qty['مرخصی ازدواج'] = days;
+              row.qty['تعداد مرخصی ازدواج'] = days;
+            }
           }
         });
       }
@@ -5229,11 +5239,22 @@ function rebuildLeaveTypeQtyFromRequests(obj, year, month, code, md) {
     return st === 'approved' || st === 'approved_l1' || st === 'final' ||
       st === 'تایید' || st === 'تأیید' || st === 'تایید شده' || st === 'تأیید شده';
   }
+  // صفر کردن ستون‌های شناخته‌شده غیر استحقاقی قبل از جمع
+  ['مرخصی ازدواج', 'تعداد مرخصی ازدواج', 'مرخصی تولد فرزند', 'تعداد مرخصی تولد فرزند',
+   'مرخصی فوت بستگان', 'تعداد مرخصی فوت بستگان'].forEach(function (k) {
+    if (md.qty[k] != null) md.qty[k] = 0;
+  });
   const byName = {};
+  const seenId = {};
   (obj.attendanceRequests || []).forEach(function (x) {
     if (!x || String(x.empCode) !== String(code)) return;
     if (!isApprovedStatus(x.status)) return;
     if (x.kind !== 'leave' || x.mode !== 'daily') return;
+    // جلوگیری از شمارش تکراری همان id
+    if (x.id) {
+      if (seenId[x.id]) return;
+      seenId[x.id] = true;
+    }
     if (!(typeof shouldSkipLeaveDaysColumn === 'function' && shouldSkipLeaveDaysColumn(obj, x))) return;
     let nm = String(x.typeName || '').trim();
     if (!nm && x.typeId) {
@@ -5244,6 +5265,7 @@ function rebuildLeaveTypeQtyFromRequests(obj, year, month, code, md) {
       } catch (e) {}
     }
     if (!nm || nm.indexOf('رست') >= 0) return;
+    // فقط روزهای واقعی بازه — نه fixedDays
     const days = (typeof countWorkingDaysInMonth === 'function')
       ? countWorkingDaysInMonth(x.startDate, x.endDate || x.startDate, year, month, obj, ct) : 0;
     if (!(days > 0)) return;
@@ -5633,7 +5655,7 @@ function countLeaveDays(req, obj, contractType) {
     if (hrs < 0) hrs = 0;
     return Math.round((hrs / 8) * 100) / 100;
   }
-  if (req.fixedDays) return Number(req.fixedDays) || 1;
+  // fixedDays فقط سقف/پیشنهاد است — شمارش واقعی از تاریخ‌ها
   const ct = contractType || (req && req.contractType) || 'normal';
   if (typeof listDayKeys === 'function' && req.startDate) {
     try {
@@ -10235,12 +10257,15 @@ async function handleAdminListAttendanceRequests(request, who, env) {
   let list = (gd.obj && gd.obj.attendanceRequests) || [];
   if (!fromKey && !toKey && isInt(year, 1300, 1600) && isInt(month, 1, 12)) {
     list = list.filter(function (x) {
-      const p = parseJalaliYMD(x.startDate);
-      if (!p) return false;
-      if (p.y === year && p.m === month) return true;
-      if (x.mode === 'daily' && x.endDate) {
-        return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
-      }
+      try {
+        const p = parseJalaliYMD(x.startDate);
+        const pe = parseJalaliYMD(x.endDate || x.startDate);
+        if (p && p.y === year && p.m === month) return true;
+        if (pe && pe.y === year && pe.m === month) return true;
+        if (x.mode === 'daily' && x.startDate && x.endDate) {
+          return splitDaysByMonth(x.startDate, x.endDate).some(function (c) { return c.year === year && c.month === month; });
+        }
+      } catch (eF) {}
       return false;
     });
   }
