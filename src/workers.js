@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-16-fix-v303';
+const PSP_BUILD = '2026-11-16-fix-v310';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
