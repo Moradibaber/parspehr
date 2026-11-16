@@ -764,10 +764,16 @@ return;
 
 // —— قرارداد عادی ——
 const maxAllowed = maxWorkDaysForEmployee(emp, year, month);
-// کارکرد مؤثر = همان «روز کارکرد» شیت ورود داده / تایم‌شیت.
-// absenceDays فقط برای تعداد خالص و گزارش است — دوباره از workDays کم نشود (باگ ۹ روز برای همه).
+// کارکرد مؤثر: از شیت؛ اگر absenceDays آمده و از workDays کم نشده، اینجا کم می‌کنیم
 let workDays = Math.min(Number(d.workDays) || 0, maxAllowed, monthDays);
 const absDays = Math.max(0, Number(d.absenceDays) || 0);
+if (absDays > 0) {
+  // اگر workDays هنوز «پر» به‌نظر می‌رسد، غیبت را اعمال کن
+  const maybeFull = workDays >= Math.max(1, monthDays - 1);
+  if (maybeFull || workDays + absDays <= monthDays) {
+    workDays = Math.max(0, Math.min(workDays, monthDays - absDays));
+  }
+}
 // تناسب مزایا/پایه با تعداد روز همان ماه (جدول ماه‌ها: ۲۹/۳۰/۳۱) — نه همیشه ÷۳۰
 const ratioBase = (monthDays > 0) ? (workDays / monthDays) : (workDays / 30);
 const ratioFunc = functionalDays > 0 ? (workDays / functionalDays) : 0;
