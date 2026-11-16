@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-15-fix-v302';
+const PSP_BUILD = '2026-11-16-fix-v303';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -10214,31 +10214,44 @@ async function handleAdminUpdateAttendanceRequest(request, who, env) {
     if (!gd.obj || !Array.isArray(gd.obj.attendanceRequests)) return jsonResponse({ ok: false, error: 'no_data' }, 404);
     const req = gd.obj.attendanceRequests.find(function (x) { return x.id === id; });
     if (!req) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+    var oldSnap = {
+      id: req.id, empCode: req.empCode, kind: req.kind, mode: req.mode,
+      typeId: req.typeId, typeName: req.typeName,
+      startDate: req.startDate, endDate: req.endDate,
+      fromTime: req.fromTime, toTime: req.toTime,
+      status: req.status, _timesheetApplied: req._timesheetApplied
+    };
+    var prevStatus = req.status;
+    var dateChanged = false;
     if (b.empCode != null) req.empCode = String(b.empCode).trim();
     if (b.typeId != null) req.typeId = String(b.typeId).trim();
-    if (b.startDate != null) req.startDate = String(b.startDate).trim();
-    if (b.endDate != null) req.endDate = String(b.endDate).trim();
+    if (b.startDate != null) {
+      var ns = String(b.startDate).trim();
+      if (ns && ns !== String(oldSnap.startDate || '')) dateChanged = true;
+      req.startDate = ns;
+    }
+    if (b.endDate != null) {
+      var ne = String(b.endDate).trim();
+      if (ne !== String(oldSnap.endDate || '')) dateChanged = true;
+      req.endDate = ne;
+    }
     if (b.fromTime != null) req.fromTime = String(b.fromTime).trim();
     if (b.toTime != null) req.toTime = String(b.toTime).trim();
     if (b.place != null) req.place = String(b.place).trim();
     if (b.reason != null) req.reason = String(b.reason).trim();
-    const prevStatus = req.status;
     if (b.status != null) req.status = String(b.status);
-    // اگر از تأیید نهایی خارج شد → برگرداندن اثر؛ اگر تازه تأیید شد → اعمال
+    // وضعیت / تاریخ تأییدشده → اعمال دوباره روی تایم‌شیت
     if (prevStatus === 'approved' && req.status !== 'approved') {
-      try { restoreLeaveDeduction(gd.obj, req); } catch (e) {}
-      try {
-        reverseApprovedRequestFromTimesheet(gd.obj, req);
-        req._timesheetApplied = false;
-      } catch (e) {}
+      try { restoreLeaveDeduction(gd.obj, oldSnap); } catch (e) {}
+      try { reverseApprovedRequestFromTimesheet(gd.obj, oldSnap); req._timesheetApplied = false; } catch (e) {}
     } else if (prevStatus !== 'approved' && req.status === 'approved') {
       try { applyLeaveDeduction(gd.obj, req); } catch (e) {}
-      try {
-        if (!req._timesheetApplied) {
-          applyApprovedRequestToTimesheet(gd.obj, req);
-          req._timesheetApplied = true;
-        }
-      } catch (e) {}
+      try { applyApprovedRequestToTimesheet(gd.obj, req); req._timesheetApplied = true; } catch (e) {}
+    } else if (String(req.status) === 'approved' && dateChanged) {
+      try { reverseApprovedRequestFromTimesheet(gd.obj, oldSnap); } catch (e) {}
+      try { restoreLeaveDeduction(gd.obj, oldSnap); } catch (e) {}
+      try { applyLeaveDeduction(gd.obj, req); } catch (e) {}
+      try { applyApprovedRequestToTimesheet(gd.obj, req); req._timesheetApplied = true; } catch (e) {}
     }
     // resolve type name
     let types = gd.obj.attendanceTypes || [];
@@ -10350,6 +10363,11 @@ async function handleAdminCreateAttendanceRequest(request, who, env) {
     }
     gd.obj.attendanceRequests.unshift(req);
     if (gd.obj.attendanceRequests.length > 2000) gd.obj.attendanceRequests.length = 2000;
+    // ادمین با وضعیت تأیید نهایی ثبت می‌کند → فوراً روی تایم‌شیت اعمال شود
+    if (req.status === 'approved') {
+      try { applyLeaveDeduction(gd.obj, req); } catch (eAd) {}
+      try { applyApprovedRequestToTimesheet(gd.obj, req); req._timesheetApplied = true; } catch (eAt) {}
+    }
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
