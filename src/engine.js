@@ -368,7 +368,15 @@ return annual;
 
 function getYearWorkAndLeave(emp, year, leaveCeiling) {
 let workDays = 0, leaveUsed = 0, hourlyLeave = 0;
-for (let m = 1; m <= 12; m++) {
+// اگر تسویه وسط سال ثبت شده، فقط از ماه بعد از تسویه تا پایان سال
+var startM = 1;
+try {
+  var ps = emp && emp.partialSettlements && emp.partialSettlements[String(year)];
+  if (ps && Number(ps.untilMonth) >= 1 && Number(ps.untilMonth) < 12) {
+    startM = Number(ps.untilMonth) + 1;
+  }
+} catch (ePs) {}
+for (let m = startM; m <= 12; m++) {
 const key = year + '-' + m;
 const row = (data.monthlyData[key] && data.monthlyData[key][emp.code]) || null;
 if (!row) continue;
@@ -785,7 +793,18 @@ const shiftAmount = vp.shift;
 const st = vp.shiftType;
 const shiftDays = vp.shiftDays;
 let totalAllow = 0, totalDeductions = 0;
-let insBase = basicAmount, taxBase = basicAmount + otAmount + nightAmount + shiftAmount;
+// حقوق پایه: تیک بیمه/مالیات از شیت آیتم‌های مزایا (مثل پایه سنوات)
+var basicIns = true, basicTax = true;
+try {
+  var ba = (data.allowances || []).find(function(x) {
+    if (!x) return false;
+    var n = String(x.name || '').trim();
+    return x.id === 'basic' || x.id === 'basicSalary' || n === 'حقوق پایه' || n.indexOf('حقوق پایه') === 0;
+  });
+  if (ba) { basicIns = ba.ins !== false; basicTax = ba.tax !== false; }
+} catch (eBa) {}
+let insBase = basicIns ? basicAmount : 0;
+let taxBase = (basicTax ? basicAmount : 0) + otAmount + nightAmount + shiftAmount;
 const itemDetails = [];
 // فقط یک‌بار در totalDeductions (فیش: ردیف «سایر کسورات») — نه منفی در لیست مزایا
 if (shortfallDeduction > 0) {
