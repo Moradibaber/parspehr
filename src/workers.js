@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-18-fix-v315';
+const PSP_BUILD = '2026-11-18-fix-v316';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -3022,18 +3022,15 @@ function normalizeWorkSchedule(cal, globalFloat) {
 
 function resolveCompanyFloatMinutes(obj, calHint) {
   const s = (obj && obj.settings) || {};
-  // 1) شناوری پرتال (مقاوم در برابر همگام‌سازی)
+  // اولویت مطلق: آخرین مقدار ذخیره‌شده سراسری (portal سپس settings)
   var fm = parseFloatMinutesValue(s.portalFloatMinutes, null);
   if (fm != null) return fm;
-  // 2) سراسری
   fm = parseFloatMinutesValue(s.floatMinutes, null);
   if (fm != null) return fm;
-  // 2) تقویم اشاره‌شده
   if (calHint) {
     fm = parseFloatMinutesValue(calHint.floatMinutes, null);
     if (fm != null) return fm;
   }
-  // 3) فقط اگر هیچ مقدار سراسری نبود، از نوع قرارداد normal — نه max همه انواع (که ۹۰ را تحمیل می‌کرد)
   var normalCal = (s.contractCalendars && s.contractCalendars.normal) || null;
   var nv = parseFloatMinutesValue(normalCal && normalCal.floatMinutes, null);
   if (nv != null) return nv;
@@ -7608,8 +7605,11 @@ async function handleAdminTimesheet(request, who, env) {
         if (p && p.y === year && p.m === month) aMissionH += hoursBetween(x.fromTime, x.toTime);
       }
     });
+    // بدون کد مشخص: فقط دادهٔ ذخیره‌شده (سبک) تا ۵۰۳/timeout نشود
     let filled = null;
-    try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
+    if (filterCode) {
+      try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
+    }
     const mdRow = filled || row || {};
     rows.push({
       code: emp.code,
@@ -9988,6 +9988,7 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       floatMinutes: cal.floatMinutes,
       settingsFloatMinutes: gd.obj.settings.floatMinutes,
       companyFloatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
+      portalFloatMinutes: (gd.obj.settings && gd.obj.settings.portalFloatMinutes != null) ? gd.obj.settings.portalFloatMinutes : resolveCompanyFloatMinutes(gd.obj, cal),
       breakCountsAsWork: !!cal.breakCountsAsWork,
       floatCompensate: !!cal.floatCompensate,
       contractTypesList: gd.obj.settings.contractTypesList
@@ -10224,6 +10225,7 @@ async function handleAdminGetCurrentMonth(request, who, env) {
     floatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
     settingsFloatMinutes: s.floatMinutes,
     companyFloatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
+      portalFloatMinutes: (gd.obj.settings && gd.obj.settings.portalFloatMinutes != null) ? gd.obj.settings.portalFloatMinutes : resolveCompanyFloatMinutes(gd.obj, cal),
     breakCountsAsWork: !!cal.breakCountsAsWork,
     floatCompensate: !!cal.floatCompensate,
     officialWorkMinutes: officialWorkMinutes(cal),
