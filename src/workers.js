@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-16-fix-v314';
+const PSP_BUILD = '2026-11-18-fix-v315';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -3033,16 +3033,10 @@ function resolveCompanyFloatMinutes(obj, calHint) {
     fm = parseFloatMinutesValue(calHint.floatMinutes, null);
     if (fm != null) return fm;
   }
-  // 3) بزرگ‌ترین شناوری غیرساعتی ذخیره‌شده (اگر یکی ۹۰ باشد همان استفاده شود)
-  var best = null;
-  var cals = s.contractCalendars || {};
-  Object.keys(cals).forEach(function (id) {
-    if (String(id) === 'hourly') return;
-    var v = parseFloatMinutesValue(cals[id] && cals[id].floatMinutes, null);
-    if (v == null) return;
-    if (best == null || v > best) best = v;
-  });
-  if (best != null) return best;
+  // 3) فقط اگر هیچ مقدار سراسری نبود، از نوع قرارداد normal — نه max همه انواع (که ۹۰ را تحمیل می‌کرد)
+  var normalCal = (s.contractCalendars && s.contractCalendars.normal) || null;
+  var nv = parseFloatMinutesValue(normalCal && normalCal.floatMinutes, null);
+  if (nv != null) return nv;
   return 15;
 }
 
@@ -6951,20 +6945,17 @@ async function handleAdminAbsenceReport(request, who, env) {
 
   const key = year + '-' + month;
   const md = (gd.obj.monthlyData || {})[key] || {};
-  // مسیر کامل: بدون فیلتر کد، همه را برنگردان (جلوگیری از ۵۰۳ روی ۵۲ نفر)
-  if (!filterCode && !(r.body && (r.body.unit || r.body.managerCode))) {
-    return jsonResponse({
-      ok: false,
-      error: 'need_filter',
-      message: 'برای مشاهده/انتقال تایم‌شیت یک کارمند را انتخاب کنید'
-    }, 400);
-  }
+  // گزارش غیبت/کسرکار برای کل ماه — فیلتر کد اختیاری است (برخلاف تایم‌شیت انتقال)
+  const filterCode = String((r.body && r.body.code) || '').trim();
+  const filterUnit = String((r.body && r.body.unit) || '').trim();
   const reqs = gd.obj.attendanceRequests || [];
   const summary = [];
   const daily = [];
 
   (gd.obj.employees || []).forEach(function (emp) {
     if (!emp || emp.status === 'inactive') return;
+    if (filterCode && String(emp.code) !== filterCode) return;
+    if (filterUnit && String(emp.unit || '') !== filterUnit) return;
     let filled = null;
     try { filled = fillEmployeeMonthFromAttendance(gd.obj, year, month, emp); } catch (eF) {}
     const row = filled || md[emp.code] || {};
