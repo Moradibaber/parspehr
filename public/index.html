@@ -502,7 +502,7 @@
   <div class="panel" id="panel-allowances">
     <div class="card">
       <div class="section-title">آیتم‌های حقوق و مزایا</div>
-      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، پایه سنوات و …). <b>حقوق پایه</b> و <b>مبلغ پایه سنوات</b> در کارت هر کارمند (پایین کارت، ابتدای «آیتم‌های سفارشی این کارمند») تعریف می‌شوند و با «حکم» افزایش/کاهش می‌یابند؛ اینجا فقط نام و تیک بیمه/مالیات برای پایه سنوات نگه داشته می‌شود. با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
+      <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">آیتم‌های ثابت سیستم (مسکن، بن، تأهل، اولاد، پایه سنوات و …). <b>حقوق پایه</b> و <b>مبلغ پایه سنوات</b> در کارت هر کارمند (پایین کارت، ابتدای «آیتم‌های سفارشی این کارمند») تعریف می‌شوند و با «حکم» افزایش/کاهش می‌یابند؛ اینجا برای <b>حقوق پایه</b> و <b>پایه سنوات</b> فقط تیک بیمه/مالیات تنظیم می‌شود (مبلغ از کارت کارمند). با حذف آیتم، از کارکنان نیز برداشته می‌شود.</p>
       <div style="font-weight:600;display:grid;grid-template-columns:2fr 1fr 80px 80px 36px;gap:7px;margin-bottom:5px;font-size:0.8rem;">
         <span>نام آیتم</span><span>مبلغ ثابت</span><span>مشمول بیمه</span><span>مشمول مالیات</span><span></span>
       </div>
@@ -1911,17 +1911,8 @@ if (!data.transferredAdjustments) data.transferredAdjustments = {};
 if (!data.adjustmentHistory) data.adjustmentHistory = [];
 if (!data.annualTaxResults) data.annualTaxResults = {};
 if (!data.settings.taxMode) data.settings.taxMode = 'cumulative';
-// حقوق پایه نباید در شیت مزایا باشد
-if (typeof isBasicSalaryAllowanceName === 'function') {
-  data.allowances = (data.allowances || []).filter(function(a) {
-    return a && !isBasicSalaryAllowanceName(a.name);
-  });
-} else {
-  data.allowances = (data.allowances || []).filter(function(a) {
-    const n = String((a && a.name) || '').trim();
-    return n !== 'حقوق پایه' && n !== 'حقوق پایه' && n.indexOf('حقوق پایه') !== 0;
-  });
-}
+// حقوق پایه و پایه سنوات در شیت مزایا می‌مانند تا تیک بیمه/مالیات قابل تنظیم باشد
+try { if (typeof stripBasicSalaryFromAllowances === 'function') stripBasicSalaryFromAllowances(); } catch (eB) {}
 if (!data.settings.adminPassword) { data.settings.adminPassword = 'admin1405'; data.settings.passwordMustChange = true; }
 if (!data.settings.operatorPassword) data.settings.operatorPassword = 'op1405';
 
@@ -4351,9 +4342,17 @@ function isBasicSalaryAllowanceName(name) {
 }
 
 function stripBasicSalaryFromAllowances() {
-  data.allowances = (data.allowances || []).filter(function(a) {
-    return a && !isBasicSalaryAllowanceName(a.name);
-  });
+  // دیگر حذف نمی‌شود — مثل پایه سنوات در لیست می‌ماند تا تیک بیمه/مالیات قابل تنظیم باشد
+  if (!data.allowances) data.allowances = [];
+  var hasBasic = data.allowances.some(function(a) { return a && isBasicSalaryAllowanceName(a.name); });
+  if (!hasBasic) {
+    data.allowances.unshift({ id: 'basic', name: 'حقوق پایه', amount: 0, ins: true, tax: true, fromSystem: true });
+  }
+  // پایه سنوات هم اگر نبود اضافه شود
+  var hasSen = data.allowances.some(function(a) { return a && isSeniorityAllowance(a); });
+  if (!hasSen) {
+    data.allowances.push({ id: 'seniority', name: 'پایه سنوات', amount: 0, ins: true, tax: true, fromSystem: true });
+  }
 }
 
 function parseFormattedNumber(v) {
@@ -4382,8 +4381,9 @@ function renderAllowances() {
   document.getElementById('allowancesList').innerHTML = data.allowances.map((a, idx) => {
     if (!a._prevName) a._prevName = a.name || '';
     var isSen = isSeniorityAllowance(a);
-    var amtField = isSen
-      ? '<input type="text" value="(از کارت کارمند)" disabled title="مبلغ پایه سنوات برای هر نفر در کارکنان فعال / کارت کارمند وارد می‌شود" style="opacity:0.75;cursor:not-allowed;">'
+    var isBas = isBasicSalaryAllowanceName(a.name);
+    var amtField = (isSen || isBas)
+      ? '<input type="text" value="(از کارت کارمند)" disabled title="مبلغ از کارت کارمند؛ اینجا فقط تیک بیمه/مالیات" style="opacity:0.75;cursor:not-allowed;">'
       : '<input type="text" inputmode="numeric" value="' + formatNumber(a.amount) + '" onfocus="this.value=String(parseFormattedNumber(this.value)||\'\');" onblur="var n=parseFormattedNumber(this.value);data.allowances[' + idx + '].amount=n;this.value=formatNumber(n);">';
     return `
     <div class="allowance-row">
@@ -4412,6 +4412,10 @@ function deleteAllowance(idx) {
   const a = data.allowances[idx];
   if (!a) return;
   const name = String(a.name || '').trim();
+  if (isBasicSalaryAllowanceName(name) || isSeniorityAllowance(a)) {
+    alert('حقوق پایه و پایه سنوات قابل حذف نیستند؛ فقط تیک بیمه/مالیات را تغییر دهید.');
+    return;
+  }
   if (!confirm('آیتم «' + name + '» حذف شود؟\nدر صورت تأیید، از کارکنان و فهرست مرجع سفارشی نیز برداشته می‌شود.')) return;
   data.allowances.splice(idx, 1);
   if (name) {
@@ -12372,6 +12376,19 @@ function applyEidLeaveToBalances() {
     emp.leaveBalanceYear = year;
     if (!emp._eidLeaveApplied) emp._eidLeaveApplied = {};
     emp._eidLeaveApplied[year] = { payableLeave: pay, mode: mode, at: new Date().toISOString() };
+    // تسویه وسط سال در حین ادامه همکاری: از ماه بعد فقط دورهٔ جدید محاسبه شود
+    try {
+      var curM = Number((data.settings && data.settings.currentMonth) || 0) || 0;
+      if (mode === 'annual' && curM >= 1 && curM < 12) {
+        if (!emp.partialSettlements) emp.partialSettlements = {};
+        emp.partialSettlements[String(year)] = {
+          untilMonth: curM,
+          settledAt: new Date().toISOString(),
+          payableLeave: pay,
+          note: 'تسویه وسط سال — محاسبه پایان سال از ماه ' + (curM + 1)
+        };
+      }
+    } catch (ePs) {}
     n++;
   });
   try { if (typeof saveToCache === 'function') saveToCache(); } catch (e) {}
