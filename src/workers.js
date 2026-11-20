@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-18-fix-v317';
+const PSP_BUILD = '2026-11-20-fix-v320';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -188,24 +188,16 @@ async function storeGetData(cfg) {
   }
   if (obj) {
     try { mergeAllEmployeeExtras(obj); } catch (eMerge) { /* non-fatal */ }
-    // ترمیم شناوری: portalFloatMinutes / floatMinutes را یکدست کن
+    // ترمیم شناوری: فقط portal/settings — هرگز max تقویم‌ها (که ۹۰ را برمی‌گرداند)
     try {
       if (obj.settings && typeof obj.settings === 'object') {
-        var fm = null;
-        if (obj.settings.portalFloatMinutes != null && obj.settings.portalFloatMinutes !== '') {
-          fm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+        var fm = parseFloatMinutesValue(obj.settings.portalFloatMinutes, null);
+        if (fm == null) fm = parseFloatMinutesValue(obj.settings.floatMinutes, null);
+        if (fm == null) {
+          var nc = obj.settings.contractCalendars && obj.settings.contractCalendars.normal;
+          fm = parseFloatMinutesValue(nc && nc.floatMinutes, null);
         }
-        if (fm == null && obj.settings.floatMinutes != null && obj.settings.floatMinutes !== '') {
-          fm = parseFloatMinutesValue(obj.settings.floatMinutes, null);
-        }
-        if (fm == null && obj.settings.contractCalendars) {
-          Object.keys(obj.settings.contractCalendars).forEach(function (id) {
-            if (String(id) === 'hourly') return;
-            var v = parseFloatMinutesValue(obj.settings.contractCalendars[id] && obj.settings.contractCalendars[id].floatMinutes, null);
-            if (v != null && (fm == null || v > fm)) fm = v;
-          });
-        }
-        if (fm != null && fm !== 15) {
+        if (fm != null) {
           obj.settings.portalFloatMinutes = fm;
           obj.settings.floatMinutes = fm;
           Object.keys(obj.settings.contractCalendars || {}).forEach(function (id) {
@@ -1343,22 +1335,25 @@ async function handleState(request, who, env, path) {
                     });
                     var prevFm2 = parseFloatMinutesValue(prevCal.floatMinutes, null);
                     var curFm2 = parseFloatMinutesValue(curCal.floatMinutes, null);
-                    if (prevFm2 != null && (curFm2 == null || (curFm2 === 15 && prevFm2 !== 15))) {
-                      curCal.floatMinutes = prevFm2;
-                    } else if (curFm2 == null && prevFm2 != null) {
+                    // فقط اگر خالی است از قبلی پر کن — عدد ۱۵ هم معتبر است
+                    if (curFm2 == null && prevFm2 != null) {
                       curCal.floatMinutes = prevFm2;
                     }
                   });
                   (function () {
                     var prevSF = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.floatMinutes, null);
                     var curSF = parseFloatMinutesValue(incoming.settings && incoming.settings.floatMinutes, null);
-                    var finalFm = curSF;
-                    if (curSF == null && prevSF != null) finalFm = prevSF;
-                    else if (curSF === 15 && prevSF != null && prevSF !== 15) finalFm = prevSF;
+                    var prevPfm = parseFloatMinutesValue(prev.obj.settings && prev.obj.settings.portalFloatMinutes, null);
+                    var curPfm = parseFloatMinutesValue(incoming.settings && incoming.settings.portalFloatMinutes, null);
+                    // اولویت: مقدار فعلی صریح (حتی ۱۵) > portal فعلی > قبلی
+                    var finalFm = null;
+                    if (curPfm != null) finalFm = curPfm;
                     else if (curSF != null) finalFm = curSF;
-                    else finalFm = prevSF;
+                    else if (prevPfm != null) finalFm = prevPfm;
+                    else if (prevSF != null) finalFm = prevSF;
                     if (finalFm != null) {
                       incoming.settings.floatMinutes = finalFm;
+                      incoming.settings.portalFloatMinutes = finalFm;
                       Object.keys(incoming.settings.contractCalendars || {}).forEach(function (cid) {
                         if (String(cid) === 'hourly') return;
                         var cx = incoming.settings.contractCalendars[cid];
@@ -9947,6 +9942,10 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
     const tdef = (gd.obj.settings.contractTypesList || []).find(function (t) { return t.id === ct; });
+    var _savedFm = parseFloatMinutesValue(gd.obj.settings.portalFloatMinutes, null);
+    if (_savedFm == null) _savedFm = parseFloatMinutesValue(gd.obj.settings.floatMinutes, null);
+    if (_savedFm == null) _savedFm = parseFloatMinutesValue(cal.floatMinutes, null);
+    if (_savedFm == null) _savedFm = 15;
     return jsonResponse({
       ok: true,
       year: year,
@@ -9966,10 +9965,10 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       breakStart: cal.breakStart,
       breakEnd: cal.breakEnd,
       dayEnd: cal.dayEnd,
-      floatMinutes: cal.floatMinutes,
-      settingsFloatMinutes: gd.obj.settings.floatMinutes,
-      companyFloatMinutes: resolveCompanyFloatMinutes(gd.obj, cal),
-      portalFloatMinutes: (gd.obj.settings && gd.obj.settings.portalFloatMinutes != null) ? gd.obj.settings.portalFloatMinutes : resolveCompanyFloatMinutes(gd.obj, cal),
+      floatMinutes: _savedFm,
+      settingsFloatMinutes: _savedFm,
+      companyFloatMinutes: _savedFm,
+      portalFloatMinutes: _savedFm,
       breakCountsAsWork: !!cal.breakCountsAsWork,
       floatCompensate: !!cal.floatCompensate,
       contractTypesList: gd.obj.settings.contractTypesList
