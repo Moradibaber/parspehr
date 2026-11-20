@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-20-fix-v320';
+const PSP_BUILD = '2026-11-20-fix-v321';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -625,6 +625,18 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
       });
     }
   } catch (eStrip) {}
+  // شناوری اجباری: بعد از همهٔ mergeها اعمال شود تا ۹۰ برنگردد
+  try {
+    if (obj && obj.__forceFloatMinutes != null) {
+      var _ff = obj.__forceFloatMinutes;
+      delete obj.__forceFloatMinutes;
+      forceApplyCompanyFloat(obj, _ff);
+    } else if (String(updatedBy || '').indexOf('float-set:') === 0) {
+      var _fm = parseFloatMinutesValue(obj && obj.settings && obj.settings.portalFloatMinutes, null);
+      if (_fm == null) _fm = parseFloatMinutesValue(obj && obj.settings && obj.settings.floatMinutes, null);
+      if (_fm != null) forceApplyCompanyFloat(obj, _fm);
+    }
+  } catch (eForceF) {}
   const text = JSON.stringify(obj);
   if (text.length > MAX_DOC_BYTES) return { fail: { reason: 'too_large', status: 413 } };
   if (baseVersion === 0) {
@@ -2973,6 +2985,35 @@ function parseFloatMinutesValue(v, fallback) {
   if (n > 480) n = 480;
   return n;
 }
+
+
+function forceApplyCompanyFloat(obj, minutes) {
+  if (!obj) return;
+  if (!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+  var n = parseFloatMinutesValue(minutes, null);
+  if (n == null) return;
+  if (n < 0) n = 0;
+  if (n > 480) n = 480;
+  obj.settings.floatMinutes = n;
+  obj.settings.portalFloatMinutes = n;
+  obj.settings.companyFloatMinutes = n;
+  ensureContractCalendars(obj);
+  Object.keys(obj.settings.contractCalendars || {}).forEach(function (cid) {
+    if (String(cid) === 'hourly') return;
+    var c = obj.settings.contractCalendars[cid];
+    if (!c || typeof c !== 'object') return;
+    c.floatMinutes = n;
+    if (c.daySchedules && typeof c.daySchedules === 'object') {
+      Object.keys(c.daySchedules).forEach(function (dk) {
+        var ds = c.daySchedules[dk];
+        if (ds && typeof ds === 'object' && Object.prototype.hasOwnProperty.call(ds, 'floatMinutes')) {
+          delete ds.floatMinutes;
+        }
+      });
+    }
+  });
+}
+
 
 function normalizeWorkSchedule(cal, globalFloat) {
   const d = defaultWorkSchedule();
@@ -9842,6 +9883,54 @@ async function handleAdminGrantAttendance(request, who, env) {
 }
 
 
+
+async function handleAdminSetFloatMinutes(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  var raw = r.body && (r.body.floatMinutes != null ? r.body.floatMinutes : r.body.minutes);
+  if (raw == null || raw === '') {
+    return jsonResponse({ ok: false, error: 'bad_request', message: 'floatMinutes الزامی است' }, 400);
+  }
+  var fmRaw = String(raw).replace(/[۰-۹]/g, function (d) {
+    return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)];
+  }).replace(/[^\d.]/g, '');
+  var fmNum = parseInt(fmRaw, 10);
+  if (!isFinite(fmNum) || fmNum < 0) fmNum = 0;
+  if (fmNum > 480) fmNum = 480;
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    forceApplyCompanyFloat(gd.obj, fmNum);
+    gd.obj.__forceFloatMinutes = fmNum;
+    const put = await storePutData(cfg, gd.version, gd.obj, 'float-set:direct:' + (who.name || 'admin'));
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    // verify
+    const check = await storeGetData(cfg);
+    var got = null;
+    try {
+      got = parseFloatMinutesValue(check.obj && check.obj.settings && check.obj.settings.portalFloatMinutes, null);
+      if (got == null) got = parseFloatMinutesValue(check.obj && check.obj.settings && check.obj.settings.floatMinutes, null);
+    } catch (eV) {}
+    return jsonResponse({
+      ok: true,
+      floatMinutes: fmNum,
+      portalFloatMinutes: fmNum,
+      companyFloatMinutes: fmNum,
+      settingsFloatMinutes: fmNum,
+      verified: got,
+      message: 'شناوری ' + fmNum + ' دقیقه ذخیره شد'
+    });
+  }
+  return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره — دوباره تلاش کنید' }, 409);
+}
+
 async function handleAdminSetCurrentMonth(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
@@ -9903,35 +9992,24 @@ async function handleAdminSetCurrentMonth(request, who, env) {
       if (r.body.breakCountsAsWork != null) cal.breakCountsAsWork = !!r.body.breakCountsAsWork;
       if (r.body.floatCompensate != null) cal.floatCompensate = !!r.body.floatCompensate;
     }
-    // اگر floatMinutes هرگز ست نشده، پیش‌فرض ۱۵
-    if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
-    // شناوری سراسری: همیشه روی settings و همه انواع غیرساعتی بنویس؛ override روزانه را پاک کن
+    // شناوری: از body بخوان (حتی اگر نوع hourly باشد فیلد ممکن است آمده باشد)
+    var fmFromBody = null;
     if (Object.prototype.hasOwnProperty.call(r.body, 'floatMinutes') && r.body.floatMinutes != null && r.body.floatMinutes !== '') {
-      var fmAll = cal.floatMinutes;
-      gd.obj.settings.floatMinutes = fmAll;
-      gd.obj.settings.portalFloatMinutes = fmAll;
-      Object.keys(gd.obj.settings.contractCalendars || {}).forEach(function (cid) {
-        if (String(cid) === 'hourly') return;
-        var c2 = gd.obj.settings.contractCalendars[cid];
-        if (!c2 || typeof c2 !== 'object') return;
-        c2.floatMinutes = fmAll;
-        if (c2.daySchedules && typeof c2.daySchedules === 'object') {
-          Object.keys(c2.daySchedules).forEach(function (dk) {
-            var ds = c2.daySchedules[dk];
-            if (ds && typeof ds === 'object' && Object.prototype.hasOwnProperty.call(ds, 'floatMinutes')) delete ds.floatMinutes;
-          });
-        }
-      });
+      var fmRaw2 = String(r.body.floatMinutes).replace(/[۰-۹]/g, function (d) {
+        return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)];
+      }).replace(/[^\d.]/g, '');
+      var fmNum2 = parseInt(fmRaw2, 10);
+      if (!isFinite(fmNum2) || fmNum2 < 0) fmNum2 = 0;
+      if (fmNum2 > 480) fmNum2 = 480;
+      fmFromBody = fmNum2;
+      cal.floatMinutes = fmNum2;
+    }
+    if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
+    if (fmFromBody != null) {
+      forceApplyCompanyFloat(gd.obj, fmFromBody);
+      gd.obj.__forceFloatMinutes = fmFromBody; // بعد از merge هم اعمال شود
     } else if (gd.obj.settings.floatMinutes != null && gd.obj.settings.floatMinutes !== '') {
-      // حتی اگر این درخواست float نفرستاد، سراسری را روی همه انواع پخش کن
-      var fmKeep = parseFloatMinutesValue(gd.obj.settings.floatMinutes, null);
-      if (fmKeep != null) {
-        Object.keys(gd.obj.settings.contractCalendars || {}).forEach(function (cid) {
-          if (String(cid) === 'hourly') return;
-          var c2 = gd.obj.settings.contractCalendars[cid];
-          if (c2 && typeof c2 === 'object') c2.floatMinutes = fmKeep;
-        });
-      }
+      forceApplyCompanyFloat(gd.obj, gd.obj.settings.floatMinutes);
     }
     // سازگاری با فیلدهای قدیمی
     if (ct === 'normal') {
@@ -10735,6 +10813,7 @@ async function route(request, env, users, found) {
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
+  if (path === '/api/admin/set-float-minutes') return handleAdminSetFloatMinutes(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
   if (path === '/api/admin/request-windows') return handleAdminRequestWindows(request, who, env);
   if (path === '/api/admin/job-descriptions') return handleAdminJobDescriptions(request, who, env);
