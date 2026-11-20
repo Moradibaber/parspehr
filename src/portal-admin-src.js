@@ -1,8 +1,8 @@
 // Portal admin client UI — imported by worker.js
 export default [
   "(function(){",
-  "  window.__pspPortalBootVer = '2026-11-20-v321';",
-  "  try { console.log('%c[psp] portal-boot 2026-11-10-v256', 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
+  "  window.__pspPortalBootVer = '2026-11-20-v322';",
+  "  try { console.log('%c[psp] portal-boot '+window.__pspPortalBootVer, 'color:#0f766e;font-weight:bold;font-size:14px'); } catch(e) {}",
   "  window.__pspPortalBootOk = 1;",
   "  var __pspCardMode = 'edit';",
   "  try {",
