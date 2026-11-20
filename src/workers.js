@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-20-fix-v323';
+const PSP_BUILD = '2026-11-20-fix-v324';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -96,8 +96,8 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261120v322';
-  const floatFixScript = '<script>(function(){try{console.log("[psp] float-fix v322");}catch(e){}function readF(){var el=document.getElementById("pspWsFloat");if(!el)return null;var s=String(el.value||"").replace(/[\\u06F0-\\u06F9]/g,function(d){return"0123456789"["\\u06F0\\u06F1\\u06F2\\u06F3\\u06F4\\u06F5\\u06F6\\u06F7\\u06F8\\u06F9".indexOf(d)]}).replace(/[^\\d]/g,"");var n=parseInt(s,10);if(!isFinite(n)||n<0)n=0;if(n>480)n=480;return n}function writeF(n){var el=document.getElementById("pspWsFloat");if(el&&n!=null)el.value=String(n)}function saveF(n,cb){fetch("/api/admin/set-float-minutes",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({floatMinutes:n})}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){writeF(j.floatMinutes);try{console.log("[psp] float saved",j.floatMinutes,j.source)}catch(e){}}if(cb)cb(j)}).catch(function(e){try{console.error("[psp] float save fail",e)}catch(x){}if(cb)cb(null)})}document.addEventListener("click",function(ev){var t=ev.target;if(!t)return;var b=t.closest?t.closest("button,#pspCurSave"):null;if(!b)return;var id=b.id||"";var tx=(b.textContent||"");if(id==="pspCurSave"||tx.indexOf("ثبت ماه")>=0||tx.indexOf("ذخیره")>=0&&tx.indexOf("ماه")>=0){var n=readF();if(n!=null)setTimeout(function(){saveF(n)},300)}},true);setInterval(function(){var el=document.getElementById("pspWsFloat");if(!el||el.getAttribute("data-psp-float-bound"))return;el.setAttribute("data-psp-float-bound","1");el.addEventListener("change",function(){var n=readF();if(n!=null)saveF(n)});fetch("/api/admin/get-current-month?contractType=normal&_="+Date.now(),{credentials:"same-origin",cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var v=j.companyFloatMinutes!=null?j.companyFloatMinutes:(j.portalFloatMinutes!=null?j.portalFloatMinutes:j.floatMinutes);if(v!=null)writeF(v)}).catch(function(){})},2000)})();<\/script>';
+  const bootVer = '20261120v324';
+  const floatFixScript = '<script>(function(){try{console.log("[psp] float-fix v323");}catch(e){}window.__pspFloatUserEdit=0;function readF(){var el=document.getElementById("pspWsFloat");if(!el)return null;var s=String(el.value||"").replace(/[\\u06F0-\\u06F9]/g,function(d){return"0123456789"["\\u06F0\\u06F1\\u06F2\\u06F3\\u06F4\\u06F5\\u06F6\\u06F7\\u06F8\\u06F9".indexOf(d)]}).replace(/[^\\d]/g,"");var n=parseInt(s,10);if(!isFinite(n)||n<0)n=0;if(n>480)n=480;return n}function writeF(n){var el=document.getElementById("pspWsFloat");if(!el||n==null)return;if(document.activeElement===el)return;el.value=String(n)}function saveF(n,cb){if(n==null)return;fetch("/api/admin/set-float-minutes",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({floatMinutes:n})}).then(function(r){return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):null}catch(e){}return{ok:r.ok,j:j,status:r.status,t:t}})}).then(function(x){try{console.log("[psp] float save result",x.status,x.j||x.t)}catch(e){}if(x.j&&x.j.ok){writeF(x.j.floatMinutes);window.__pspFloatSaved=x.j.floatMinutes}if(cb)cb(x.j)}).catch(function(e){try{console.error("[psp] float save fail",e)}catch(x){}if(cb)cb(null)})}function bind(){var el=document.getElementById("pspWsFloat");if(!el||el.getAttribute("data-psp-ff"))return;el.setAttribute("data-psp-ff","1");el.addEventListener("input",function(){window.__pspFloatUserEdit=Date.now()});el.addEventListener("change",function(){window.__pspFloatUserEdit=Date.now();saveF(readF())});el.addEventListener("blur",function(){window.__pspFloatUserEdit=Date.now();saveF(readF())})}setInterval(bind,1000);document.addEventListener("click",function(ev){var t=ev.target;if(!t||!t.closest)return;var b=t.closest("button,#pspCurSave");if(!b)return;var id=b.id||"";var tx=(b.textContent||"");if(id==="pspCurSave"||/ثبت\\s*ماه|ذخیره.*ماه|ماه\\s*جاری/.test(tx)){var n=readF();setTimeout(function(){saveF(n)},500)}},true)})();<\/script>';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '" onerror="console.error(\'[psp] portal-boot LOAD FAIL\');try{var d=document.createElement(\'div\');d.style.cssText=\'padding:12px;margin:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;color:#991b1b;font-family:Tahoma;direction:rtl\';d.textContent=\'خطا در بارگذاری portal-boot.js (شبکه یا دیپلوی). Worker را دوباره دیپلوی کنید.\';document.body&&document.body.prepend(d);}catch(e){}"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function show(el){el.removeAttribute(\'data-psp-struct-hide\');el.removeAttribute(\'hidden\');el.style.removeProperty(\'display\');el.style.removeProperty(\'visibility\');}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;if(t===\'مرخصی\'||t===\'مأموریت\'||t===\'ماموریت\'||t===\'سایر\')return true;if(t===\'مرخصی و مأموریت\'||t===\'مرخصی و ماموریت\')return true;return false;}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');var hasPortal=!!(document.getElementById(\'pspPortalTabBtn\')||document.querySelector(\'[data-tab="portalatt"]\')||document.getElementById(\'panel-portalatt\'));for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs,#pspSubTabs\'))continue;var t=n(el.textContent);var isPortal=el.id===\'pspPortalTabBtn\'||el.getAttribute(\'data-tab\')===\'portalatt\';var leave=t.indexOf(\'مرخصی\')>=0;var mis=t.indexOf(\'مأموریت\')>=0||t.indexOf(\'ماموریت\')>=0;var oth=t.indexOf(\'سایر\')>=0;if(isPortal||(leave&&mis)||(leave&&mis&&oth)){el.textContent=\'کارکرد\';try{el.setAttribute(\'title\',\'کارکرد\');}catch(e0){}show(el);continue;}if(hasPortal&&red(t)){var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;hide(el);}}catch(e1){}}var pb=document.getElementById(\'pspPortalTabBtn\');if(pb){pb.textContent=\'کارکرد\';show(pb);}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();</script>';
 
@@ -3064,44 +3064,81 @@ async function storePutFloatConfig(cfg, minutes, whoName) {
   if (n < 0) n = 0;
   if (n > 480) n = 480;
   const payloadObj = { floatMinutes: n, updatedAt: new Date().toISOString() };
-  for (var attempt = 0; attempt < 8; attempt++) {
-    const cur = await storeGetFloatConfig(cfg);
-    if (cur.fail) return cur;
-    var base = cur.version || 0;
-    if (base === 0) {
-      await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
-        method: 'POST',
-        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
-        body: JSON.stringify([{ name: 'float_config', version: 0, data: '{}' }])
-      });
-    }
-    const body = JSON.stringify({
-      version: base + 1,
-      updated_by: whoName || 'float',
-      updated_at: new Date().toISOString(),
-      data: JSON.stringify(payloadObj)
+  const dataStr = JSON.stringify(payloadObj);
+  const who = whoName || 'float';
+
+  // اول: upsert مستقیم (بدون اتکا به version=0)
+  try {
+    const up = await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+      method: 'POST',
+      headers: storeHeaders(cfg, {
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=representation'
+      }),
+      body: JSON.stringify([{
+        name: 'float_config',
+        version: 1,
+        data: dataStr,
+        updated_by: who,
+        updated_at: new Date().toISOString()
+      }])
     });
+    if (up.ok) {
+      return { ok: true, minutes: n, version: 1, method: 'upsert' };
+    }
+  } catch (eUp) {}
+
+  for (var attempt = 0; attempt < 6; attempt++) {
+    const cur = await storeGetFloatConfig(cfg);
+    if (cur.fail && cur.fail.status !== 406 && cur.fail.reason !== 'unreachable') {
+      // ادامه بده برای insert
+    }
+    var base = (cur && !cur.fail && cur.version) ? cur.version : 0;
+    if (!base) {
+      const ins = await fetch(cfg.url + '/rest/v1/app_docs', {
+        method: 'POST',
+        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+        body: JSON.stringify([{
+          name: 'float_config',
+          version: 1,
+          data: dataStr,
+          updated_by: who,
+          updated_at: new Date().toISOString()
+        }])
+      });
+      if (ins.ok) return { ok: true, minutes: n, version: 1, method: 'insert' };
+      // اگر تکراری است، از PATCH استفاده کن
+    }
     const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.float_config&version=eq.' + base + '&select=version', {
       method: 'PATCH',
       headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
-      body: body
+      body: JSON.stringify({
+        version: base + 1,
+        updated_by: who,
+        updated_at: new Date().toISOString(),
+        data: dataStr
+      })
     });
-    if (!r.ok) {
-      // maybe row missing
-      if (r.status === 404 || r.status === 406) {
-        await fetch(cfg.url + '/rest/v1/app_docs', {
-          method: 'POST',
-          headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
-          body: JSON.stringify([{ name: 'float_config', version: 1, data: JSON.stringify(payloadObj), updated_by: whoName || 'float', updated_at: new Date().toISOString() }])
-        });
-        return { ok: true, minutes: n, version: 1 };
-      }
-      continue;
-    }
+    if (!r.ok) continue;
     const rows = await r.json();
-    if (Array.isArray(rows) && rows.length === 1) return { ok: true, minutes: n, version: base + 1 };
+    if (Array.isArray(rows) && rows.length === 1) return { ok: true, minutes: n, version: base + 1, method: 'patch' };
+    // بدون شرط version
+    const r2 = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.float_config', {
+      method: 'PATCH',
+      headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: JSON.stringify({
+        version: (base || 0) + 1,
+        updated_by: who,
+        updated_at: new Date().toISOString(),
+        data: dataStr
+      })
+    });
+    if (r2.ok) {
+      const rows2 = await r2.json();
+      if (Array.isArray(rows2) && rows2.length >= 1) return { ok: true, minutes: n, version: (base || 0) + 1, method: 'patch-any' };
+    }
   }
-  return { fail: { reason: 'conflict', status: 409 } };
+  return { fail: { reason: 'conflict', status: 409, message: 'ذخیره شناوری ناموفق' } };
 }
 
 async function resolveFloatMinutesAuthoritative(cfg, obj) {
