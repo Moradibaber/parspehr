@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-20-fix-v322';
+const PSP_BUILD = '2026-11-20-fix-v323';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -96,13 +96,14 @@ async function stamp(html, user, env) {
     '<meta name="application-name" content="Parspehr' + zwEncode(safe) + '">' +
     '<meta name="psp-license" content="' + safe + '">' +
     '<script>window.__psp="' + safe + '";</script>';
-  const bootVer = '20261120v321';
+  const bootVer = '20261120v322';
+  const floatFixScript = '<script>(function(){try{console.log("[psp] float-fix v322");}catch(e){}function readF(){var el=document.getElementById("pspWsFloat");if(!el)return null;var s=String(el.value||"").replace(/[\\u06F0-\\u06F9]/g,function(d){return"0123456789"["\\u06F0\\u06F1\\u06F2\\u06F3\\u06F4\\u06F5\\u06F6\\u06F7\\u06F8\\u06F9".indexOf(d)]}).replace(/[^\\d]/g,"");var n=parseInt(s,10);if(!isFinite(n)||n<0)n=0;if(n>480)n=480;return n}function writeF(n){var el=document.getElementById("pspWsFloat");if(el&&n!=null)el.value=String(n)}function saveF(n,cb){fetch("/api/admin/set-float-minutes",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({floatMinutes:n})}).then(function(r){return r.json()}).then(function(j){if(j&&j.ok){writeF(j.floatMinutes);try{console.log("[psp] float saved",j.floatMinutes,j.source)}catch(e){}}if(cb)cb(j)}).catch(function(e){try{console.error("[psp] float save fail",e)}catch(x){}if(cb)cb(null)})}document.addEventListener("click",function(ev){var t=ev.target;if(!t)return;var b=t.closest?t.closest("button,#pspCurSave"):null;if(!b)return;var id=b.id||"";var tx=(b.textContent||"");if(id==="pspCurSave"||tx.indexOf("ثبت ماه")>=0||tx.indexOf("ذخیره")>=0&&tx.indexOf("ماه")>=0){var n=readF();if(n!=null)setTimeout(function(){saveF(n)},300)}},true);setInterval(function(){var el=document.getElementById("pspWsFloat");if(!el||el.getAttribute("data-psp-float-bound"))return;el.setAttribute("data-psp-float-bound","1");el.addEventListener("change",function(){var n=readF();if(n!=null)saveF(n)});fetch("/api/admin/get-current-month?contractType=normal&_="+Date.now(),{credentials:"same-origin",cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(!j||!j.ok)return;var v=j.companyFloatMinutes!=null?j.companyFloatMinutes:(j.portalFloatMinutes!=null?j.portalFloatMinutes:j.floatMinutes);if(v!=null)writeF(v)}).catch(function(){})},2000)})();<\/script>';
   const portalAdminScript = '<script src="/api/admin/portal-boot.js?v=' + bootVer + '" onerror="console.error(\'[psp] portal-boot LOAD FAIL\');try{var d=document.createElement(\'div\');d.style.cssText=\'padding:12px;margin:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;color:#991b1b;font-family:Tahoma;direction:rtl\';d.textContent=\'خطا در بارگذاری portal-boot.js (شبکه یا دیپلوی). Worker را دوباره دیپلوی کنید.\';document.body&&document.body.prepend(d);}catch(e){}"><\/script>';
   const emergencyInline = '<script>(function(){function n(s){return String(s||\'\').replace(/[\\u200c\\u200d\\u200e\\u200f\\u00a0]/g,\'\').replace(/\\s+/g,\' \').trim();}function hide(el){el.setAttribute(\'data-psp-struct-hide\',\'1\');el.setAttribute(\'hidden\',\'hidden\');el.style.setProperty(\'display\',\'none\',\'important\');el.style.setProperty(\'visibility\',\'hidden\',\'important\');}function show(el){el.removeAttribute(\'data-psp-struct-hide\');el.removeAttribute(\'hidden\');el.style.removeProperty(\'display\');el.style.removeProperty(\'visibility\');}function red(t){if(!t||t.length>36)return false;if(t===\'غیرفعال\'||t===\'فعال\')return false;if(t.indexOf(\'غیرفعال\')>=0)return true;if(t.indexOf(\'سفارش\')>=0&&t.indexOf(\'آیتم\')>=0)return true;if(t.indexOf(\'ثابت\')>=0&&t.indexOf(\'ماهان\')>=0)return true;if(t.indexOf(\'ترتیب\')>=0&&t.indexOf(\'ستون\')>=0)return true;if(t===\'مرخصی\'||t===\'مأموریت\'||t===\'ماموریت\'||t===\'سایر\')return true;if(t===\'مرخصی و مأموریت\'||t===\'مرخصی و ماموریت\')return true;return false;}function go(){try{var nodes=document.querySelectorAll(\'button,[role=tab],a,.tab-btn\');var hasPortal=!!(document.getElementById(\'pspPortalTabBtn\')||document.querySelector(\'[data-tab="portalatt"]\')||document.getElementById(\'panel-portalatt\'));for(var i=0;i<nodes.length;i++){var el=nodes[i];try{if(el.closest&&el.closest(\'table,form,.psp-subtabs,#pspSubTabs\'))continue;var t=n(el.textContent);var isPortal=el.id===\'pspPortalTabBtn\'||el.getAttribute(\'data-tab\')===\'portalatt\';var leave=t.indexOf(\'مرخصی\')>=0;var mis=t.indexOf(\'مأموریت\')>=0||t.indexOf(\'ماموریت\')>=0;var oth=t.indexOf(\'سایر\')>=0;if(isPortal||(leave&&mis)||(leave&&mis&&oth)){el.textContent=\'کارکرد\';try{el.setAttribute(\'title\',\'کارکرد\');}catch(e0){}show(el);continue;}if(hasPortal&&red(t)){var r=el.getBoundingClientRect();var cnt=0,emp=0;for(var j=0;j<nodes.length;j++){try{var r2=nodes[j].getBoundingClientRect();if(Math.abs(r2.top-r.top)<50){cnt++;var tx=n(nodes[j].textContent);if(/^کارکنان\\s*فعال/.test(tx)||tx.indexOf(\'غیرفعال\')>=0)emp++;}}catch(e){}}if(cnt<=3&&emp>=2)continue;hide(el);}}catch(e1){}}var pb=document.getElementById(\'pspPortalTabBtn\');if(pb){pb.textContent=\'کارکرد\';show(pb);}}catch(e){}}if(!document.getElementById(\'pspStructHideCSS\')){var st=document.createElement(\'style\');st.id=\'pspStructHideCSS\';st.textContent=\'[data-psp-struct-hide="1"]{display:none!important;visibility:hidden!important;}\';(document.head||document.documentElement).appendChild(st);}go();setInterval(go,200);})();</script>';
 
 
 
-  const bottom = emergencyInline + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
+  const bottom = emergencyInline + floatFixScript + portalAdminScript + '<script>/*psp:' + safe + '*/</script><!-- psp:' + safe + ' -->';
   let out = /<head(?:\s[^>]*)?>/i.test(html)
     ? html.replace(/<head(?:\s[^>]*)?>/i, function (m) { return m + top; })
     : html + top;
@@ -3033,6 +3034,84 @@ function normalizeWorkSchedule(cal, globalFloat) {
     floatMinutes: fm,
     floatCompensate: c.floatCompensate != null ? !!c.floatCompensate : !!d.floatCompensate
   };
+}
+
+
+/** شناوری در سند جدا (float_config) تا ذخیره data آن را با ۹۰ قدیمی بازنویسی نکند */
+async function storeGetFloatConfig(cfg) {
+  try {
+    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.float_config&select=version,data',
+      { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+    if (r.status === 406) return { version: 0, minutes: null };
+    if (!r.ok) return { fail: await storeFail(r) };
+    const row = await r.json();
+    var minutes = null;
+    if (row && row.data) {
+      try {
+        var o = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+        minutes = parseFloatMinutesValue(o && o.floatMinutes, null);
+      } catch (e) {}
+    }
+    return { version: Number(row.version) || 0, minutes: minutes };
+  } catch (e) {
+    return { fail: { reason: 'unreachable', status: 502 } };
+  }
+}
+
+async function storePutFloatConfig(cfg, minutes, whoName) {
+  var n = parseFloatMinutesValue(minutes, null);
+  if (n == null) return { fail: { reason: 'bad_float', status: 400 } };
+  if (n < 0) n = 0;
+  if (n > 480) n = 480;
+  const payloadObj = { floatMinutes: n, updatedAt: new Date().toISOString() };
+  for (var attempt = 0; attempt < 8; attempt++) {
+    const cur = await storeGetFloatConfig(cfg);
+    if (cur.fail) return cur;
+    var base = cur.version || 0;
+    if (base === 0) {
+      await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+        method: 'POST',
+        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
+        body: JSON.stringify([{ name: 'float_config', version: 0, data: '{}' }])
+      });
+    }
+    const body = JSON.stringify({
+      version: base + 1,
+      updated_by: whoName || 'float',
+      updated_at: new Date().toISOString(),
+      data: JSON.stringify(payloadObj)
+    });
+    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.float_config&version=eq.' + base + '&select=version', {
+      method: 'PATCH',
+      headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: body
+    });
+    if (!r.ok) {
+      // maybe row missing
+      if (r.status === 404 || r.status === 406) {
+        await fetch(cfg.url + '/rest/v1/app_docs', {
+          method: 'POST',
+          headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+          body: JSON.stringify([{ name: 'float_config', version: 1, data: JSON.stringify(payloadObj), updated_by: whoName || 'float', updated_at: new Date().toISOString() }])
+        });
+        return { ok: true, minutes: n, version: 1 };
+      }
+      continue;
+    }
+    const rows = await r.json();
+    if (Array.isArray(rows) && rows.length === 1) return { ok: true, minutes: n, version: base + 1 };
+  }
+  return { fail: { reason: 'conflict', status: 409 } };
+}
+
+async function resolveFloatMinutesAuthoritative(cfg, obj) {
+  // 1) سند جدا float_config
+  try {
+    const fc = await storeGetFloatConfig(cfg);
+    if (!fc.fail && fc.minutes != null) return fc.minutes;
+  } catch (e) {}
+  // 2) settings
+  return resolveCompanyFloatMinutes(obj, null);
 }
 
 function resolveCompanyFloatMinutes(obj, calHint) {
@@ -9900,34 +9979,38 @@ async function handleAdminSetFloatMinutes(request, who, env) {
   if (fmNum > 480) fmNum = 480;
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const gd = await storeGetData(cfg);
-    if (gd.fail) return storeFailResponse(gd.fail);
-    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
-    forceApplyCompanyFloat(gd.obj, fmNum);
-    gd.obj.__forceFloatMinutes = fmNum;
-    const put = await storePutData(cfg, gd.version, gd.obj, 'float-set:direct:' + (who.name || 'admin'));
-    if (put.fail) return storeFailResponse(put.fail);
-    if (put.conflict) continue;
-    // verify
-    const check = await storeGetData(cfg);
-    var got = null;
-    try {
-      got = parseFloatMinutesValue(check.obj && check.obj.settings && check.obj.settings.portalFloatMinutes, null);
-      if (got == null) got = parseFloatMinutesValue(check.obj && check.obj.settings && check.obj.settings.floatMinutes, null);
-    } catch (eV) {}
-    return jsonResponse({
-      ok: true,
-      floatMinutes: fmNum,
-      portalFloatMinutes: fmNum,
-      companyFloatMinutes: fmNum,
-      settingsFloatMinutes: fmNum,
-      verified: got,
-      message: 'شناوری ' + fmNum + ' دقیقه ذخیره شد'
-    });
-  }
-  return jsonResponse({ ok: false, error: 'conflict', message: 'تداخل ذخیره — دوباره تلاش کنید' }, 409);
+
+  // ۱) سند جدا — منبع حقیقت شناوری
+  const putF = await storePutFloatConfig(cfg, fmNum, who.name || 'admin');
+  if (putF.fail) return storeFailResponse(putF.fail);
+
+  // ۲) همگام‌سازی در data.settings (بهترین تلاش)
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const gd = await storeGetData(cfg);
+      if (gd.fail || !gd.obj) break;
+      forceApplyCompanyFloat(gd.obj, fmNum);
+      gd.obj.__forceFloatMinutes = fmNum;
+      const put = await storePutData(cfg, gd.version, gd.obj, 'float-set:direct:' + (who.name || 'admin'));
+      if (put.fail) break;
+      if (put.conflict) continue;
+      break;
+    }
+  } catch (eSync) {}
+
+  const verified = await storeGetFloatConfig(cfg);
+  return jsonResponse({
+    ok: true,
+    floatMinutes: fmNum,
+    portalFloatMinutes: fmNum,
+    companyFloatMinutes: fmNum,
+    settingsFloatMinutes: fmNum,
+    verified: verified.minutes,
+    source: 'float_config',
+    message: 'شناوری ' + fmNum + ' دقیقه ذخیره شد'
+  });
 }
+
 
 async function handleAdminSetCurrentMonth(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
@@ -10005,7 +10088,8 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     if (cal.floatMinutes == null || cal.floatMinutes === '') cal.floatMinutes = 15;
     if (fmFromBody != null) {
       forceApplyCompanyFloat(gd.obj, fmFromBody);
-      gd.obj.__forceFloatMinutes = fmFromBody; // بعد از merge هم اعمال شود
+      gd.obj.__forceFloatMinutes = fmFromBody;
+      try { await storePutFloatConfig(cfg, fmFromBody, who.name || 'admin'); } catch (eFC) {}
     } else if (gd.obj.settings.floatMinutes != null && gd.obj.settings.floatMinutes !== '') {
       forceApplyCompanyFloat(gd.obj, gd.obj.settings.floatMinutes);
     }
@@ -10214,7 +10298,9 @@ async function handleAdminSaveHolidays(request, who, env) {
 
 async function handleAdminGetCurrentMonth(request, who, env) {
   if (who.role !== 'admin' && who.role !== 'operator') {
-    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+    var _authFloat = null;
+  try { _authFloat = await resolveFloatMinutesAuthoritative(cfg, gd.obj); } catch (eAF) { _authFloat = resolveCompanyFloatMinutes(gd.obj, cal); }
+  return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
   const cfg = storeConfig(env);
   if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
