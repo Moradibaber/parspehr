@@ -2,7 +2,7 @@
 import { makeEngine } from './engine.js';
 import PORTAL_ADMIN_JS from './portal-admin-src.js';
 
-const PSP_BUILD = '2026-11-20-fix-v325';
+const PSP_BUILD = '2026-11-21-hse-v2';
 
 const OWNER = 'Mohamad Moradibabersad'; // <-- put your own name here (English letters)
 const STATE_DOCS = ['settings', 'data', 'log'];
@@ -1675,11 +1675,23 @@ async function handleEmpFeatures(request, env) {
     }
   } catch (e2) {}
   if (!adminMonth || adminMonth < 1) adminMonth = realJalaliMonth;
+  var isSafetyOfficerFlag = false;
+  try {
+    const cfg3 = storeConfig(env);
+    if (cfg3) {
+      const gd3 = await storeGetData(cfg3);
+      if (gd3 && !gd3.fail && gd3.obj) {
+        const sh = getSafetyHealth(gd3.obj);
+        isSafetyOfficerFlag = isSafetyOfficer(sh.config, sess.code);
+      }
+    }
+  } catch (eS) {}
   return jsonResponse({
     ok: true, userAccess: userAccess,
     realJalaliYear: realJalaliYear, realJalaliMonth: realJalaliMonth, realJalaliDay: realJalaliDay,
     requestYear: requestYear, requestMonth: requestMonth, requestGraceDays: requestGraceDays,
-    currentYear: adminYear, currentMonth: adminMonth
+    currentYear: adminYear, currentMonth: adminMonth,
+    isSafetyOfficer: isSafetyOfficerFlag
   });
 }
 
@@ -10884,6 +10896,372 @@ function withCookie(res, cookie) {
   return new Response(res.body, { status: res.status, headers: h });
 }
 
+
+// ==================== ایمنی و بهداشت (HSE) ====================
+function defaultSafetyPpeItems() {
+  return [
+    { id: 'shoes', name: 'کفش ایمنی', intervalMonths: 6 },
+    { id: 'helmet', name: 'کلاه ایمنی', intervalMonths: 12 },
+    { id: 'uniform', name: 'یونیفرم', intervalMonths: 6 },
+    { id: 'gloves', name: 'دستکش', intervalMonths: 3 },
+    { id: 'glassesDay', name: 'عینک روز', intervalMonths: 12 },
+    { id: 'glassesNight', name: 'عینک شب', intervalMonths: 12 },
+    { id: 'earmuff', name: 'گوشی محافظ', intervalMonths: 12 },
+    { id: 'mask', name: 'ماسک', intervalMonths: 6 }
+  ];
+}
+function defaultSafetyFields() {
+  return {
+    fullName: true,
+    nationalId: true,
+    position: true,
+    unit: true,
+    hireDate: true,
+    jobDesc: true,
+    code: true,
+    mobile: false,
+    workplace: false
+  };
+}
+function defaultSafetyHealth() {
+  return {
+    fields: defaultSafetyFields(),
+    ppeItems: defaultSafetyPpeItems(),
+    officerCodes: [],
+    visibleMode: 'all',
+    visibleCodes: [],
+    medicalIntervalMonths: 12,
+    trainingReminderMonths: 12
+  };
+}
+function normalizeSafetyHealth(raw) {
+  const d = defaultSafetyHealth();
+  const r = raw && typeof raw === 'object' ? raw : {};
+  if (r.fields && typeof r.fields === 'object') {
+    Object.keys(d.fields).forEach(function (k) {
+      if (r.fields[k] != null) d.fields[k] = !!r.fields[k];
+    });
+  }
+  if (Array.isArray(r.ppeItems) && r.ppeItems.length) {
+    d.ppeItems = r.ppeItems.map(function (it) {
+      if (!it || typeof it !== 'object') return null;
+      var id = String(it.id || '').trim() || ('ppe_' + Math.random().toString(36).slice(2, 8));
+      var name = String(it.name || id).trim().slice(0, 80);
+      var im = Number(it.intervalMonths);
+      if (!isFinite(im) || im < 1) im = 6;
+      if (im > 60) im = 60;
+      return { id: id, name: name, intervalMonths: im };
+    }).filter(Boolean).slice(0, 40);
+  }
+  if (Array.isArray(r.officerCodes)) {
+    d.officerCodes = r.officerCodes.map(function (c) { return String(c).trim(); }).filter(Boolean).slice(0, 200);
+  }
+  d.visibleMode = (r.visibleMode === 'selected') ? 'selected' : 'all';
+  if (Array.isArray(r.visibleCodes)) {
+    d.visibleCodes = r.visibleCodes.map(function (c) { return String(c).trim(); }).filter(Boolean).slice(0, 5000);
+  }
+  var mi = Number(r.medicalIntervalMonths);
+  d.medicalIntervalMonths = (isFinite(mi) && mi >= 1 && mi <= 60) ? mi : 12;
+  var tr = Number(r.trainingReminderMonths);
+  d.trainingReminderMonths = (isFinite(tr) && tr >= 1 && tr <= 60) ? tr : 12;
+  return d;
+}
+function getSafetyHealth(obj) {
+  if (!obj.safetyHealth || typeof obj.safetyHealth !== 'object') obj.safetyHealth = {};
+  if (!obj.safetyHealth.config) obj.safetyHealth.config = defaultSafetyHealth();
+  else obj.safetyHealth.config = normalizeSafetyHealth(obj.safetyHealth.config);
+  if (!obj.safetyHealth.ppeRecords || typeof obj.safetyHealth.ppeRecords !== 'object') obj.safetyHealth.ppeRecords = {};
+  if (!obj.safetyHealth.medicalRecords || typeof obj.safetyHealth.medicalRecords !== 'object') obj.safetyHealth.medicalRecords = {};
+  if (!Array.isArray(obj.safetyHealth.trainings)) obj.safetyHealth.trainings = [];
+  if (!Array.isArray(obj.safetyHealth.incidents)) obj.safetyHealth.incidents = [];
+  return obj.safetyHealth;
+}
+/** افزودن ماه به تاریخ جلالی YYYY/MM/DD یا YYYY-MM-DD */
+function addJalaliMonths(dateStr, months) {
+  var p = parseJalaliYMD(dateStr);
+  if (!p) return '';
+  var y = p.y, m = p.m, d = p.d;
+  var add = Number(months) || 0;
+  m += add;
+  while (m > 12) { m -= 12; y += 1; }
+  while (m < 1) { m += 12; y -= 1; }
+  var dim = daysInJalaliMonth(y, m);
+  if (d > dim) d = dim;
+  return y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+}
+function jalaliTodayStr() {
+  try {
+    var j = null;
+    try { if (typeof jalaliNowTehran === 'function') j = jalaliNowTehran(); } catch (e) {}
+    if (!j && typeof gregorianToJalali === 'function') {
+      var now = new Date();
+      j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    }
+    if (j) {
+      var y = Number(j.y || j.jy) || 0;
+      var m = Number(j.m || j.jm) || 0;
+      var d = Number(j.d || j.jd) || 0;
+      if (y && m && d) return y + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+    }
+  } catch (e2) {}
+  return '';
+}
+function jalaliKey(s) {
+  var p = parseJalaliYMD(s);
+  return p ? (p.y * 10000 + p.m * 100 + p.d) : 0;
+}
+function safetyEmpVisible(cfg, code) {
+  if (!cfg) return true;
+  if (cfg.visibleMode !== 'selected') return true;
+  var list = cfg.visibleCodes || [];
+  return list.indexOf(String(code)) >= 0;
+}
+function isSafetyOfficer(cfg, code) {
+  if (!cfg || !code) return false;
+  return (cfg.officerCodes || []).indexOf(String(code)) >= 0;
+}
+function buildSafetyEmpRow(emp, sh, cfg, jobMap) {
+  var code = String(emp.code || '');
+  var fields = (cfg && cfg.fields) || defaultSafetyFields();
+  var row = { code: code };
+  if (fields.code !== false) row.code = code;
+  if (fields.fullName !== false) row.fullName = emp.fullName || ((emp.firstName || '') + ' ' + (emp.lastName || '')).trim();
+  if (fields.nationalId) row.nationalId = emp.nationalId || '';
+  if (fields.position) row.position = emp.position || emp.jobTitle || '';
+  if (fields.unit) row.unit = emp.unit || emp.department || '';
+  if (fields.hireDate) row.hireDate = emp.hireDate || '';
+  if (fields.mobile) row.mobile = emp.mobile || emp.phone || '';
+  if (fields.workplace) row.workplace = emp.workplace || '';
+  if (fields.jobDesc) {
+    var jd = jobMap && jobMap[code];
+    row.jobDescTitle = jd && jd.title ? String(jd.title) : '';
+    row.jobDesc = jd && (jd.duties || jd.text || jd.body) ? String(jd.duties || jd.text || jd.body).slice(0, 500) : '';
+  }
+  var hire = emp.hireDate || '';
+  var todayK = jalaliKey(jalaliTodayStr());
+  var ppeRec = (sh.ppeRecords && sh.ppeRecords[code]) || {};
+  row.ppe = {};
+  (cfg.ppeItems || []).forEach(function (it) {
+    var rec = ppeRec[it.id] || {};
+    var last = rec.lastDate || '';
+    var base = last || hire;
+    var next = base ? addJalaliMonths(base, it.intervalMonths) : '';
+    var overdue = !!(next && todayK && jalaliKey(next) < todayK);
+    var daysLeft = null;
+    if (next && todayK) {
+      // تقریبی: اختلاف کلید تاریخ
+      daysLeft = jalaliKey(next) - todayK; // not exact days but sortable
+    }
+    row.ppe[it.id] = {
+      name: it.name,
+      intervalMonths: it.intervalMonths,
+      lastDate: last,
+      nextDate: next,
+      overdue: overdue,
+      note: rec.note || ''
+    };
+  });
+  var med = (sh.medicalRecords && sh.medicalRecords[code]) || {};
+  var medLast = med.lastDate || '';
+  var medBase = medLast || hire;
+  var medNext = medBase ? addJalaliMonths(medBase, cfg.medicalIntervalMonths || 12) : '';
+  row.medical = {
+    lastDate: medLast,
+    nextDate: medNext,
+    overdue: !!(medNext && todayK && jalaliKey(medNext) < todayK),
+    result: med.result || '',
+    note: med.note || ''
+  };
+  return row;
+}
+
+async function handleAdminSafety(request, who, env) {
+  if (who.role !== 'admin' && who.role !== 'operator') {
+    return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+  }
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+
+  if (request.method === 'GET') {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) gd.obj = {};
+    const sh = getSafetyHealth(gd.obj);
+    const emps = (gd.obj.employees || []).filter(function (e) { return e && e.code; });
+    const jobMap = gd.obj.jobDescriptions || {};
+    const rows = emps
+      .filter(function (e) { return safetyEmpVisible(sh.config, e.code); })
+      .map(function (e) { return buildSafetyEmpRow(e, sh, sh.config, jobMap); });
+    return jsonResponse({
+      ok: true,
+      config: sh.config,
+      rows: rows,
+      trainings: (sh.trainings || []).slice(-200).reverse(),
+      incidents: (sh.incidents || []).slice(-200).reverse(),
+      today: jalaliTodayStr(),
+      employeeCount: emps.length
+    });
+  }
+
+  // POST — actions
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const action = String(body.action || 'saveConfig');
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const gd = await storeGetData(cfg);
+    if (gd.fail) return storeFailResponse(gd.fail);
+    if (!gd.obj) return jsonResponse({ ok: false, error: 'no_data' }, 404);
+    const sh = getSafetyHealth(gd.obj);
+
+    if (action === 'saveConfig') {
+      sh.config = normalizeSafetyHealth(body.config || body);
+    } else if (action === 'issuePpe') {
+      var code = String(body.code || '').trim();
+      var itemId = String(body.itemId || '').trim();
+      var lastDate = String(body.lastDate || body.date || '').trim().replace(/-/g, '/');
+      if (!code || !itemId) return jsonResponse({ ok: false, error: 'bad_request', message: 'کد و قلم الزامی است' }, 400);
+      if (lastDate && !parseJalaliYMD(lastDate)) return jsonResponse({ ok: false, error: 'bad_date' }, 400);
+      if (!sh.ppeRecords[code]) sh.ppeRecords[code] = {};
+      sh.ppeRecords[code][itemId] = {
+        lastDate: lastDate || jalaliTodayStr(),
+        note: String(body.note || '').slice(0, 300),
+        by: who.name || 'admin',
+        at: new Date().toISOString()
+      };
+    } else if (action === 'saveMedical') {
+      var codeM = String(body.code || '').trim();
+      if (!codeM) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+      var md = String(body.lastDate || body.date || '').trim().replace(/-/g, '/');
+      if (md && !parseJalaliYMD(md)) return jsonResponse({ ok: false, error: 'bad_date' }, 400);
+      sh.medicalRecords[codeM] = {
+        lastDate: md || jalaliTodayStr(),
+        result: String(body.result || '').slice(0, 200),
+        note: String(body.note || '').slice(0, 300),
+        by: who.name || 'admin',
+        at: new Date().toISOString()
+      };
+    } else if (action === 'addTraining') {
+      sh.trainings.push({
+        id: 'tr_' + Date.now().toString(36),
+        title: String(body.title || '').slice(0, 200),
+        date: String(body.date || jalaliTodayStr()).replace(/-/g, '/'),
+        codes: Array.isArray(body.codes) ? body.codes.map(String).slice(0, 500) : [],
+        note: String(body.note || '').slice(0, 400),
+        by: who.name || 'admin',
+        at: new Date().toISOString()
+      });
+      if (sh.trainings.length > 500) sh.trainings = sh.trainings.slice(-500);
+    } else if (action === 'addIncident') {
+      sh.incidents.push({
+        id: 'inc_' + Date.now().toString(36),
+        date: String(body.date || jalaliTodayStr()).replace(/-/g, '/'),
+        code: String(body.code || '').trim(),
+        severity: String(body.severity || 'low'),
+        title: String(body.title || '').slice(0, 200),
+        description: String(body.description || '').slice(0, 2000),
+        actions: String(body.actions || '').slice(0, 1000),
+        by: who.name || 'admin',
+        at: new Date().toISOString()
+      });
+      if (sh.incidents.length > 500) sh.incidents = sh.incidents.slice(-500);
+    } else {
+      return jsonResponse({ ok: false, error: 'unknown_action' }, 400);
+    }
+
+    gd.obj.safetyHealth = sh;
+    const put = await storePutData(cfg, gd.version, gd.obj, (who.name || 'admin') + ':safety');
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, config: sh.config, action: action });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+async function handleSafetyOfficerApi(request, env) {
+  const sess = await readEmpSession(request, env);
+  if (!sess || !sess.code) return jsonResponse({ ok: false, error: 'auth' }, 401);
+  const cfg = storeConfig(env);
+  if (!cfg) return jsonResponse({ ok: false, error: 'sync_not_configured' }, 503);
+  const gd = await storeGetData(cfg);
+  if (gd.fail) return storeFailResponse(gd.fail);
+  if (!gd.obj) gd.obj = {};
+  const sh = getSafetyHealth(gd.obj);
+  if (!isSafetyOfficer(sh.config, sess.code)) {
+    return jsonResponse({ ok: false, error: 'forbidden', message: 'شما به واحد ایمنی دسترسی ندارید' }, 403);
+  }
+
+  if (request.method === 'GET') {
+    const emps = (gd.obj.employees || []).filter(function (e) { return e && e.code && safetyEmpVisible(sh.config, e.code); });
+    const jobMap = gd.obj.jobDescriptions || {};
+    const rows = emps.map(function (e) { return buildSafetyEmpRow(e, sh, sh.config, jobMap); });
+    var overdueCount = 0;
+    rows.forEach(function (row) {
+      Object.keys(row.ppe || {}).forEach(function (k) {
+        if (row.ppe[k] && row.ppe[k].overdue) overdueCount++;
+      });
+      if (row.medical && row.medical.overdue) overdueCount++;
+    });
+    return jsonResponse({
+      ok: true,
+      isOfficer: true,
+      fields: sh.config.fields,
+      ppeItems: sh.config.ppeItems,
+      rows: rows,
+      trainings: (sh.trainings || []).slice(-100).reverse(),
+      incidents: (sh.incidents || []).slice(-100).reverse(),
+      overdueCount: overdueCount,
+      today: jalaliTodayStr()
+    });
+  }
+
+  // POST issue from officer
+  const r = await readBody(request);
+  if (r.error) return r.error;
+  const body = r.body || {};
+  const action = String(body.action || 'issuePpe');
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const gd2 = await storeGetData(cfg);
+    if (gd2.fail) return storeFailResponse(gd2.fail);
+    const sh2 = getSafetyHealth(gd2.obj);
+    if (!isSafetyOfficer(sh2.config, sess.code)) return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+    if (action === 'issuePpe') {
+      var code = String(body.code || '').trim();
+      var itemId = String(body.itemId || '').trim();
+      if (!code || !itemId) return jsonResponse({ ok: false, error: 'bad_request' }, 400);
+      if (!safetyEmpVisible(sh2.config, code)) return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+      var lastDate = String(body.lastDate || body.date || jalaliTodayStr()).replace(/-/g, '/');
+      if (!sh2.ppeRecords[code]) sh2.ppeRecords[code] = {};
+      sh2.ppeRecords[code][itemId] = {
+        lastDate: lastDate,
+        note: String(body.note || '').slice(0, 300),
+        by: sess.code,
+        at: new Date().toISOString()
+      };
+    } else if (action === 'saveMedical') {
+      var codeM = String(body.code || '').trim();
+      if (!safetyEmpVisible(sh2.config, codeM)) return jsonResponse({ ok: false, error: 'forbidden' }, 403);
+      sh2.medicalRecords[codeM] = {
+        lastDate: String(body.lastDate || jalaliTodayStr()).replace(/-/g, '/'),
+        result: String(body.result || '').slice(0, 200),
+        note: String(body.note || '').slice(0, 300),
+        by: sess.code,
+        at: new Date().toISOString()
+      };
+    } else {
+      return jsonResponse({ ok: false, error: 'unknown_action' }, 400);
+    }
+    gd2.obj.safetyHealth = sh2;
+    const put = await storePutData(cfg, gd2.version, gd2.obj, 'safety-officer:' + sess.code);
+    if (put.fail) return storeFailResponse(put.fail);
+    if (put.conflict) continue;
+    return jsonResponse({ ok: true, action: action });
+  }
+  return jsonResponse({ ok: false, error: 'conflict' }, 409);
+}
+
+
 async function route(request, env, users, found) {
   const user = found.name;
   const adminConfigured = Object.keys(users).some(function (n) { return users[n].role === 'admin'; });
@@ -10937,6 +11315,7 @@ async function route(request, env, users, found) {
   }
   if (path === '/api/admin/grant-attendance') return handleAdminGrantAttendance(request, who, env);
   if (path === '/api/admin/leave-adjust') return handleAdminLeaveAdjust(request, who, env);
+  if (path === '/api/admin/safety') return handleAdminSafety(request, who, env);
   if (path === '/api/admin/set-current-month') return handleAdminSetCurrentMonth(request, who, env);
   if (path === '/api/admin/set-float-minutes') return handleAdminSetFloatMinutes(request, who, env);
   if (path === '/api/admin/get-current-month') return handleAdminGetCurrentMonth(request, who, env);
@@ -12810,6 +13189,10 @@ function showApp(j){
     .then(function(f){
       if (f && f.ok && f.userAccess) applyUserAccessUI(f.userAccess); else applyUserAccessUI(j.userAccess || {});
       if (f && f.ok) try{ applyPortalCalendar(f); }catch(e3){}
+      if (f && f.ok && f.isSafetyOfficer) {
+        var ts = document.getElementById('tabSafety');
+        if (ts) ts.classList.remove('hidden');
+      }
     })
     .catch(function(){ applyUserAccessUI(j.userAccess || {}); });
   loadRequests();
@@ -13186,6 +13569,7 @@ export default {
     if (url.pathname === '/api/emp/timesheet') return handleEmpTimesheet(request, env);
     if (url.pathname === '/api/emp/attendance-types') return handleEmpAttendanceTypes(request, env);
     if (url.pathname === '/api/emp/job-description') return handleEmpJobDescription(request, env);
+    if (url.pathname === '/api/safety' || url.pathname === '/api/safety/') return handleSafetyOfficerApi(request, env);
 
     // ---- Portal admin boot JS: همیشه کامل (APIها جداگانه محافظت می‌شوند) ----
     if (url.pathname === '/api/admin/portal-boot.js') {
