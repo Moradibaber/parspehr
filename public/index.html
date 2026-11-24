@@ -1477,8 +1477,8 @@
   
     <!-- پنل مأموریت/مرخصی توسط Worker تزریق می‌شود (امنیت) -->
   <div class="panel" id="panel-portalatt" data-psp-host="1"></div>
-  <!-- سیاست مرخصی: انتهای تب کارکرد؛ با ensureLeavePolicyInPortal به داخل پنل منتقل می‌شود -->
-  <div id="leavePolicyMount" style="display:none">
+  <!-- سیاست مرخصی: جدا از panel-portalatt تا portal-boot با innerHTML پاکش نکند -->
+  <div id="leavePolicyMount" class="panel" data-psp-leave-mount="1" style="display:none">
     <div class="card" id="leavePolicyCard" data-psp-keep="1" style="margin-top:16px;">
       <div class="section-title">سیاست مرخصی استحقاقی</div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
@@ -12658,46 +12658,74 @@ function pspBindLeavePolicyDraftCapture() {
 
 function ensureLeavePolicyInPortal() {
   try {
-    pspBindLeavePolicyDraftCapture();
-    try { pspCaptureLeavePolicyDraft(); } catch (e0) {}
-    var panel = document.getElementById('panel-portalatt');
+    if (typeof pspBindLeavePolicyDraftCapture === 'function') pspBindLeavePolicyDraftCapture();
+    try { if (typeof pspCaptureLeavePolicyDraft === 'function') pspCaptureLeavePolicyDraft(); } catch (e0) {}
+
     var mount = document.getElementById('leavePolicyMount');
     var card = document.getElementById('leavePolicyCard');
     if (!card && mount) card = mount.querySelector('#leavePolicyCard');
-    var recreated = false;
-
-    if (card && !window.__pspLeavePolicyHtml) {
-      try { window.__pspLeavePolicyHtml = card.outerHTML; } catch (eH) {}
-    }
-    if (!card && window.__pspLeavePolicyHtml) {
-      try {
-        var wrap = document.createElement('div');
-        wrap.innerHTML = window.__pspLeavePolicyHtml;
-        card = wrap.firstElementChild;
-        if (card) {
-          card.id = 'leavePolicyCard';
-          card.style.display = '';
-          recreated = true;
-        }
-      } catch (eR) { card = null; }
-    }
     if (!card) return;
 
-    if (panel) {
-      if (card.parentElement !== panel) panel.appendChild(card);
-      else if (panel.lastElementChild !== card) panel.appendChild(card);
-      card.style.display = '';
-      card.style.visibility = 'visible';
-      if (recreated) {
-        try { pspApplyLeavePolicyDraft(); } catch (eA) {}
+    // هرگز کارت را داخل panel-portalatt نگذار — portal-boot با innerHTML پاک می‌کند
+    if (mount && card.parentElement !== mount) {
+      mount.appendChild(card);
+    }
+    card.style.display = '';
+    card.style.visibility = 'visible';
+
+    // فقط وقتی تب کارکرد فعال است mount را نشان بده
+    var portalPanel = document.getElementById('panel-portalatt');
+    var portalBtn = document.getElementById('pspPortalTabBtn') ||
+      document.querySelector('[data-tab="portalatt"]') ||
+      document.querySelector('.tab-btn.active');
+    var show = false;
+    try {
+      if (portalPanel && portalPanel.classList.contains('active')) show = true;
+      if (portalBtn && portalBtn.classList.contains('active')) {
+        var tx = String(portalBtn.textContent || '');
+        if (/کارکرد|مرخصی|مأموریت|ماموریت|portal/i.test(tx) || portalBtn.getAttribute('data-tab') === 'portalatt') show = true;
       }
-    } else if (mount) {
-      mount.style.display = 'block';
-      if (card.parentElement !== mount) mount.appendChild(card);
-      card.style.display = '';
+      // اگر هر پنل دیگری active است، مخفی
+      var activePanel = document.querySelector('.panel.active');
+      if (activePanel && activePanel.id && activePanel.id !== 'panel-portalatt' && activePanel.id !== 'leavePolicyMount') {
+        show = false;
+      }
+      if (activePanel && activePanel.id === 'panel-portalatt') show = true;
+    } catch (eS) {}
+
+    if (mount) {
+      if (show) {
+        mount.style.display = 'block';
+        mount.classList.add('active');
+      } else {
+        // اگر کاربر روی تب کارکرد نیست مخفی کن
+        var anyPortal = false;
+        try {
+          document.querySelectorAll('.tab-btn.active, [data-tab].active').forEach(function(b) {
+            var t = String(b.textContent || '');
+            if (b.id === 'pspPortalTabBtn' || b.getAttribute('data-tab') === 'portalatt' || /کارکرد/.test(t)) anyPortal = true;
+          });
+        } catch (e2) {}
+        if (anyPortal) {
+          mount.style.display = 'block';
+          mount.classList.add('active');
+        } else {
+          mount.style.display = 'none';
+          mount.classList.remove('active');
+        }
+      }
     }
   } catch (e) {}
 }
+// نمایش mount با کلیک تب کارکرد
+document.addEventListener('click', function(ev) {
+  try {
+    var b = ev.target && ev.target.closest && ev.target.closest('.tab-btn, [data-tab], [role="tab"]');
+    if (!b) return;
+    setTimeout(ensureLeavePolicyInPortal, 50);
+    setTimeout(ensureLeavePolicyInPortal, 300);
+  } catch (e) {}
+}, true);
 setTimeout(ensureLeavePolicyInPortal, 400);
 setTimeout(ensureLeavePolicyInPortal, 1200);
 setTimeout(ensureLeavePolicyInPortal, 3000);
