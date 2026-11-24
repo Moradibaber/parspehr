@@ -358,6 +358,19 @@
     background: rgba(255,255,255,0.2); padding: 4px 14px; border-radius: 999px;
     font-size: 0.82rem; font-weight: 600;
   }
+
+  #leavePolicyCard input.leave-ct-days,
+  #leavePolicyCard input.leave-grp-days,
+  #leavePolicyCard #leaveAnnualDays,
+  #leavePolicyCard #leaveCarryMax {
+    width: 100px !important; min-width: 100px !important; max-width: 120px !important;
+    height: 34px !important; box-sizing: border-box; text-align: center;
+    padding: 4px 8px !important; font-size: 0.85rem !important;
+  }
+  #leavePolicyCard input.leave-grp-name { width: 100%; min-width: 140px; height: 34px; box-sizing: border-box; }
+  #leavePolicyCard table { width: auto; max-width: 100%; }
+  #leavePolicyCard td { vertical-align: middle; }
+
 </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -1484,7 +1497,12 @@
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
         سقف مرخصی استحقاقی سالانه بر اساس <b>نوع قرارداد</b> و در صورت تعریف، <b>گروه کاری</b> (اولویت با گروه).
         اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
+        پس از تغییر، حتماً <b>ذخیره و ارسال به سرور</b> را بزنید تا در پرتال کارمند دیده شود.
       </p>
+      <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+        <button type="button" class="btn btn-primary btn-sm" id="btnSaveLeavePolicy" onclick="saveLeavePolicyToServer()">ذخیره و ارسال سیاست مرخصی به سرور</button>
+        <span id="leavePolicySaveMsg" style="font-size:0.78rem;color:#0f766e;"></span>
+      </div>
       <div class="form-grid" style="margin-bottom:12px;">
         <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&String(n.value).trim()==='')n.value=v;if(d&&String(d.value).trim()==='')d.value=v;}catch(e){}"></div>
         <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
@@ -11604,7 +11622,16 @@ function syncDocsNow() {
 
 function syncApply(name, obj) {
   if (name === 'settings') {
+    var keepLeave = null;
+    try {
+      if (window.__pspLeavePolicyDirty && data.settings && data.settings.leavePolicy) {
+        keepLeave = JSON.parse(JSON.stringify(data.settings.leavePolicy));
+      }
+    } catch (eK) {}
     data.settings = sbMergeLocalSecrets(syncClone(obj), data.settings);
+    if (keepLeave) {
+      data.settings.leavePolicy = keepLeave;
+    }
     // ثابت‌های ماهانه: بعد از هر اعمال سرور، پشتیبان محلی دوباره اعمال می‌شود تا پاک نشوند
     try { restoreMonthlyVarsBackup(); } catch (eR) {}
   } else if (name === 'log') {
@@ -12363,10 +12390,21 @@ function getAnnualLeaveDaysForEmpLocal(emp) {
   var pol = (data.settings && data.settings.leavePolicy) || {};
   var annual = Number(pol.annualDays);
   if (isNaN(annual) || annual < 0) annual = 26;
-  var grp = String((emp && emp.group) || '').trim();
-  if (grp && pol.byGroup && pol.byGroup[grp] != null && pol.byGroup[grp] !== '') {
-    var ng = Number(pol.byGroup[grp]);
-    if (!isNaN(ng) && ng >= 0) return ng;
+  function normG(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+  var grp = normG((emp && (emp.group || emp.workGroup || emp.groupName)) || '');
+  if (grp && pol.byGroup && typeof pol.byGroup === 'object') {
+    var hit = null;
+    if (pol.byGroup[grp] != null && pol.byGroup[grp] !== '') hit = pol.byGroup[grp];
+    else {
+      var keys = Object.keys(pol.byGroup);
+      for (var i = 0; i < keys.length; i++) {
+        if (normG(keys[i]) === grp) { hit = pol.byGroup[keys[i]]; break; }
+      }
+    }
+    if (hit != null && hit !== '') {
+      var ng = Number(hit);
+      if (!isNaN(ng) && ng >= 0) return ng;
+    }
   }
   var ct = String((emp && emp.contractType) || 'normal').trim() || 'normal';
   if (pol.byContractType && pol.byContractType[ct] != null && pol.byContractType[ct] !== '') {
@@ -12764,6 +12802,71 @@ function pspBindLeavePolicyDraftCapture() {
 }
 
 try { pspBindLeavePolicyDraftCapture(); } catch (eBoot) {}
+
+
+async function saveLeavePolicyToServer() {
+  try {
+    window.__pspLeavePolicyDirty = true;
+    if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm();
+    var lp = (data.settings && data.settings.leavePolicy) || {};
+    var msg = document.getElementById('leavePolicySaveMsg');
+    if (msg) msg.textContent = 'در حال ذخیره و ارسال…';
+    // اطمینان از وجود byContractType کامل
+    if (!lp.byContractType) lp.byContractType = {};
+    document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+      var id = inp.getAttribute('data-ct');
+      if (!id) return;
+      var n = Number(String(inp.value).replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+      if (isFinite(n) && n >= 0) lp.byContractType[id] = n;
+    });
+    if (!lp.byGroup) lp.byGroup = {};
+    document.querySelectorAll('tr.leave-grp-row').forEach(function(row) {
+      var gn = String(((row.querySelector('.leave-grp-name') || {}).value) || '').trim();
+      var gd = String(((row.querySelector('.leave-grp-days') || {}).value) || '').trim();
+      if (!gn || gd === '') return;
+      var n = Number(gd.replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+      if (isFinite(n) && n >= 0) lp.byGroup[gn] = n;
+    });
+    var la = document.getElementById('leaveAnnualDays');
+    if (la && String(la.value).trim() !== '') {
+      var na = Number(String(la.value).replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+      if (isFinite(na) && na >= 0) lp.annualDays = na;
+    }
+    data.settings.leavePolicy = lp;
+    try { if (typeof saveToCache === 'function') saveToCache(); } catch (eC) {}
+    // ارسال فوری تنظیمات به سرور
+    if (typeof syncOn !== 'undefined' && syncOn && typeof syncPush === 'function' && typeof syncDocsNow === 'function') {
+      try {
+        var base = (typeof syncBase !== 'undefined' && syncBase.settings) ? syncBase.settings : null;
+        var ver = base && base.version != null ? base.version : 0;
+        var payload = syncDocsNow().settings;
+        var ok = await syncPush('settings', ver, payload);
+        if (ok === false) {
+          // fallback: syncTick manual
+          if (typeof syncTick === 'function') await syncTick('manual');
+        }
+        window.__pspLeavePolicyDirty = false;
+        if (msg) msg.textContent = 'ذخیره و ارسال شد. پرتال کارمند را رفرش کنید.';
+        try { if (typeof addChangeLog === 'function') addChangeLog('سیاست مرخصی', '-', 'سقف سالانه/قرارداد/گروه ذخیره و همگام شد'); } catch (eL) {}
+        return;
+      } catch (eS) {
+        console.error(eS);
+        if (typeof syncTick === 'function') {
+          try { await syncTick('manual'); } catch (e2) {}
+        }
+        window.__pspLeavePolicyDirty = false;
+        if (msg) msg.textContent = 'ذخیره محلی شد؛ همگام‌سازی را دستی بزنید.';
+        return;
+      }
+    }
+    window.__pspLeavePolicyDirty = false;
+    if (msg) msg.textContent = 'ذخیره محلی شد. همگام‌سازی ابری فعال نیست — دکمه همگام‌سازی را بزنید.';
+  } catch (e) {
+    console.error(e);
+    var msg2 = document.getElementById('leavePolicySaveMsg');
+    if (msg2) msg2.textContent = 'خطا: ' + (e && e.message ? e.message : e);
+  }
+}
 
 function ensureLeavePolicyInPortal() {
   try {
