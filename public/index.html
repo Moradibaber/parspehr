@@ -1486,7 +1486,7 @@
         اگر برای گروه یا نوع قراردادی مقدار نباشد، از «پیش‌فرض» استفاده می‌شود.
       </p>
       <div class="form-grid" style="margin-bottom:12px;">
-        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&(n.value==='26'||n.value===''))n.value=v;if(d&&(d.value==='26'||d.value===''))d.value=v;}catch(e){}"></div>
+        <div class="form-group"><label>پیش‌فرض (روز در سال)</label><input type="number" id="leaveAnnualDays" value="30" min="0" step="1" onchange="try{var v=this.value;var n=document.getElementById('leaveCt_normal');var d=document.getElementById('leaveCt_daily');if(n&&String(n.value).trim()==='')n.value=v;if(d&&String(d.value).trim()==='')d.value=v;}catch(e){}"></div>
         <div class="form-group"><label>سقف انتقال به سال بعد</label><input type="number" id="leaveCarryMax" value="9" min="0" step="1"></div>
       </div>
       <div style="margin-bottom:12px;overflow-x:auto;">
@@ -3336,9 +3336,21 @@ function refreshLeavePolicyContractRows() {
   var lp = (data.settings && data.settings.leavePolicy) || {};
   var bct = lp.byContractType || {};
   var annual = lp.annualDays != null ? lp.annualDays : 26;
+  // مقادیر فعلی فرم را حفظ کن تا قبل از ذخیره با 26 بازنویسی نشوند
+  var current = {};
+  try {
+    document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+      var id = inp.getAttribute('data-ct') || (inp.id && String(inp.id).replace(/^leaveCt_/, ''));
+      if (!id) return;
+      var raw = String(inp.value || '').trim();
+      if (raw === '') return;
+      var n = Number(raw.replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+      if (isFinite(n) && n >= 0) current[id] = n;
+    });
+  } catch (eC) {}
   var html = '';
   list.forEach(function(t) {
-    var v = bct[t.id] != null ? bct[t.id] : annual;
+    var v = current[t.id] != null ? current[t.id] : (bct[t.id] != null ? bct[t.id] : annual);
     html += '<tr><td>' + (t.name || t.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + t.id + '" value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
   });
   tb.innerHTML = html;
@@ -4676,9 +4688,9 @@ function loadSettingsToForm() {
     var elN = document.getElementById('leaveCt_normal');
     var elD = document.getElementById('leaveCt_daily');
     var elH = document.getElementById('leaveCt_hourly');
-    if (elN) elN.value = bct.normal != null ? bct.normal : (lp.annualDays != null ? lp.annualDays : 26);
-    if (elD) elD.value = bct.daily != null ? bct.daily : (lp.annualDays != null ? lp.annualDays : 26);
-    if (elH) elH.value = bct.hourly != null ? bct.hourly : 0;
+    if (elN) elN.value = (bct.normal != null && bct.normal !== '') ? bct.normal : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
+    if (elD) elD.value = (bct.daily != null && bct.daily !== '') ? bct.daily : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
+    if (elH) elH.value = (bct.hourly != null && bct.hourly !== '') ? bct.hourly : 0;
     try { refreshContractTypeSelects(); } catch (e) {}
     renderLeaveGroupPolicyRows(lp.byGroup || {});
   } catch (e) {}
@@ -4807,21 +4819,25 @@ function saveSettings() {
       byGroup[g] = n;
     });
     data.settings.leavePolicy = {
-      annualDays: la ? Number(la.value) || 0 : 26,
-      carryMax: lc ? Number(lc.value) || 0 : 0,
+      annualDays: (function(){ var n = la ? Number(la.value) : NaN; return isFinite(n) && n >= 0 ? n : 26; })(),
+      carryMax: (function(){ var n = lc ? Number(lc.value) : NaN; return isFinite(n) && n >= 0 ? n : 0; })(),
       byContractType: (function(){
-        var annual = la ? Number(la.value) || 0 : 26;
+        var annual = la ? Number(la.value) : NaN;
+        if (!isFinite(annual) || annual < 0) annual = 26;
         var out = {};
         document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
-          var id = inp.getAttribute('data-ct') || inp.id && String(inp.id).replace(/^leaveCt_/, '');
+          var id = inp.getAttribute('data-ct') || (inp.id && String(inp.id).replace(/^leaveCt_/, ''));
           if (!id) return;
-          var n = Number(inp.value);
-          if (isNaN(n) || n < 0) n = annual;
+          var n = Number(String(inp.value).replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+          if (!isFinite(n) || n < 0) n = annual;
           out[id] = n;
         });
         if (!Object.keys(out).length) {
           out = { normal: annual, daily: annual, hourly: 0 };
         }
+        if (out.normal == null) out.normal = annual;
+        if (out.daily == null) out.daily = annual;
+        if (out.hourly == null) out.hourly = 0;
         return out;
       })(),
       byGroup: byGroup
