@@ -4737,30 +4737,31 @@ function loadSettingsToForm() {
   if (ie && (ie.value === '' || ie.value === 'undefined' || ie.value === 'null')) ie.value = 7;
   if (ir && (ir.value === '' || ir.value === 'undefined' || ir.value === 'null')) ir.value = 23;
   try {
-    var lp = (data.settings && data.settings.leavePolicy) || {};
-    var la = document.getElementById('leaveAnnualDays');
-    var lc = document.getElementById('leaveCarryMax');
-    if (la) la.value = lp.annualDays != null ? lp.annualDays : 26;
-    if (lc) lc.value = lp.carryMax != null ? lp.carryMax : 9;
-    var bct = lp.byContractType || {};
-    var elN = document.getElementById('leaveCt_normal');
-    var elD = document.getElementById('leaveCt_daily');
-    var elH = document.getElementById('leaveCt_hourly');
-    if (elN) elN.value = (bct.normal != null && bct.normal !== '') ? bct.normal : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
-    if (elD) elD.value = (bct.daily != null && bct.daily !== '') ? bct.daily : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
-    if (elH) elH.value = (bct.hourly != null && bct.hourly !== '') ? bct.hourly : 0;
-    // همگام با draft تا بعد از rebuild جدول مقدار کاربر/سرور حفظ شود
-    try {
+    if (window.__pspLeavePolicyDirty) {
+      try { if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm(); } catch (eW) {}
+    } else {
+      var lp = (data.settings && data.settings.leavePolicy) || {};
+      var la = document.getElementById('leaveAnnualDays');
+      var lc = document.getElementById('leaveCarryMax');
+      if (la) la.value = (lp.annualDays != null && lp.annualDays !== '') ? lp.annualDays : 26;
+      if (lc) lc.value = (lp.carryMax != null && lp.carryMax !== '') ? lp.carryMax : 9;
+      var bct = lp.byContractType || {};
+      try { if (typeof pspEnsureLeaveContractRows === 'function') pspEnsureLeaveContractRows(); } catch (eE) {}
+      document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+        var id = inp.getAttribute('data-ct') || '';
+        if (!id) return;
+        if (bct[id] != null && bct[id] !== '') inp.value = bct[id];
+        else if (id === 'hourly') inp.value = (bct.hourly != null ? bct.hourly : 0);
+        else inp.value = (lp.annualDays != null && lp.annualDays !== '') ? lp.annualDays : 26;
+      });
       window.__pspLeavePolicyDraft = {
         annualDays: lp.annualDays != null ? Number(lp.annualDays) : 26,
         carryMax: lp.carryMax != null ? Number(lp.carryMax) : 9,
         byContractType: Object.assign({}, bct),
         byGroup: Object.assign({}, lp.byGroup || {})
       };
-    } catch (eD) {}
-    try { refreshContractTypeSelects(); } catch (e) {}
-    try { if (typeof pspApplyLeavePolicyDraft === 'function') pspApplyLeavePolicyDraft(); }
-    catch (eA) { renderLeaveGroupPolicyRows(lp.byGroup || {}); }
+      try { if (typeof renderLeaveGroupPolicyRows === 'function') renderLeaveGroupPolicyRows(lp.byGroup || {}); } catch (eG) {}
+    }
   } catch (e) {}
 
   document.getElementById('nightFactor').value = s.nightFactor || 1.35;
@@ -4942,6 +4943,7 @@ function saveSettings() {
   applyYearTheme(y);
   addChangeLog('تنظیمات', '-', 'ذخیره نرخ‌ها و روزهای ماه سال ' + y + ' توسط ادمین');
   saveToCache();
+  window.__pspLeavePolicyDirty = false;
   alert('ذخیره شد — روزهای ماه برای سال ' + y + ' ثبت شد.');
 }
 
@@ -12718,26 +12720,24 @@ function pspApplyLeavePolicyDraft() {
     var carry = d.carryMax != null ? d.carryMax : (lp.carryMax != null ? lp.carryMax : 9);
     var la = document.getElementById('leaveAnnualDays');
     var lc = document.getElementById('leaveCarryMax');
-    if (la) la.value = annual;
-    if (lc) lc.value = carry;
-    // rebuild contract rows with merged values
-    var tb = document.querySelector('#leavePolicyByContract tbody');
-    if (tb) {
-      var list = (typeof getContractTypesListLocal === 'function') ? getContractTypesListLocal() : [];
-      if (!list || !list.length) list = [{id:'normal',name:'عادی'},{id:'daily',name:'روزمزد'},{id:'hourly',name:'ساعتی'}];
-      var html = '';
-      list.forEach(function(ct) {
-        var v = bct[ct.id] != null ? bct[ct.id] : annual;
-        var idAttr = (ct.id === 'normal' || ct.id === 'daily' || ct.id === 'hourly') ? (' id="leaveCt_' + ct.id + '"') : '';
-        html += '<tr><td>' + (ct.name || ct.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + ct.id + '"' + idAttr + ' value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
+    if (la && !window.__pspLeavePolicyDirty) la.value = annual;
+    if (lc && !window.__pspLeavePolicyDirty) lc.value = carry;
+    try { if (typeof pspEnsureLeaveContractRows === 'function') pspEnsureLeaveContractRows(); } catch (eE) {}
+    if (!window.__pspLeavePolicyDirty) {
+      document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+        var id = inp.getAttribute('data-ct') || '';
+        if (!id) return;
+        if (bct[id] != null && bct[id] !== '') inp.value = bct[id];
+        else if (id === 'hourly') inp.value = 0;
+        else inp.value = annual;
       });
-      tb.innerHTML = html;
     }
     if (typeof renderLeaveGroupPolicyRows === 'function') {
       renderLeaveGroupPolicyRows(byGroup);
     }
   } catch (e) {}
 }
+
 function pspBindLeavePolicyDraftCapture() {
   if (window.__pspLeaveDraftBound) return;
   window.__pspLeaveDraftBound = true;
@@ -12746,6 +12746,7 @@ function pspBindLeavePolicyDraftCapture() {
     if (!t) return;
     if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
         (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
+      window.__pspLeavePolicyDirty = true;
       try { pspCaptureLeavePolicyDraft(); } catch (e) {}
       try { if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm(); } catch (e2) {}
     }
@@ -12755,15 +12756,18 @@ function pspBindLeavePolicyDraftCapture() {
     if (!t) return;
     if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
         (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
+      window.__pspLeavePolicyDirty = true;
       try { pspCaptureLeavePolicyDraft(); } catch (e) {}
       try { if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm(); } catch (e2) {}
     }
   }, true);
 }
 
+try { pspBindLeavePolicyDraftCapture(); } catch (eBoot) {}
+
 function ensureLeavePolicyInPortal() {
   try {
-    if (typeof pspBindLeavePolicyDraftCapture === 'function') pspBindLeavePolicyDraftCapture();
+    if (typeof pspBindLeavePolicyDraftCapture === 'function') pspBindLeavePolicyDraftCapture(); // boot
     try { if (typeof pspCaptureLeavePolicyDraft === 'function') pspCaptureLeavePolicyDraft(); } catch (e0) {}
 
     var mount = document.getElementById('leavePolicyMount');
