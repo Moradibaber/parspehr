@@ -3332,11 +3332,11 @@ function refreshContractTypeSelects(selected) {
 function refreshLeavePolicyContractRows() {
   var tb = document.querySelector('#leavePolicyByContract tbody');
   if (!tb) return;
-  // اگر کاربر در حال تایپ در همین جدول است، بازسازی نکن
   try {
     var ae = document.activeElement;
     if (ae && tb.contains(ae) && (ae.classList.contains('leave-ct-days') || ae.tagName === 'INPUT')) return;
   } catch (eF) {}
+  try { if (typeof pspCaptureLeavePolicyDraft === 'function') pspCaptureLeavePolicyDraft(); } catch (eCap) {}
   var list = getContractTypesListLocal();
   if (!list || !list.length) {
     list = [
@@ -3346,23 +3346,14 @@ function refreshLeavePolicyContractRows() {
     ];
   }
   var lp = (data.settings && data.settings.leavePolicy) || {};
-  var bct = lp.byContractType || {};
-  var annual = lp.annualDays != null ? lp.annualDays : 26;
-  var current = {};
-  try {
-    document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
-      var id = inp.getAttribute('data-ct') || (inp.id && String(inp.id).replace(/^leaveCt_/, ''));
-      if (!id) return;
-      var raw = String(inp.value || '').trim();
-      if (raw === '') return;
-      var n = Number(raw.replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
-      if (isFinite(n) && n >= 0) current[id] = n;
-    });
-  } catch (eC) {}
+  var draft = window.__pspLeavePolicyDraft || {};
+  var bct = Object.assign({}, lp.byContractType || {}, draft.byContractType || {});
+  var annual = draft.annualDays != null ? draft.annualDays : (lp.annualDays != null ? lp.annualDays : 26);
   var html = '';
-  list.forEach(function(t) {
-    var v = current[t.id] != null ? current[t.id] : (bct[t.id] != null ? bct[t.id] : annual);
-    html += '<tr><td>' + (t.name || t.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + t.id + '" value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
+  list.forEach(function(ct) {
+    var v = bct[ct.id] != null ? bct[ct.id] : annual;
+    var idAttr = (ct.id === 'normal' || ct.id === 'daily' || ct.id === 'hourly') ? (' id="leaveCt_' + ct.id + '"') : '';
+    html += '<tr><td>' + (ct.name || ct.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + ct.id + '"' + idAttr + ' value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
   });
   tb.innerHTML = html;
 }
@@ -4702,8 +4693,18 @@ function loadSettingsToForm() {
     if (elN) elN.value = (bct.normal != null && bct.normal !== '') ? bct.normal : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
     if (elD) elD.value = (bct.daily != null && bct.daily !== '') ? bct.daily : (lp.annualDays != null && lp.annualDays !== '' ? lp.annualDays : 26);
     if (elH) elH.value = (bct.hourly != null && bct.hourly !== '') ? bct.hourly : 0;
+    // همگام با draft تا بعد از rebuild جدول مقدار کاربر/سرور حفظ شود
+    try {
+      window.__pspLeavePolicyDraft = {
+        annualDays: lp.annualDays != null ? Number(lp.annualDays) : 26,
+        carryMax: lp.carryMax != null ? Number(lp.carryMax) : 9,
+        byContractType: Object.assign({}, bct),
+        byGroup: Object.assign({}, lp.byGroup || {})
+      };
+    } catch (eD) {}
     try { refreshContractTypeSelects(); } catch (e) {}
-    renderLeaveGroupPolicyRows(lp.byGroup || {});
+    try { if (typeof pspApplyLeavePolicyDraft === 'function') pspApplyLeavePolicyDraft(); }
+    catch (eA) { renderLeaveGroupPolicyRows(lp.byGroup || {}); }
   } catch (e) {}
 
   document.getElementById('nightFactor').value = s.nightFactor || 1.35;
@@ -4853,6 +4854,14 @@ function saveSettings() {
       })(),
       byGroup: byGroup
     };
+    try {
+      window.__pspLeavePolicyDraft = {
+        annualDays: data.settings.leavePolicy.annualDays,
+        carryMax: data.settings.leavePolicy.carryMax,
+        byContractType: Object.assign({}, data.settings.leavePolicy.byContractType || {}),
+        byGroup: Object.assign({}, data.settings.leavePolicy.byGroup || {})
+      };
+    } catch (eDraft) {}
   } catch (e) {}
   data.settings.nightFactor = Number(document.getElementById('nightFactor').value)||1.35;
   data.settings.shiftMorningEvening = Number(document.getElementById('shiftMorningEvening') && document.getElementById('shiftMorningEvening').value) || 10;
@@ -12559,8 +12568,98 @@ function insertFormulaVar(idx, varName) {
 })();
 
 /** انتقال سیاست مرخصی به انتهای تب کارکرد (panel-portalatt) بدون تغییر منطق ذخیره */
+
+function pspCaptureLeavePolicyDraft() {
+  try {
+    var d = window.__pspLeavePolicyDraft || { byContractType: {}, byGroup: {}, annualDays: null, carryMax: null };
+    var la = document.getElementById('leaveAnnualDays');
+    var lc = document.getElementById('leaveCarryMax');
+    if (la && String(la.value).trim() !== '') {
+      var na = Number(String(la.value).replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(na) && na >= 0) d.annualDays = na;
+    }
+    if (lc && String(lc.value).trim() !== '') {
+      var nc = Number(String(lc.value).replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(nc) && nc >= 0) d.carryMax = nc;
+    }
+    document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+      var id = inp.getAttribute('data-ct') || (inp.id && String(inp.id).replace(/^leaveCt_/, ''));
+      if (!id) return;
+      var raw = String(inp.value || '').trim();
+      if (raw === '') return;
+      var n = Number(raw.replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(n) && n >= 0) d.byContractType[id] = n;
+    });
+    var box = document.getElementById('leaveGroupPolicyList');
+    if (box) {
+      box.querySelectorAll('tr.leave-grp-row').forEach(function(row) {
+        var gn = String(((row.querySelector('.leave-grp-name') || {}).value) || '').trim();
+        var gd = String(((row.querySelector('.leave-grp-days') || {}).value) || '').trim();
+        if (!gn) return;
+        if (gd === '') { d.byGroup[gn] = d.byGroup[gn]; return; }
+        var n = Number(gd.replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+        if (isFinite(n) && n >= 0) d.byGroup[gn] = n;
+      });
+    }
+    window.__pspLeavePolicyDraft = d;
+    return d;
+  } catch (e) { return window.__pspLeavePolicyDraft || {}; }
+}
+function pspApplyLeavePolicyDraft() {
+  try {
+    var d = window.__pspLeavePolicyDraft || {};
+    var lp = (typeof data !== 'undefined' && data.settings && data.settings.leavePolicy) || {};
+    var bct = Object.assign({}, lp.byContractType || {}, d.byContractType || {});
+    var byGroup = Object.assign({}, lp.byGroup || {}, d.byGroup || {});
+    var annual = d.annualDays != null ? d.annualDays : (lp.annualDays != null ? lp.annualDays : 26);
+    var carry = d.carryMax != null ? d.carryMax : (lp.carryMax != null ? lp.carryMax : 9);
+    var la = document.getElementById('leaveAnnualDays');
+    var lc = document.getElementById('leaveCarryMax');
+    if (la) la.value = annual;
+    if (lc) lc.value = carry;
+    // rebuild contract rows with merged values
+    var tb = document.querySelector('#leavePolicyByContract tbody');
+    if (tb) {
+      var list = (typeof getContractTypesListLocal === 'function') ? getContractTypesListLocal() : [];
+      if (!list || !list.length) list = [{id:'normal',name:'عادی'},{id:'daily',name:'روزمزد'},{id:'hourly',name:'ساعتی'}];
+      var html = '';
+      list.forEach(function(ct) {
+        var v = bct[ct.id] != null ? bct[ct.id] : annual;
+        var idAttr = (ct.id === 'normal' || ct.id === 'daily' || ct.id === 'hourly') ? (' id="leaveCt_' + ct.id + '"') : '';
+        html += '<tr><td>' + (ct.name || ct.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + ct.id + '"' + idAttr + ' value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
+      });
+      tb.innerHTML = html;
+    }
+    if (typeof renderLeaveGroupPolicyRows === 'function') {
+      renderLeaveGroupPolicyRows(byGroup);
+    }
+  } catch (e) {}
+}
+function pspBindLeavePolicyDraftCapture() {
+  if (window.__pspLeaveDraftBound) return;
+  window.__pspLeaveDraftBound = true;
+  document.addEventListener('input', function(ev) {
+    var t = ev.target;
+    if (!t) return;
+    if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
+        (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
+      try { pspCaptureLeavePolicyDraft(); } catch (e) {}
+    }
+  }, true);
+  document.addEventListener('change', function(ev) {
+    var t = ev.target;
+    if (!t) return;
+    if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
+        (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
+      try { pspCaptureLeavePolicyDraft(); } catch (e) {}
+    }
+  }, true);
+}
+
 function ensureLeavePolicyInPortal() {
   try {
+    pspBindLeavePolicyDraftCapture();
+    try { pspCaptureLeavePolicyDraft(); } catch (e0) {}
     var panel = document.getElementById('panel-portalatt');
     var mount = document.getElementById('leavePolicyMount');
     var card = document.getElementById('leavePolicyCard');
@@ -12585,22 +12684,12 @@ function ensureLeavePolicyInPortal() {
     if (!card) return;
 
     if (panel) {
-      if (card.parentElement !== panel) {
-        panel.appendChild(card);
-      } else if (panel.lastElementChild !== card) {
-        panel.appendChild(card);
-      }
+      if (card.parentElement !== panel) panel.appendChild(card);
+      else if (panel.lastElementChild !== card) panel.appendChild(card);
       card.style.display = '';
       card.style.visibility = 'visible';
-      // فقط وقتی کارت از نو ساخته شد، فرم را از data پر کن — هرگز در interval ورودی کاربر را پاک نکن
       if (recreated) {
-        try {
-          if (typeof refreshLeavePolicyContractRows === 'function') refreshLeavePolicyContractRows();
-          if (typeof renderLeaveGroupPolicyRows === 'function') {
-            var lp = (typeof data !== 'undefined' && data.settings && data.settings.leavePolicy) || {};
-            renderLeaveGroupPolicyRows(lp.byGroup || {});
-          }
-        } catch (eFill) {}
+        try { pspApplyLeavePolicyDraft(); } catch (eA) {}
       }
     } else if (mount) {
       mount.style.display = 'block';
@@ -12613,7 +12702,7 @@ setTimeout(ensureLeavePolicyInPortal, 400);
 setTimeout(ensureLeavePolicyInPortal, 1200);
 setTimeout(ensureLeavePolicyInPortal, 3000);
 if (!window.__pspLeavePolicyIv) {
-  window.__pspLeavePolicyIv = setInterval(ensureLeavePolicyInPortal, 4000);
+  window.__pspLeavePolicyIv = setInterval(ensureLeavePolicyInPortal, 5000);
 }
 
 </script>
