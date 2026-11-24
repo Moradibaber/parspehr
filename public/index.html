@@ -3326,37 +3326,93 @@ function refreshContractTypeSelects(selected) {
     }).join('');
     if (cur) sel.value = cur;
   });
-  // جدول سقف مرخصی بر اساس نوع قرارداد
-  try { refreshLeavePolicyContractRows(); } catch (e) {}
+  // جدول سقف مرخصی را اینجا بازسازی نکن — مقدار کاربر پاک می‌شد
+  // در صورت نیاز فقط ردیف‌های جدید اضافه می‌شود
+  try { if (typeof pspEnsureLeaveContractRows === 'function') pspEnsureLeaveContractRows(); } catch (e) {}
 }
 function refreshLeavePolicyContractRows() {
+  // سازگاری با کد قدیمی: فقط ردیف‌های کم‌شده را اضافه کن، مقادیر موجود را دست نزن
+  try { pspEnsureLeaveContractRows(); } catch (e) {}
+}
+function pspEnsureLeaveContractRows() {
   var tb = document.querySelector('#leavePolicyByContract tbody');
   if (!tb) return;
-  try {
-    var ae = document.activeElement;
-    if (ae && tb.contains(ae) && (ae.classList.contains('leave-ct-days') || ae.tagName === 'INPUT')) return;
-  } catch (eF) {}
-  try { if (typeof pspCaptureLeavePolicyDraft === 'function') pspCaptureLeavePolicyDraft(); } catch (eCap) {}
-  var list = getContractTypesListLocal();
+  var list = (typeof getContractTypesListLocal === 'function') ? getContractTypesListLocal() : [];
   if (!list || !list.length) {
-    list = [
-      { id: 'normal', name: 'عادی' },
-      { id: 'daily', name: 'روزمزد' },
-      { id: 'hourly', name: 'ساعتی' }
-    ];
+    list = [{ id: 'normal', name: 'عادی' }, { id: 'daily', name: 'روزمزد' }, { id: 'hourly', name: 'ساعتی' }];
   }
+  try {
+    (data.employees || []).forEach(function(e) {
+      if (!e || !e.contractType) return;
+      var id = String(e.contractType);
+      if (!list.some(function(x){ return x.id === id; })) list.push({ id: id, name: id });
+    });
+  } catch (eM) {}
   var lp = (data.settings && data.settings.leavePolicy) || {};
   var draft = window.__pspLeavePolicyDraft || {};
   var bct = Object.assign({}, lp.byContractType || {}, draft.byContractType || {});
   var annual = draft.annualDays != null ? draft.annualDays : (lp.annualDays != null ? lp.annualDays : 26);
-  var html = '';
-  list.forEach(function(ct) {
-    var v = bct[ct.id] != null ? bct[ct.id] : annual;
-    var idAttr = (ct.id === 'normal' || ct.id === 'daily' || ct.id === 'hourly') ? (' id="leaveCt_' + ct.id + '"') : '';
-    html += '<tr><td>' + (ct.name || ct.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + ct.id + '"' + idAttr + ' value="' + v + '" min="0" step="1" style="width:100%;"></td></tr>';
+  var existing = {};
+  tb.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+    var id = inp.getAttribute('data-ct') || '';
+    if (id) existing[id] = inp;
   });
-  tb.innerHTML = html;
+  list.forEach(function(ct) {
+    if (existing[ct.id]) return; // ردیف هست — مقدار را عوض نکن
+    var v = bct[ct.id] != null ? bct[ct.id] : annual;
+    if (ct.id === 'hourly' && bct[ct.id] == null) v = 0;
+    var tr = document.createElement('tr');
+    var idAttr = (ct.id === 'normal' || ct.id === 'daily' || ct.id === 'hourly') ? (' id="leaveCt_' + ct.id + '"') : '';
+    tr.innerHTML = '<td>' + (ct.name || ct.id) + '</td><td><input type="number" class="leave-ct-days" data-ct="' + ct.id + '"' + idAttr + ' value="' + v + '" min="0" step="1" style="width:100%;"></td>';
+    tb.appendChild(tr);
+  });
 }
+function pspWriteLeavePolicyFromForm() {
+  try {
+    if (!data.settings) data.settings = {};
+    if (!data.settings.leavePolicy) data.settings.leavePolicy = {};
+    var lp = data.settings.leavePolicy;
+    var la = document.getElementById('leaveAnnualDays');
+    var lc = document.getElementById('leaveCarryMax');
+    if (la && String(la.value).trim() !== '') {
+      var na = Number(String(la.value).replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(na) && na >= 0) lp.annualDays = na;
+    }
+    if (lc && String(lc.value).trim() !== '') {
+      var nc = Number(String(lc.value).replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(nc) && nc >= 0) lp.carryMax = nc;
+    }
+    if (!lp.byContractType || typeof lp.byContractType !== 'object') lp.byContractType = {};
+    if (!lp.byGroup || typeof lp.byGroup !== 'object') lp.byGroup = {};
+    document.querySelectorAll('.leave-ct-days').forEach(function(inp) {
+      var id = inp.getAttribute('data-ct') || (inp.id && String(inp.id).replace(/^leaveCt_/, ''));
+      if (!id) return;
+      var raw = String(inp.value || '').trim();
+      if (raw === '') return;
+      var n = Number(raw.replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+      if (isFinite(n) && n >= 0) lp.byContractType[id] = n;
+    });
+    var box = document.getElementById('leaveGroupPolicyList');
+    if (box) {
+      box.querySelectorAll('tr.leave-grp-row').forEach(function(row) {
+        var gn = String(((row.querySelector('.leave-grp-name') || {}).value) || '').trim();
+        var gd = String(((row.querySelector('.leave-grp-days') || {}).value) || '').trim();
+        if (!gn) return;
+        if (gd === '') return;
+        var n = Number(gd.replace(/[۰-۹]/g, function(ch){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)]; }));
+        if (isFinite(n) && n >= 0) lp.byGroup[gn] = n;
+      });
+    }
+    window.__pspLeavePolicyDraft = {
+      annualDays: lp.annualDays,
+      carryMax: lp.carryMax,
+      byContractType: Object.assign({}, lp.byContractType),
+      byGroup: Object.assign({}, lp.byGroup)
+    };
+    try { if (typeof saveToCache === 'function') saveToCache(); } catch (eC) {}
+  } catch (e) {}
+}
+
 
 function contractTypeLabel(ct) {
   ct = ct || 'normal';
@@ -12130,18 +12186,29 @@ function renderLeaveGroupPolicyRows(byGroup) {
   var box = document.getElementById('leaveGroupPolicyList');
   if (!box) return;
   byGroup = byGroup || {};
-  // حفظ مقادیر در حال ویرایش در DOM تا پاک نشوند
+  // ادغام با data و draft و DOM
+  try {
+    var lp = (data.settings && data.settings.leavePolicy) || {};
+    byGroup = Object.assign({}, lp.byGroup || {}, byGroup, (window.__pspLeavePolicyDraft && window.__pspLeavePolicyDraft.byGroup) || {});
+  } catch (e0) {}
   try {
     box.querySelectorAll('tr.leave-grp-row').forEach(function(row) {
-      var gn = (row.querySelector('.leave-grp-name') || {}).value;
-      var gd = (row.querySelector('.leave-grp-days') || {}).value;
-      gn = String(gn || '').trim();
+      var gn = String(((row.querySelector('.leave-grp-name') || {}).value) || '').trim();
+      var gd = String(((row.querySelector('.leave-grp-days') || {}).value) || '').trim();
       if (!gn) return;
-      var n = Number(String(gd || '').replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
-      if (isFinite(n) && n >= 0) byGroup[gn] = n;
-      else if (byGroup[gn] == null) byGroup[gn] = gd;
+      if (gd !== '') {
+        var n = Number(gd.replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; }));
+        if (isFinite(n) && n >= 0) byGroup[gn] = n;
+      }
     });
   } catch (eDom) {}
+  // اگر کاربر در حال تایپ است، جدول را از نو نساز
+  try {
+    var ae = document.activeElement;
+    if (ae && box.contains(ae) && (ae.classList.contains('leave-grp-days') || ae.classList.contains('leave-grp-name'))) {
+      return;
+    }
+  } catch (eF) {}
   var keys = Object.keys(byGroup);
   try {
     (data.employees || []).forEach(function(e) {
@@ -12150,7 +12217,41 @@ function renderLeaveGroupPolicyRows(byGroup) {
     });
   } catch (e) {}
   if (!keys.length) {
-    box.innerHTML = '<p style="font-size:0.78rem;color:#64748b;">گروهی تعریف نشده. با «+ افزودن گروه» یا پر کردن فیلد گروه در کارت کارمند اضافه کنید.</p>';
+    if (!box.querySelector('tr.leave-grp-row')) {
+      box.innerHTML = '<p style="font-size:0.78rem;color:#64748b;">گروهی تعریف نشده. با «+ افزودن گروه» یا پر کردن فیلد گروه در کارت کارمند اضافه کنید.</p>';
+    }
+    return;
+  }
+  // اگر ردیف‌ها از قبل هستند، فقط مقادیر خالی را پر کن — پاک نکن
+  var existingRows = box.querySelectorAll('tr.leave-grp-row');
+  if (existingRows.length) {
+    var byName = {};
+    existingRows.forEach(function(row) {
+      var gn = String(((row.querySelector('.leave-grp-name') || {}).value) || '').trim();
+      if (gn) byName[gn] = row;
+    });
+    keys.forEach(function(g) {
+      if (byName[g]) {
+        var daysInp = byName[g].querySelector('.leave-grp-days');
+        if (daysInp && String(daysInp.value).trim() === '' && byGroup[g] != null && byGroup[g] !== '') {
+          daysInp.value = byGroup[g];
+        }
+        return;
+      }
+      // ردیف جدید
+      var tbl = box.querySelector('tbody');
+      if (!tbl) {
+        box.innerHTML = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody></tbody></table>';
+        tbl = box.querySelector('tbody');
+      }
+      var tr = document.createElement('tr');
+      tr.className = 'leave-grp-row';
+      var days = byGroup[g] != null ? byGroup[g] : '';
+      tr.innerHTML = '<td><input type="text" class="leave-grp-name" value="' + String(g).replace(/"/g, '&quot;') + '" style="width:100%;"></td>' +
+        '<td><input type="number" class="leave-grp-days" value="' + days + '" min="0" step="1" style="width:100px;"></td>' +
+        '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove();try{pspWriteLeavePolicyFromForm()}catch(e){}">حذف</button></td>';
+      tbl.appendChild(tr);
+    });
     return;
   }
   var html = '<table style="max-width:560px;"><thead><tr><th>نام گروه کاری</th><th>روز استحقاقی</th><th></th></tr></thead><tbody>';
@@ -12159,12 +12260,14 @@ function renderLeaveGroupPolicyRows(byGroup) {
     html += '<tr class="leave-grp-row">';
     html += '<td><input type="text" class="leave-grp-name" value="' + String(g).replace(/"/g, '&quot;') + '" style="width:100%;"></td>';
     html += '<td><input type="number" class="leave-grp-days" value="' + days + '" min="0" step="1" style="width:100px;"></td>';
-    html += '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove()">حذف</button></td>';
+    html += '<td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest(\'tr\').remove();try{pspWriteLeavePolicyFromForm()}catch(e){}">حذف</button></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
   box.innerHTML = html;
 }
+
+
 function addLeaveGroupPolicyRow() {
   var box = document.getElementById('leaveGroupPolicyList');
   if (!box) return;
@@ -12644,6 +12747,7 @@ function pspBindLeavePolicyDraftCapture() {
     if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
         (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
       try { pspCaptureLeavePolicyDraft(); } catch (e) {}
+      try { if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm(); } catch (e2) {}
     }
   }, true);
   document.addEventListener('change', function(ev) {
@@ -12652,6 +12756,7 @@ function pspBindLeavePolicyDraftCapture() {
     if (t.id === 'leaveAnnualDays' || t.id === 'leaveCarryMax' ||
         (t.classList && (t.classList.contains('leave-ct-days') || t.classList.contains('leave-grp-days') || t.classList.contains('leave-grp-name')))) {
       try { pspCaptureLeavePolicyDraft(); } catch (e) {}
+      try { if (typeof pspWriteLeavePolicyFromForm === 'function') pspWriteLeavePolicyFromForm(); } catch (e2) {}
     }
   }, true);
 }
