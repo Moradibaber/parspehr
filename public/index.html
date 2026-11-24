@@ -3333,6 +3333,13 @@ function refreshLeavePolicyContractRows() {
   var tb = document.querySelector('#leavePolicyByContract tbody');
   if (!tb) return;
   var list = getContractTypesListLocal();
+  if (!list || !list.length) {
+    list = [
+      { id: 'normal', name: 'عادی' },
+      { id: 'daily', name: 'روزمزد' },
+      { id: 'hourly', name: 'ساعتی' }
+    ];
+  }
   var lp = (data.settings && data.settings.leavePolicy) || {};
   var bct = lp.byContractType || {};
   var annual = lp.annualDays != null ? lp.annualDays : 26;
@@ -12540,26 +12547,67 @@ function insertFormulaVar(idx, varName) {
 function ensureLeavePolicyInPortal() {
   try {
     var panel = document.getElementById('panel-portalatt');
-    var card = document.getElementById('leavePolicyCard');
     var mount = document.getElementById('leavePolicyMount');
+    var card = document.getElementById('leavePolicyCard');
     if (!card && mount) card = mount.querySelector('#leavePolicyCard');
-    if (!panel || !card) return;
-    // اگر پورتال innerHTML را عوض کرده، کارت را دوباره به انتها بچسبان
-    if (card.parentElement !== panel) {
-      panel.appendChild(card);
-    } else if (panel.lastElementChild !== card) {
-      panel.appendChild(card); // همیشه آخر بماند
+
+    // پشتیبان HTML کارت — اگر Worker پنل را عوض کند و کارت پاک شود، دوباره بساز
+    if (card && !window.__pspLeavePolicyHtml) {
+      try { window.__pspLeavePolicyHtml = card.outerHTML; } catch (eH) {}
     }
-    card.style.display = '';
-    if (mount && mount.contains(card) === false && mount.childNodes.length === 0) {
-      try { mount.remove(); } catch (e0) {}
+    if (!card && window.__pspLeavePolicyHtml) {
+      try {
+        var wrap = document.createElement('div');
+        wrap.innerHTML = window.__pspLeavePolicyHtml;
+        card = wrap.firstElementChild;
+        if (card) {
+          card.id = 'leavePolicyCard';
+          card.style.display = '';
+          // مقادیر ذخیره‌شده را بعداً loadSettings روی فرم می‌گذارد
+        }
+      } catch (eR) { card = null; }
+    }
+    if (!card) return;
+
+    // مقصد: تب کارکرد (portalatt). اگر پنل هنوز نیست، کارت را در mount نشان بده
+    if (panel) {
+      if (card.parentElement !== panel) {
+        panel.appendChild(card);
+      } else if (panel.lastElementChild !== card) {
+        panel.appendChild(card);
+      }
+      card.style.display = '';
+      card.style.visibility = 'visible';
+      // بخش‌های سقف قرارداد و گروه باید دیده شوند
+      try {
+        var tbl = card.querySelector('#leavePolicyByContract');
+        var grp = card.querySelector('#leaveGroupPolicyList');
+        if (tbl) { tbl.style.display = ''; var p = tbl.parentElement; if (p) p.style.display = ''; }
+        if (grp) { grp.style.display = ''; var g = grp.parentElement; if (g) g.style.display = ''; }
+      } catch (eV) {}
+      try {
+        if (typeof refreshLeavePolicyContractRows === 'function') refreshLeavePolicyContractRows();
+        if (typeof renderLeaveGroupPolicyRows === 'function') {
+          var lp = (window.data && data.settings && data.settings.leavePolicy) || {};
+          renderLeaveGroupPolicyRows(lp.byGroup || {});
+        }
+      } catch (eFill) {}
+    } else if (mount) {
+      // fallback: اگر پنل کارکرد نبود، mount را نشان بده تا حذف‌شده به نظر نرسد
+      mount.style.display = 'block';
+      if (card.parentElement !== mount) mount.appendChild(card);
+      card.style.display = '';
     }
   } catch (e) {}
 }
-setTimeout(ensureLeavePolicyInPortal, 500);
+setTimeout(ensureLeavePolicyInPortal, 300);
+setTimeout(ensureLeavePolicyInPortal, 800);
 setTimeout(ensureLeavePolicyInPortal, 1500);
-setTimeout(ensureLeavePolicyInPortal, 3500);
-setInterval(ensureLeavePolicyInPortal, 4000);
+setTimeout(ensureLeavePolicyInPortal, 3000);
+setTimeout(ensureLeavePolicyInPortal, 6000);
+if (!window.__pspLeavePolicyIv) {
+  window.__pspLeavePolicyIv = setInterval(ensureLeavePolicyInPortal, 2500);
+}
 
 </script>
 
