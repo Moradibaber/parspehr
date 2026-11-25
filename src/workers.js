@@ -844,21 +844,46 @@ async function enrichCalcDataFromStore(env, data) {
       sk.forEach(function (k) {
         if (Number(gd.obj.settings[k]) > 0) data.settings[k] = gd.obj.settings[k];
       });
+      // سقف کسر کار ساعتی و تنظیمات مرتبط — برای موتور حقوق
+      ['monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (k) {
+        if (gd.obj.settings[k] != null && gd.obj.settings[k] !== '' && (data.settings[k] == null || data.settings[k] === '')) {
+          data.settings[k] = gd.obj.settings[k];
+        }
+      });
+      if (gd.obj.settings.shortfallSettings && !data.settings.shortfallSettings) {
+        data.settings.shortfallSettings = gd.obj.settings.shortfallSettings;
+      }
     }
-    // qty ماه جاری
+    // qty ماه جاری + کسر کار ساعتی از سرور (اگر کلاینت خالی است)
     if (gd.obj.monthlyData && data.monthlyData) {
       Object.keys(gd.obj.monthlyData).forEach(function (mk) {
         if (!data.monthlyData[mk]) data.monthlyData[mk] = gd.obj.monthlyData[mk];
         else {
           Object.keys(gd.obj.monthlyData[mk] || {}).forEach(function (ck) {
             if (!data.monthlyData[mk][ck]) data.monthlyData[mk][ck] = gd.obj.monthlyData[mk][ck];
-            else if (gd.obj.monthlyData[mk][ck] && gd.obj.monthlyData[mk][ck].qty) {
-              if (!data.monthlyData[mk][ck].qty) data.monthlyData[mk][ck].qty = {};
-              Object.keys(gd.obj.monthlyData[mk][ck].qty).forEach(function (qn) {
-                if (data.monthlyData[mk][ck].qty[qn] == null || data.monthlyData[mk][ck].qty[qn] === '') {
-                  data.monthlyData[mk][ck].qty[qn] = gd.obj.monthlyData[mk][ck].qty[qn];
+            else {
+              var srcMd = gd.obj.monthlyData[mk][ck];
+              var dstMd = data.monthlyData[mk][ck];
+              if (srcMd && srcMd.qty) {
+                if (!dstMd.qty) dstMd.qty = {};
+                Object.keys(srcMd.qty).forEach(function (qn) {
+                  if (dstMd.qty[qn] == null || dstMd.qty[qn] === '') {
+                    dstMd.qty[qn] = srcMd.qty[qn];
+                  }
+                });
+              }
+              // کسر کار ساعتی / سقف / excess — برای کسر از حقوق
+              ['hourlyAbsenceHours', 'excessAbsenceHours', 'shortfallAllowanceHours', 'excessAbsenceMin'].forEach(function (fk) {
+                if (srcMd && srcMd[fk] != null && srcMd[fk] !== '' && (dstMd[fk] == null || dstMd[fk] === '')) {
+                  dstMd[fk] = srcMd[fk];
                 }
               });
+              // اگر سرور مقدار بزرگ‌تری برای غیبت ساعتی دارد (تایم‌شیت ذخیره‌شده)، ترجیح بده
+              if (srcMd && Number(srcMd.hourlyAbsenceHours) > 0 && !(Number(dstMd.hourlyAbsenceHours) > 0)) {
+                dstMd.hourlyAbsenceHours = srcMd.hourlyAbsenceHours;
+                if (srcMd.excessAbsenceHours != null) dstMd.excessAbsenceHours = srcMd.excessAbsenceHours;
+                if (srcMd.shortfallAllowanceHours != null) dstMd.shortfallAllowanceHours = srcMd.shortfallAllowanceHours;
+              }
             }
           });
         }
@@ -1197,6 +1222,38 @@ async function handlePayroll(request, user, env) {
             try { applyAbsenceToQtyFlatItems(data, year, month, code, row); } catch (eAbs) {}
           }
         } catch (eP) {}
+        // همیشه قبل از حقوق: excess = max(0, کل کسر ساعتی − سقف کسر ساعت)
+        try {
+          var empR = (data.employees || []).find(function (e) { return e && String(e.code) === String(code); });
+          var allowHR = (typeof resolveShortfallAllowanceHours === 'function')
+            ? resolveShortfallAllowanceHours(data, empR)
+            : Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
+          if (!isFinite(allowHR) || allowHR < 0) allowHR = 0;
+          var totalHR = Number(row.hourlyAbsenceHours);
+          if (!isFinite(totalHR) || totalHR < 0) totalHR = 0;
+          row.shortfallAllowanceHours = allowHR;
+          row.excessAbsenceHours = Math.max(0, Math.round((totalHR - allowHR) * 100) / 100);
+        } catch (eSfPay) {}
+      });
+      // اگر کارمندی در monthlyData نیست ولی در employees هست، ردیف خالی با سقف بساز تا موتور بداند
+      (data.employees || []).forEach(function (empP) {
+        if (!empP || empP.status === 'inactive') return;
+        var cP = String(empP.code);
+        if (!data.monthlyData[key][cP]) data.monthlyData[key][cP] = {};
+        var rowP = data.monthlyData[key][cP];
+        if (rowP.hourlyAbsenceHours == null || rowP.hourlyAbsenceHours === '') {
+          // بدون داده تایم‌شیت: صفر؛ سقف را بنویس تا موتور یکسان رفتار کند
+          if (rowP.hourlyAbsenceHours == null) rowP.hourlyAbsenceHours = 0;
+        }
+        try {
+          var allowHP = (typeof resolveShortfallAllowanceHours === 'function')
+            ? resolveShortfallAllowanceHours(data, empP)
+            : Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
+          if (!isFinite(allowHP) || allowHP < 0) allowHP = 0;
+          var totalHP = Number(rowP.hourlyAbsenceHours) || 0;
+          rowP.shortfallAllowanceHours = allowHP;
+          rowP.excessAbsenceHours = Math.max(0, Math.round((totalHP - allowHP) * 100) / 100);
+        } catch (eSf2) {}
       });
     } catch (ePD) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
@@ -5821,7 +5878,84 @@ function ensureWorkDaysIncludeLeaveMission(md, year, month, obj, code) {
       md.punchDays = countEmpMonthPunchDays(obj, year, month, code);
     try { applyAbsenceToQtyFlatItems(obj, year, month, code, md); } catch (eAbs1) {}
     }
+    // کسر کار ساعتی ماه + اعمال سقف کسر (ساعت) → excess برای کسر از حقوق
+    try { applyShortfallCeilingToMonthRow(obj, year, month, code, md); } catch (eSf) {}
   } catch (e) {}
+}
+
+/** سقف کسر (ساعت) را از کل کسر کار ساعتی کم می‌کند و excessAbsenceHours را برای موتور حقوق می‌نویسد */
+function resolveShortfallAllowanceHours(obj, emp) {
+  // اولویت: سقف گروهی → shortfallSettings.allowanceHours → shortfallAllowanceHours
+  // → shortfallHours → monthlyShortfallAllowanceHours (کلید UI تایم‌شیت)
+  var allowH = 0;
+  try {
+    var s = (obj && obj.settings) || {};
+    var ss = s.shortfallSettings || {};
+    if (ss.allowanceHours != null && ss.allowanceHours !== '') allowH = Number(ss.allowanceHours);
+    else if (s.shortfallAllowanceHours != null && s.shortfallAllowanceHours !== '') allowH = Number(s.shortfallAllowanceHours);
+    else if (s.shortfallHours != null && s.shortfallHours !== '') allowH = Number(s.shortfallHours);
+    else if (s.monthlyShortfallAllowanceHours != null && s.monthlyShortfallAllowanceHours !== '') allowH = Number(s.monthlyShortfallAllowanceHours);
+    try {
+      var eg = String((emp && emp.group) || '').trim();
+      if (eg && ss.byGroup && ss.byGroup[eg] != null && ss.byGroup[eg] !== '') allowH = Number(ss.byGroup[eg]);
+    } catch (eG) {}
+  } catch (e) { allowH = 0; }
+  if (!isFinite(allowH) || allowH < 0) allowH = 0;
+  return allowH;
+}
+
+function applyShortfallCeilingToMonthRow(obj, year, month, code, md) {
+  if (!md) return;
+  year = Number(year); month = Number(month);
+  var emp = ((obj.employees || []).find(function (e) { return String(e.code) === String(code); })) || null;
+  var ct = (emp && emp.contractType) || 'normal';
+  var totalMin = 0;
+  // اگر قبلاً hourlyAbsenceHours از تایم‌شیت آمده، همان را مبنا بگیر؛ وگرنه از روزبه‌روز جمع کن
+  var existingH = Number(md.hourlyAbsenceHours);
+  if (isFinite(existingH) && existingH >= 0 && md._fromTimesheet) {
+    totalMin = Math.round(existingH * 60);
+  } else {
+    try {
+      var dim = daysInJalaliMonth(year, month);
+      var cal = getContractCalendar(obj, ct);
+      var punchStore = ((obj.dailyAttendance || {})[String(code)]) || ((obj.dailyAttendance || {})[code]) || {};
+      for (var d = 1; d <= dim; d++) {
+        var dk = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        var dateFa = year + '/' + String(month).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+        var punch = punchStore[dk] || punchStore[dateFa] || {};
+        var nonWorkRaw = isHolidayOrNonWork(obj, year, month, d, ct);
+        var dayMeta = getDayMeta(obj, year, month, d, ct);
+        var allWeek = Array.isArray(cal.workWeekDays) && cal.workWeekDays.length >= 7;
+        var nonWork = nonWorkRaw;
+        if (allWeek && nonWorkRaw && !(dayMeta && (dayMeta.conditional || dayMeta.type === 'conditional'))) nonWork = false;
+        var coveredMin = hourlyCoverMinutesOnDay(obj, code, year, month, d);
+        var coveredIv = hourlyCoverIntervalsOnDay(obj, code, year, month, d);
+        var dlm = dailyLeaveMissionFlags(obj, code, year, month, d);
+        var calc = computeDayTimesheet(cal, {
+          in1: punch.in1 || '', out1: punch.out1 || '',
+          in2: punch.in2 || '', out2: punch.out2 || '',
+          in3: punch.in3 || '', out3: punch.out3 || '',
+          in4: punch.in4 || '', out4: punch.out4 || ''
+        }, {
+          year: year, month: month, day: d, isHoliday: nonWorkRaw,
+          isHourly: String(ct) === 'hourly', contractType: ct,
+          coveredMinutes: coveredMin, coveredIntervals: coveredIv,
+          floatCompensate: !!(punch && punch.floatCompensate) || !!cal.floatCompensate,
+          fullDayLeaveOrMission: dlm.fullDayLeaveOrMission,
+          unpaidLeave: dlm.unpaidLeave,
+          dayMeta: dayMeta,
+          earlyOtEnabled: !!(emp && (emp.earlyOtEnabled || emp.earlyOt))
+        });
+        if (!nonWork) totalMin += Number(calc.hourlyAbsenceMinutes) || 0;
+      }
+    } catch (eSum) {}
+  }
+  var totalH = Math.round((totalMin / 60) * 100) / 100;
+  var allowH = resolveShortfallAllowanceHours(obj, emp);
+  md.hourlyAbsenceHours = totalH;
+  md.shortfallAllowanceHours = allowH;
+  // قاعده ساده: excess = max(0, کل − سقف)
+  md.excessAbsenceHours = Math.max(0, Math.round((totalH - allowH) * 100) / 100);
 }
 
 
@@ -6361,6 +6495,9 @@ async function handleEmpTimesheet(request, env) {
     mdE.nightHours = punchNight;
     mdE.hourlyAbsenceHours = Math.round((punchAbsMin / 60) * 100) / 100;
     mdE._fromTimesheet = true;
+    try { applyShortfallCeilingToMonthRow(gd.obj, year, month, code, mdE); } catch (eEx) {
+      mdE.excessAbsenceHours = Math.max(0, mdE.hourlyAbsenceHours || 0);
+    }
     mdE._timesheetSyncedAt = new Date().toISOString();
   } catch (eMdE) { console.error('emp md sync', eMdE); }
   const userAccess = normalizeUserAccess((gd.obj.settings || {}).userAccess);
@@ -6721,7 +6858,11 @@ async function handleAdminBulkHourlyCover(request, who, env) {
     if (!Array.isArray(gd.obj.attendanceRequests)) gd.obj.attendanceRequests = [];
     if (!gd.obj.settings || typeof gd.obj.settings !== 'object') gd.obj.settings = {};
 
-    const allowanceH = Number(gd.obj.settings.monthlyShortfallAllowanceHours);
+    // سقف سراسری برای بودجه پوشش گروهی (per-emp در حلقه با resolve دقیق‌تر)
+    let allowanceH = Number(gd.obj.settings.monthlyShortfallAllowanceHours);
+    if (!isFinite(allowanceH) || allowanceH < 0) {
+      try { allowanceH = resolveShortfallAllowanceHours(gd.obj, null); } catch (eA0) { allowanceH = 0; }
+    }
     const allowanceMin = (isFinite(allowanceH) && allowanceH > 0) ? Math.round(allowanceH * 60) : 0;
 
     let types = gd.obj.attendanceTypes || [];
@@ -6988,7 +7129,10 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   }
   sumOt = Math.round(sumOt * 100) / 100;
   sumNight = Math.round(sumNight * 100) / 100;
-  const allowH = Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
+  // سقف کسر از resolve یکپارچه (شامل monthlyShortfallAllowanceHours و گروه)
+  const allowH = (typeof resolveShortfallAllowanceHours === 'function')
+    ? resolveShortfallAllowanceHours(obj, emp)
+    : Number((obj.settings && obj.settings.monthlyShortfallAllowanceHours) || 0);
   const allowMin = Math.round(allowH * 60);
   const excessMin = Math.max(0, sumAbsMin - allowMin);
   const otCap = empOtCeilingHours(emp, obj && obj.settings);
@@ -7093,6 +7237,8 @@ function fillEmployeeMonthFromAttendance(obj, year, month, emp) {
   md.otHoursUnapproved = unapprovedOt;
   md.nightHours = sumNight;
   md.hourlyAbsenceHours = Math.round((sumAbsMin / 60) * 100) / 100;
+  md.shortfallAllowanceHours = allowH;
+  // excess = max(0, کل کسر − سقف) — همیشه
   md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
   md._fromTimesheet = true;
   md._timesheetSyncedAt = new Date().toISOString();
@@ -8058,7 +8204,10 @@ async function handleAdminTimesheet(request, who, env) {
     sumNightH = Math.round(sumNightH * 100) / 100;
     // غیبت ساعتی مازاد روی کارکرد (روز) اثر نمی‌گذارد — کارکرد عدد صحیح روزهای حضور است.
     // کسر ریالی از excessAbsenceHours در موتور حقوق انجام می‌شود.
-    const allowH = Number((gd.obj.settings && gd.obj.settings.monthlyShortfallAllowanceHours) || 0);
+    // سقف از resolve یکپارچه (monthlyShortfall + shortfallSettings + گروه)
+    const allowH = (typeof resolveShortfallAllowanceHours === 'function')
+      ? resolveShortfallAllowanceHours(gd.obj, emp0)
+      : Number((gd.obj.settings && gd.obj.settings.monthlyShortfallAllowanceHours) || 0);
     const allowMin = Math.round(allowH * 60);
     const excessMin = Math.max(0, sumAbsMin - allowMin);
     computedWork = Math.max(0, Math.round(Number(computedWork) || 0));
@@ -8083,6 +8232,7 @@ async function handleAdminTimesheet(request, who, env) {
     rows[0].excessAbsenceMin = excessMin;
     rows[0].excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
     rows[0].shortfallAllowanceMin = allowMin;
+    rows[0].shortfallAllowanceHours = allowH;
     rows[0].leaveDays = Math.round((function(){
       let n=0; reqList.forEach(function(x){ if(x.kind==='leave'&&x.mode==='daily') n+=countWorkingDaysInMonth(x.startDate,x.endDate||x.startDate,year,month,gd.obj,ct0); }); return n;
     })()*100)/100;
@@ -8116,6 +8266,7 @@ async function handleAdminTimesheet(request, who, env) {
       md.hourlyAbsenceHours = rows[0].hourlyAbsenceHours;
       md.excessAbsenceMin = excessMin;
       md.excessAbsenceHours = Math.round((excessMin / 60) * 100) / 100;
+      md.shortfallAllowanceHours = allowH;
       md._timesheetSyncedAt = new Date().toISOString();
       // ذخیره پایدار فقط با save/persist صریح — چاپ/مشاهده write نزند (timeout → HTML)
       const wantPersist = !!(r.body && (r.body.save === true || r.body.persist === true));
