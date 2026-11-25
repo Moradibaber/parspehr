@@ -783,9 +783,44 @@ const daily = emp.basicSalary / 30; // مزد روزانه قانونی اضاف
 const vp = calcVariablePay(emp.basicSalary, d, workDays);
 const otAmount = vp.ot;
 const nightAmount = vp.night;
-// کسر کار مازاد: هر ساعت = جمع حکم ÷ ۱۹۰
+// کسر کار ساعتی: همیشه excess = max(0, کل کسر کار − سقف کسر ساعت)
+// هر ساعت = جمع حکم ÷ ۱۹۰ ؛ مبلغ به totalDeductions اضافه و از خالص کم می‌شود
 const decreeForShort = (typeof getDecreeEmpTotals === 'function' ? (getDecreeEmpTotals(emp.code).decreeSum || 0) : 0) || (Number(emp.basicSalary) || 0);
-const excessAbsH = Math.max(0, Number(d.excessAbsenceHours) || 0);
+// سقف کسر (ساعت): ردیف ماهانه → تنظیمات (همه کلیدهای ممکن از جمله monthlyShortfallAllowanceHours)
+var shortAllowH = 0;
+try {
+  if (d.shortfallAllowanceHours != null && d.shortfallAllowanceHours !== '') shortAllowH = Number(d.shortfallAllowanceHours);
+  else if (d.absenceAllowanceHours != null && d.absenceAllowanceHours !== '') shortAllowH = Number(d.absenceAllowanceHours);
+  else {
+    var s = data.settings || {};
+    var ss = s.shortfallSettings || {};
+    var sAllow = null;
+    if (ss.allowanceHours != null && ss.allowanceHours !== '') sAllow = ss.allowanceHours;
+    else if (s.shortfallAllowanceHours != null && s.shortfallAllowanceHours !== '') sAllow = s.shortfallAllowanceHours;
+    else if (s.shortfallHours != null && s.shortfallHours !== '') sAllow = s.shortfallHours;
+    else if (s.monthlyShortfallAllowanceHours != null && s.monthlyShortfallAllowanceHours !== '') sAllow = s.monthlyShortfallAllowanceHours;
+    try {
+      var eg = String((emp && emp.group) || '').trim();
+      var byG = ss.byGroup;
+      if (eg && byG && byG[eg] != null && byG[eg] !== '') sAllow = byG[eg];
+    } catch (eG) {}
+    if (sAllow != null && sAllow !== '') shortAllowH = Number(sAllow);
+  }
+} catch (eSA) { shortAllowH = 0; }
+if (!isFinite(shortAllowH) || shortAllowH < 0) shortAllowH = 0;
+var totalAbsH = 0;
+try {
+  if (d.hourlyAbsenceHours != null && d.hourlyAbsenceHours !== '') totalAbsH = Number(d.hourlyAbsenceHours);
+  else if (d.hourlyAbsenceMin != null && d.hourlyAbsenceMin !== '') totalAbsH = Number(d.hourlyAbsenceMin) / 60;
+  else if (d.absenceHours != null && d.absenceHours !== '') totalAbsH = Number(d.absenceHours);
+  else if (d.excessAbsenceHours != null && d.excessAbsenceHours !== '' && (d.shortfallAllowanceHours == null || d.shortfallAllowanceHours === '')) {
+    // فقط excess ذخیره شده و سقف معلوم نیست → همان excess را کل در نظر نگیر؛ بدون سقف = excess
+    totalAbsH = Number(d.excessAbsenceHours);
+  }
+} catch (eAH) { totalAbsH = 0; }
+if (!isFinite(totalAbsH) || totalAbsH < 0) totalAbsH = 0;
+// قاعده ساده و ثابت (حتی با یک روز تردد): کسر قابل اعمال = max(0, کل کسر کار − سقف)
+var excessAbsH = Math.max(0, Math.round((totalAbsH - shortAllowH) * 100) / 100);
 const shortfallDeduction = (excessAbsH > 0 && decreeForShort > 0)
 ? Math.round(excessAbsH * (decreeForShort / 190))
 : 0;
@@ -806,10 +841,9 @@ try {
 let insBase = basicIns ? basicAmount : 0;
 let taxBase = (basicTax ? basicAmount : 0) + otAmount + nightAmount + shiftAmount;
 const itemDetails = [];
-// فقط یک‌بار در totalDeductions (فیش: ردیف «سایر کسورات») — نه منفی در لیست مزایا
+// کسر کار ساعتی → سایر کسورات (و خالص حقوق)
 if (shortfallDeduction > 0) {
 totalDeductions += shortfallDeduction;
-// بدون itemDetails تا در فیش هم در مزایا و هم در کسورات دوبار نیاید
 }
 
 data.allowances.filter(a => isActiveAllowance(a) && !a.fromEmployee).forEach(a => {
@@ -1105,6 +1139,7 @@ results.push({
 code: emp.code, fullName: emp.fullName, position: emp.position||'', unit: emp.unit||'',
 workplace: emp.workplace||'', workDays, leaveDays: d.leaveDays||0, absenceDays: absDays || 0, monthDays: monthDays, ratioBase: Math.round(ratioBase * 10000) / 10000,
 basicAmount, otAmount, nightAmount, shiftAmount, shiftType: st, shiftDays: shiftDays, totalAllow, totalDeductions, itemDetails,
+hourlyAbsenceHours: totalAbsH, shortfallAllowanceHours: shortAllowH, excessAbsenceHours: excessAbsH, shortfallDeduction: shortfallDeduction,
 gross, insurance, tax, taxable, taxBase, loanDeduction, remainingLoan: remainingLoanAfter, net,
 bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: emp.insuranceNo||'',
 taxPercent: Number(emp.taxPercent) || 100, exemption: exempt
