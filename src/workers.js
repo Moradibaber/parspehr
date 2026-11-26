@@ -814,28 +814,20 @@ async function enrichCalcDataFromStore(env, data) {
       if (s.children != null && (e.children == null || e.children === '')) e.children = s.children;
       if (s.suppInsuranceDeductCount != null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
       if (s.suppInsuranceDeduct != null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
-      // آیتم کسر بیمه تکمیلی
-      if (Array.isArray(s.customItems) && s.customItems.length) {
-        if (!Array.isArray(e.customItems)) e.customItems = e.customItems || [];
-        var hasSupp = (e.customItems || []).some(function (ci) { return ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')); });
-        if (!hasSupp) {
-          s.customItems.forEach(function (ci) {
-            if (ci && /بیمه\s*تکمیلی/.test(String(ci.name || ''))) e.customItems.push(JSON.parse(JSON.stringify(ci)));
-          });
-        } else {
-          // مبلغ/تعداد را از سرور به‌روز کن
-          e.customItems.forEach(function (ci) {
-            if (!ci || !/بیمه\s*تکمیلی/.test(String(ci.name || ''))) return;
-            var src = s.customItems.find(function (x) { return x && /بیمه\s*تکمیلی/.test(String(x.name || '')); });
-            if (src) {
-              if (Number(src.amount) > 0) ci.amount = src.amount;
-              if (src.qtyDefault != null) ci.qtyDefault = src.qtyDefault;
-              ci.isDeduction = true;
-              ci.entryType = 'quantity';
-              ci.enabled = src.enabled !== false;
-            }
-          });
-        }
+      // بیمه تکمیلی: فقط اگر روی کارت/داده کلاینت از قبل هست، مبلغ را هم‌تراز کن.
+      // هرگز آیتم جدید از سرور به فیش اضافه نکن (اگر کارت خالی است، کسر نباید ظاهر شود).
+      if (Array.isArray(s.customItems) && s.customItems.length && Array.isArray(e.customItems) && e.customItems.length) {
+        e.customItems.forEach(function (ci) {
+          if (!ci || !/بیمه\s*تکمیلی/.test(String(ci.name || ''))) return;
+          var src = s.customItems.find(function (x) { return x && /بیمه\s*تکمیلی/.test(String(x.name || '')); });
+          if (src) {
+            if (Number(src.amount) > 0) ci.amount = src.amount;
+            if (src.qtyDefault != null) ci.qtyDefault = src.qtyDefault;
+            ci.isDeduction = true;
+            ci.entryType = ci.entryType || 'quantity';
+            ci.enabled = src.enabled !== false;
+          }
+        });
       }
     });
     if (gd.obj.settings) {
@@ -1199,8 +1191,11 @@ async function handlePayroll(request, user, env) {
     transferredAdjustments: isPlainObject(body.transferredAdjustments) ? body.transferredAdjustments : {}
   };
   data = await enrichCalcDataFromStore(env, data);
+  // معوقه حکم فقط وقتی صریحاً درخواست شود — محاسبه عادی ماه نباید آیتم «معوقه حکم» به فیش بچسباند
   let decreeArrears = [];
-  try { decreeArrears = await applyDecreeArrears(env, data, year, month); } catch (eDa) { decreeArrears = []; }
+  if (body && (body.applyDecreeArrears === true || body.decreeArrears === true)) {
+    try { decreeArrears = await applyDecreeArrears(env, data, year, month); } catch (eDa) { decreeArrears = []; }
+  }
   let contractWarnings = [];
   try {
     const cfg = storeConfig(env);
@@ -1236,10 +1231,12 @@ async function handlePayroll(request, user, env) {
           const r2 = data.monthlyData[altKey][code];
           if (Number(r2.workDays) > 0) row.workDays = r2.workDays;
         }
+        // مهم: applyAbsenceToQtyFlatItems را در محاسبه حقوق صدا نزن —
+        // آن تابع qty ناهار/تعداد خالص ورود داده را با فرمول سرور بازنویسی می‌کند (مثلاً ۲۱→۲۲).
+        // منبع حقیقت برای فیش = همان مقادیر تب ورود داده ماهانه (کلاینت).
         try {
-          if (typeof countEmpMonthPunchDays === 'function') {
+          if (typeof countEmpMonthPunchDays === 'function' && !(Number(row.punchDays) > 0)) {
             row.punchDays = countEmpMonthPunchDays(data, year, month, code);
-            try { applyAbsenceToQtyFlatItems(data, year, month, code, row); } catch (eAbs) {}
           }
         } catch (eP) {}
         // excess = max(0, کل کسر ساعتی − سقف) — فقط فرمول ساده، بدون بازمحاسبه سنگین از تردد
