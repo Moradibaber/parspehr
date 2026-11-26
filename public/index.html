@@ -6890,7 +6890,7 @@ function importDataFromExcel(event) {
 }
 
 /* ---- Payroll calculation runs on the server (POST /api/payroll). The rules are no longer in this file. ---- */
-const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode'];
+const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode','monthlyShortfallAllowanceHours','shortfallAllowanceHours','shortfallHours','shortfallSettings','applyDecreeArrears'];
 
 function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
   const key = year + '-' + month;
@@ -6926,10 +6926,27 @@ function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
     Object.keys(src).forEach(function(c) { if (c === '_meta' || !wantCodes || wantCodes.has(String(c))) part[c] = src[c]; });
     monthlyData[pk] = part;
   }
+  // پاک کردن آیتم‌های ناخواسته از روی کارت قبل از ارسال به سرور
+  var emps = selCodes ? (data.employees || []).filter(function(e) { return selCodes.has(String(e.code)); }) : (data.employees || []);
+  emps = emps.map(function(e) {
+    if (!e || !Array.isArray(e.customItems) || !e.customItems.length) return e;
+    var copy = Object.assign({}, e);
+    copy.customItems = e.customItems.filter(function(ci) {
+      if (!ci) return false;
+      var n = String(ci.name || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+      if (/معوقه\s*حکم/.test(n) || /^معوقه\s*اضافه/.test(n)) return false;
+      if (/بیمه\s*تکمیلی/.test(n) && (/کسر/.test(n) || ci.isDeduction)) {
+        var ok = !!(e.suppInsurance || e.suppInsuranceDeduct || e.suppInsuranceDeductCount > 0 || e.bimeTakmili);
+        return ok;
+      }
+      return true;
+    });
+    return copy;
+  });
   return {
     year: year, month: month, skipLoanSE: !!skipLoanSE,
     settings: settings, allowances: data.allowances || [],
-    employees: selCodes ? (data.employees || []).filter(function(e) { return selCodes.has(String(e.code)); }) : (data.employees || []),
+    employees: emps,
     monthlyData: monthlyData, payrolls: payrolls,
     loanDeductedMonths: loanDeductedMonths, transferredAdjustments: transferredAdjustments
   };
