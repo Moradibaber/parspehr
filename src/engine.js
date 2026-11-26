@@ -670,7 +670,7 @@ function _lunchAutoQty(d, name, qty, functionalDays) {
     var auto = d.qtyAuto[name] === true || d.qtyAuto[bare] === true || d.qtyAuto['تعداد ' + bare] === true;
     if (!auto) return qty;
     var pn = Number(d.punchDays || d.punch_days || 0);
-    if (pn > 0) return Math.min(pn, functionalDays > 0 ? functionalDays : pn);
+    // (غیرفعال) مقدار ورود داده معتبر است؛ دستکاری نشود
   } catch (e) {}
   return qty;
 }
