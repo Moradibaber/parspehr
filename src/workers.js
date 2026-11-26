@@ -230,6 +230,58 @@ async function storeGetSettingsDoc(cfg) {
   } catch (e) { return null; }
 }
 
+/** خواندن سند settings با version برای ذخیره */
+async function storeGetSettingsDocFull(cfg) {
+  try {
+    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings&select=version,data',
+      { headers: storeHeaders(cfg, { Accept: 'application/vnd.pgrst.object+json' }) });
+    if (r.status === 406) return { version: 0, obj: {} };
+    if (!r.ok) return { fail: await storeFail(r) };
+    const row = await r.json();
+    let obj = {};
+    if (row && row.data) {
+      try { obj = (typeof row.data === 'string') ? JSON.parse(row.data) : row.data; } catch (e) { obj = {}; }
+    }
+    if (!obj || typeof obj !== 'object') obj = {};
+    return { version: Number(row.version) || 0, obj: obj };
+  } catch (e) { return { fail: { reason: 'settings_get', message: String(e && e.message || e) } }; }
+}
+
+async function storePutSettingsDoc(cfg, baseVersion, obj) {
+  try {
+    const body = {
+      name: 'settings',
+      version: (Number(baseVersion) || 0) + 1,
+      data: JSON.stringify(obj || {}),
+      updated_at: new Date().toISOString()
+    };
+    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings', {
+      method: 'PATCH',
+      headers: storeHeaders(cfg, {
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+        'Accept': 'application/json'
+      }),
+      body: JSON.stringify(body)
+    });
+    if (r.status === 409 || r.status === 412) return { conflict: true };
+    if (!r.ok) {
+      // اگر ردیف settings وجود ندارد، INSERT
+      if (r.status === 404 || r.status === 406) {
+        const r2 = await fetch(cfg.url + '/rest/v1/app_docs', {
+          method: 'POST',
+          headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+          body: JSON.stringify({ name: 'settings', version: 1, data: JSON.stringify(obj || {}), updated_at: new Date().toISOString() })
+        });
+        if (!r2.ok) return { fail: await storeFail(r2) };
+        return { ok: true, version: 1 };
+      }
+      return { fail: await storeFail(r) };
+    }
+    return { ok: true, version: body.version };
+  } catch (e) { return { fail: { reason: 'settings_put', message: String(e && e.message || e) } }; }
+}
+
 /** data سند کارکنان است؛ leavePolicy و سیاست‌ها در سند settings هستند — باید ادغام شوند */
 async function storeMergeSettingsIntoDataObj(cfg, obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -242,9 +294,19 @@ async function storeMergeSettingsIntoDataObj(cfg, obj) {
       obj.settings.leavePolicy = sdoc.leavePolicy;
     }
     // سایر فیلدهای سیاست که فقط در settings هستند
-    ['requestGraceDays', 'currentYear', 'currentMonth', 'activeMonth', 'portalFloatMinutes', 'floatMinutes'].forEach(function (k) {
-      if (sdoc[k] != null && (obj.settings[k] == null || obj.settings[k] === '')) obj.settings[k] = sdoc[k];
+    ['requestGraceDays', 'currentYear', 'currentMonth', 'activeMonth', 'portalFloatMinutes', 'floatMinutes',
+     'monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (k) {
+      if (sdoc[k] != null && sdoc[k] !== '' && (obj.settings[k] == null || obj.settings[k] === '')) obj.settings[k] = sdoc[k];
     });
+    // سقف کسر از سند settings همیشه اولویت دارد اگر مقدار معتبر دارد
+    if (sdoc.monthlyShortfallAllowanceHours != null && sdoc.monthlyShortfallAllowanceHours !== '') {
+      obj.settings.monthlyShortfallAllowanceHours = sdoc.monthlyShortfallAllowanceHours;
+      obj.settings.shortfallAllowanceHours = sdoc.monthlyShortfallAllowanceHours;
+      obj.settings.shortfallHours = sdoc.monthlyShortfallAllowanceHours;
+    }
+    if (sdoc.shortfallSettings && typeof sdoc.shortfallSettings === 'object') {
+      obj.settings.shortfallSettings = sdoc.shortfallSettings;
+    }
     // اگر settings کامل‌تر است، leavePolicy را همیشه از settings بگیر
     if (sdoc.leavePolicy) obj.settings.leavePolicy = sdoc.leavePolicy;
   } catch (eM) {}
@@ -7105,10 +7167,25 @@ async function handleAdminShortfallSettings(request, who, env) {
     if ((h == null || h === '') && s.shortfallSettings && s.shortfallSettings.allowanceHours != null) {
       h = s.shortfallSettings.allowanceHours;
     }
+    // از سند settings هم بخوان (پایدارتر در برابر پاک شدن data)
+    try {
+      const sdoc = await storeGetSettingsDoc(cfg);
+      if (sdoc) {
+        if ((h == null || h === '') && sdoc.monthlyShortfallAllowanceHours != null && sdoc.monthlyShortfallAllowanceHours !== '') {
+          h = sdoc.monthlyShortfallAllowanceHours;
+        }
+        if ((h == null || h === '') && sdoc.shortfallAllowanceHours != null && sdoc.shortfallAllowanceHours !== '') {
+          h = sdoc.shortfallAllowanceHours;
+        }
+        if ((h == null || h === '') && sdoc.shortfallSettings && sdoc.shortfallSettings.allowanceHours != null) {
+          h = sdoc.shortfallSettings.allowanceHours;
+        }
+      }
+    } catch (eG) {}
     return jsonResponse({
       ok: true,
       monthlyShortfallAllowanceHours: h != null ? h : '',
-      shortfallAllowanceHours: s.shortfallAllowanceHours != null ? s.shortfallAllowanceHours : '',
+      shortfallAllowanceHours: h != null ? h : '',
       shortfallSettings: s.shortfallSettings || null
     });
   }
@@ -7142,6 +7219,26 @@ async function handleAdminShortfallSettings(request, who, env) {
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
+    // ذخیره پایدار در سند settings تا همگام‌سازی اپ data آن را پاک نکند
+    try {
+      const gs = await storeGetSettingsDocFull(cfg);
+      if (!gs.fail) {
+        const sObj = gs.obj || {};
+        if (gd.obj.settings.monthlyShortfallAllowanceHours == null || gd.obj.settings.monthlyShortfallAllowanceHours === '') {
+          delete sObj.monthlyShortfallAllowanceHours;
+          delete sObj.shortfallAllowanceHours;
+          delete sObj.shortfallHours;
+        } else {
+          const n = Number(gd.obj.settings.monthlyShortfallAllowanceHours);
+          sObj.monthlyShortfallAllowanceHours = n;
+          sObj.shortfallAllowanceHours = n;
+          sObj.shortfallHours = n;
+          if (!sObj.shortfallSettings || typeof sObj.shortfallSettings !== 'object') sObj.shortfallSettings = {};
+          sObj.shortfallSettings.allowanceHours = n;
+        }
+        await storePutSettingsDoc(cfg, gs.version || 0, sObj);
+      }
+    } catch (eSet) {}
     return jsonResponse({
       ok: true,
       monthlyShortfallAllowanceHours: gd.obj.settings.monthlyShortfallAllowanceHours,
