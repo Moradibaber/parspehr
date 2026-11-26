@@ -249,25 +249,34 @@ async function storeGetSettingsDocFull(cfg) {
 
 async function storePutSettingsDoc(cfg, baseVersion, obj) {
   try {
-    const body = {
-      name: 'settings',
-      version: (Number(baseVersion) || 0) + 1,
+    const ver = Number(baseVersion) || 0;
+    const payload = JSON.stringify({
+      version: ver + 1,
       data: JSON.stringify(obj || {}),
       updated_at: new Date().toISOString()
-    };
-    const r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings', {
+    });
+    // اطمینان از وجود ردیف
+    if (ver === 0) {
+      await fetch(cfg.url + '/rest/v1/app_docs?on_conflict=name', {
+        method: 'POST',
+        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' }),
+        body: JSON.stringify([{ name: 'settings', version: 0, data: '{}' }])
+      });
+    }
+    let r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings&version=eq.' + ver + '&select=version', {
       method: 'PATCH',
-      headers: storeHeaders(cfg, {
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-        'Accept': 'application/json'
-      }),
-      body: JSON.stringify(body)
+      headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+      body: payload
     });
     if (r.status === 409 || r.status === 412) return { conflict: true };
     if (!r.ok) {
-      // اگر ردیف settings وجود ندارد، INSERT
-      if (r.status === 404 || r.status === 406) {
+      // بدون شرط version یک‌بار دیگر
+      r = await fetch(cfg.url + '/rest/v1/app_docs?name=eq.settings', {
+        method: 'PATCH',
+        headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+        body: payload
+      });
+      if (!r.ok) {
         const r2 = await fetch(cfg.url + '/rest/v1/app_docs', {
           method: 'POST',
           headers: storeHeaders(cfg, { 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
@@ -276,9 +285,8 @@ async function storePutSettingsDoc(cfg, baseVersion, obj) {
         if (!r2.ok) return { fail: await storeFail(r2) };
         return { ok: true, version: 1 };
       }
-      return { fail: await storeFail(r) };
     }
-    return { ok: true, version: body.version };
+    return { ok: true, version: ver + 1 };
   } catch (e) { return { fail: { reason: 'settings_put', message: String(e && e.message || e) } }; }
 }
 
