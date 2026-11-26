@@ -104,7 +104,7 @@ if (!n) return true;
 return nameStartsWithDeductionOrArrears(n);
 }
 
-function isActiveAllowance(a) { return a && a.name && !a.name.startsWith('آیتم جدید'); }
+function isActiveAllowance(a) { return !!(a && a.name && typeof a.name === 'string' && !String(a.name).startsWith('آیتم جدید')); }
 
 function defaultTaxBrackets1405() {
 return [
@@ -675,6 +675,7 @@ let functionalDays = Number(meta.functionalDays) || Number(s.defaultFunctionalDa
 if (functionalDays < 1) functionalDays = 22;
 const results = [];
 getActiveEmployees().forEach(emp => {
+try {
 const d = data.monthlyData[key][emp.code] || { workDays: 30, leaveDays: 0, otHours: 0, nightHours: 0, shiftType: 'none', shiftDays: 0, vars: {}, qty: {} };
 const contractType = emp.contractType || 'normal';
 // سقف کارکرد با کسر روزهای استعلاجی/تعلیق همان ماه
@@ -1144,6 +1145,9 @@ gross, insurance, tax, taxable, taxBase, loanDeduction, remainingLoan: remaining
 bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: emp.insuranceNo||'',
 taxPercent: Number(emp.taxPercent) || 100, exemption: exempt
 });
+} catch (eEmp) {
+try { console.log(JSON.stringify({ event: 'payroll_emp_error', code: emp && emp.code, message: String(eEmp && eEmp.message || eEmp) })); } catch (eL) {}
+}
 });
 
 if (!opts.skipLoanSE) {
