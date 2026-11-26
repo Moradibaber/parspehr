@@ -5622,7 +5622,7 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     baseQty = Math.min(Number(row.workDays) || 0, ceiling, ceiling - Math.max(0, absence)) - deduct;
     if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
   }
-  finalQty = Math.max(0, Math.round(Math.min(ceiling, baseQty) * 100) / 100);
+  finalQty = Math.max(0, Math.round(Math.min(ceiling - Math.max(0, deduct) - Math.max(0, absence), baseQty) * 100) / 100);
 
   if (!row.qtyAuto || typeof row.qtyAuto !== 'object') row.qtyAuto = {};
   Object.keys(names).forEach(function (k) {
