@@ -958,28 +958,47 @@ return;
 }
 if (ci.entryType === 'quantity') {
 let qty = 0;
-if (d.qty) {
-if (d.qty[ci.name] !== undefined) qty = Number(d.qty[ci.name]);
-else {
-const bare = String(ci.name || '').replace(/^تعداد\s+/, '').trim();
-Object.keys(d.qty).forEach(function(k) {
-const kb = String(k).replace(/^تعداد\s+/, '').trim();
-if (k === ci.name || kb === bare || k === ('تعداد ' + bare) || kb === String(ci.name || '').trim())
-qty = Number(d.qty[k]);
-});
+function _normQKey(s) {
+  return String(s || '').replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, ' ').replace(/^تعداد\s+/, '').replace(/\s+/g, ' ').trim();
 }
+if (d.qty && typeof d.qty === 'object') {
+  if (d.qty[ci.name] !== undefined && d.qty[ci.name] !== '') qty = Number(d.qty[ci.name]);
+  if (!(qty > 0)) {
+    const bare = _normQKey(ci.name);
+    Object.keys(d.qty).forEach(function(k) {
+      const kb = _normQKey(k);
+      if (k === ci.name || kb === bare || k === ('تعداد ' + bare) || kb === String(ci.name || '').trim())
+        qty = Number(d.qty[k]);
+    });
+  }
+  // ناهار: صریحاً از ستون ورود داده (حتی اگر نام کمی فرق دارد)
+  if (!(qty > 0) && /ناهار|نهار|غذا|خوراک/.test(String(ci.name || ''))) {
+    Object.keys(d.qty).forEach(function(k) {
+      if (/ناهار|نهار|اهاری/.test(String(k)) && /کمک|حق|ناهار|نهار/.test(String(k))) {
+        var qn = Number(d.qty[k]);
+        if (qn > 0) qty = qn;
+      }
+    });
+    // اگر چند کلید ناهار بود، «کمک هزینه ناهاری» اولویت دارد
+    Object.keys(d.qty).forEach(function(k) {
+      if (/کمک\s*هزینه\s*ناه/.test(String(k).replace(/ی/g,'ی')) || String(k).indexOf('کمک هزینه ناهاری') >= 0) {
+        var qn2 = Number(d.qty[k]);
+        if (qn2 > 0) qty = qn2;
+      }
+    });
+  }
 }
 if (!isFinite(qty) || qty < 0) qty = 0;
-// حق ناهاری/غذا: اگر تعداد خالی بود از کارکرد/تردد پر شود (مثل تعداد خالص)
+// فقط اگر ورود داده خالی بود از کارکرد/تردد — هرگز functionalDays (۲۲) را جای ناهار نگذار
 if (!(qty > 0) && (typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name || '')))) {
-var pN = Number(d.punchDays || d.punch_days || 0);
-if (!(pN > 0) && d.vars) {
-Object.keys(d.vars).forEach(function(vk) {
-if (/punch|تردد/i.test(String(vk))) pN = Math.max(pN, Number(d.vars[vk]) || 0);
-});
-}
-if (pN > 0) qty = pN;
-else if (typeof workDays === 'number' && workDays > 0) qty = workDays;
+  var pN = Number(d.punchDays || d.punch_days || 0);
+  if (!(pN > 0) && d.vars) {
+    Object.keys(d.vars).forEach(function(vk) {
+      if (/punch|تردد/i.test(String(vk))) pN = Math.max(pN, Number(d.vars[vk]) || 0);
+    });
+  }
+  // ترجیح: اگر qty با کلید ناهار در d.qty هست همان؛ وگرنه punchDays نه workDays ماه (۳۰)
+  if (pN > 0) qty = pN;
 }
 const isSuppIns = /بیمه\s*تکمیلی/.test(String(ci.name || ''));
 if (isSuppIns) {
@@ -1002,24 +1021,35 @@ qtyUsed = null;
 }
 } else if (ci.entryType === 'qty_flat') {
 // تعداد خالص: مبلغ × (تعداد مؤثر ÷ کارکرد خالص)
-// تعداد مؤثر پس از کسر غیبت و آیتم‌های با تیک «کسر از تعداد خالص»
 let qty = 0;
-if (d.qty) {
-if (d.qty[ci.name] !== undefined) qty = Number(d.qty[ci.name]);
-else {
-const bare = String(ci.name || '').replace(/^تعداد\s+/, '').trim();
-Object.keys(d.qty).forEach(function(k) {
-const kb = String(k).replace(/^تعداد\s+/, '').trim();
-if (k === ci.name || kb === bare || k === ('تعداد ' + bare))
-qty = Number(d.qty[k]);
-});
+function _normQKey2(s) {
+  return String(s || '').replace(/[\u200c\u200d\u200e\u200f\u00a0]/g, ' ').replace(/^تعداد\s+/, '').replace(/\s+/g, ' ').trim();
 }
+if (d.qty && typeof d.qty === 'object') {
+  if (d.qty[ci.name] !== undefined && d.qty[ci.name] !== '') qty = Number(d.qty[ci.name]);
+  if (!(qty > 0)) {
+    const bare = _normQKey2(ci.name);
+    Object.keys(d.qty).forEach(function(k) {
+      const kb = _normQKey2(k);
+      if (k === ci.name || kb === bare || k === ('تعداد ' + bare))
+        qty = Number(d.qty[k]);
+    });
+  }
+  if (!(qty > 0) && /ناهار|نهار|غذا/.test(String(ci.name || ''))) {
+    Object.keys(d.qty).forEach(function(k) {
+      if (String(k).indexOf('کمک هزینه ناهاری') >= 0 || /کمک.*ناه/.test(String(k))) {
+        var qn = Number(d.qty[k]);
+        if (qn > 0) qty = qn;
+      }
+    });
+  }
 }
 if (!isFinite(qty) || qty < 0) qty = 0;
 const netDed = Math.max(0, Number(d.netDeductionDays != null ? d.netDeductionDays : d.absenceDays) || 0);
+const _isLunchFlat = /ناهار|نهار|غذا|خوراک/.test(String(ci.name || ''));
 if (!(qty > 0)) {
-// پایه = کارکرد خالص؛ بعد کسر غیبت/تیک‌ها
-if (functionalDays > 0) qty = Math.max(0, functionalDays - netDed);
+// پایه = کارکرد خالص؛ برای ناهار هرگز از functionalDays (۲۲) استفاده نکن
+if (!_isLunchFlat && functionalDays > 0) qty = Math.max(0, functionalDays - netDed);
 else {
 var pNL = Number(d.punchDays || d.punch_days || 0);
 if (!(pNL > 0) && d.vars) {
