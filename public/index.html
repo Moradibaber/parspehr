@@ -6743,7 +6743,7 @@ function updateFunctionalDays() {
   const key = getDataKey();
   if (!data.monthlyData[key]) data.monthlyData[key] = {};
   if (!data.monthlyData[key]._meta) data.monthlyData[key]._meta = {};
-  data.monthlyData[key]._meta.functionalDays = Number(document.getElementById('dataFunctionalDays').value) || 22;
+  data.monthlyData[key]._meta.functionalDays = Number(document.getElementById('dataFunctionalDays').value) || Number(data.monthlyData[key]._meta.functionalDays) || data.settings.defaultFunctionalDays || 22;
   const area = document.getElementById('dataEntryArea');
   if (area && area.style.display === 'block') loadDataEntry();
 }
@@ -6893,6 +6893,12 @@ function importDataFromExcel(event) {
 const PAYROLL_SETTINGS_KEYS = ['currentYear','defaultFunctionalDays','insEmployee','insEmployer','insuranceCeilings','monthDays','monthDaysByYear','nightFactor','overtimeFactor','shiftAllThree','shiftMorningEvening','shiftWithNight','taxBrackets','taxMode','monthlyShortfallAllowanceHours','shortfallAllowanceHours','shortfallHours','shortfallSettings','applyDecreeArrears'];
 
 function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
+  // اصلاح مبلغ قدیمی ناهار روی کارت کارکنان: ۵۷٬۰۰۰٬۰۰۰ → ۵۱٬۰۰۰٬۰۰۰
+  (data.employees || []).forEach(function(e) {
+    (e && e.customItems || []).forEach(function(ci) {
+      if (ci && /ناهار|غذا|خوراک|غذایی/.test(String(ci.name || '')) && Number(ci.amount) === 57000000) ci.amount = 51000000;
+    });
+  });
   const key = year + '-' + month;
   const s = data.settings || {};
   const settings = {};
@@ -6933,7 +6939,7 @@ function buildPayrollRequest(year, month, skipLoanSE, selCodes) {
     var copy = Object.assign({}, e);
     copy.customItems = e.customItems.filter(function(ci) {
       if (!ci) return false;
-      var n = String(ci.name || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+      var n = String(ci.name || '').replace(/\u200c/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
       if (/معوقه\s*حکم/.test(n) || /^معوقه\s*اضافه/.test(n)) return false;
       if (/بیمه\s*تکمیلی/.test(n) && (/کسر/.test(n) || ci.isDeduction)) {
         var ok = !!(e.suppInsurance || e.suppInsuranceDeduct || e.suppInsuranceDeductCount > 0 || e.bimeTakmili);
@@ -7183,7 +7189,7 @@ function generatePayslip(opts) {
     if (it.infoOnly) return;
     // نام آیتم کافی است (کسر/کسورات در ابتدای نام مشخص است)
     const qtyStr = (it.qty != null && it.qty !== '') ? ' (' + it.qty + ')' : '';
-    itemsHtml += '<tr><td>' + it.name + qtyStr + '</td><td>' + formatNumber(it.amount) + '</td></tr>';
+    itemsHtml += '<tr><td>' + it.name + qtyStr + '</td><td' + (it.isDeduction ? ' style="color:#b91c1c">−' : '>') + formatNumber(it.amount) + '</td></tr>';
   });
   const isDH = rec.contractType === 'daily' || rec.contractType === 'hourly' || rec.hideOtNight;
   const basicLabel = rec.contractType === 'daily' ? ('مزد روز / حقوق پایه (' + rec.workDays + ' روز)')
@@ -7201,8 +7207,8 @@ function generatePayslip(opts) {
       <div class="payslip-header"><h2>فیش حقوقی</h2><p>${monthNames[m]} ${slipYearV}</p></div>
       <table>
         <tr><td>کد</td><td>${emp.code}</td><td>نام</td><td>${emp.fullName}</td></tr>
-        <tr><td>سمت</td><td>${emp.position||'—'}</td><td>واحد</td><td>${emp.unit||'—'}</td></tr>
-        <tr><td>محل کار</td><td>${emp.workplace||'—'}</td><td>تاریخ استخدام</td><td>${emp.hireDate||'—'}</td></tr>
+        <tr><td>سمت</td><td>${rec.position||emp.position||'—'}</td><td>واحد</td><td>${rec.unit||emp.unit||'—'}</td></tr>
+        <tr><td>محل کار</td><td>${rec.workplace||emp.workplace||'—'}</td><td>تاریخ استخدام</td><td>${emp.hireDate||'—'}</td></tr>
         <tr><td>نام بانک</td><td>${rec.bankName||'—'}</td><td>شماره حساب</td><td>${rec.accountNumber||'—'}</td></tr>
         <tr><td>شماره بیمه</td><td>${rec.insuranceNo||'—'}</td><td>${workLabel}</td><td>${rec.workDays} / ${rec.leaveDays||0}</td></tr>
       </table>
