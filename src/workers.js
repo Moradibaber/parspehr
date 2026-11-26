@@ -566,6 +566,24 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if ((obj.settings.floatMinutes == null || obj.settings.floatMinutes === '') && prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
               obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
             }
+            // سقف کسر ساعتی: ذخیرهٔ اصلی اپ نباید مقدار پورتال را پاک کند
+            ['monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (sk) {
+              if ((obj.settings[sk] == null || obj.settings[sk] === '') && prev.obj.settings[sk] != null && prev.obj.settings[sk] !== '') {
+                obj.settings[sk] = prev.obj.settings[sk];
+              }
+            });
+            if ((!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') && prev.obj.settings.shortfallSettings && typeof prev.obj.settings.shortfallSettings === 'object') {
+              obj.settings.shortfallSettings = prev.obj.settings.shortfallSettings;
+            } else if (prev.obj.settings.shortfallSettings && typeof prev.obj.settings.shortfallSettings === 'object') {
+              if (!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') obj.settings.shortfallSettings = {};
+              if ((obj.settings.shortfallSettings.allowanceHours == null || obj.settings.shortfallSettings.allowanceHours === '')
+                  && prev.obj.settings.shortfallSettings.allowanceHours != null && prev.obj.settings.shortfallSettings.allowanceHours !== '') {
+                obj.settings.shortfallSettings.allowanceHours = prev.obj.settings.shortfallSettings.allowanceHours;
+              }
+              if (!obj.settings.shortfallSettings.byGroup && prev.obj.settings.shortfallSettings.byGroup) {
+                obj.settings.shortfallSettings.byGroup = prev.obj.settings.shortfallSettings.byGroup;
+              }
+            }
             if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
               if (!obj.settings.contractCalendars || typeof obj.settings.contractCalendars !== 'object') {
                 obj.settings.contractCalendars = prev.obj.settings.contractCalendars;
@@ -1255,6 +1273,31 @@ async function handlePayroll(request, user, env) {
         } catch (eSfPay) {}
       });
     } catch (ePD) {}
+    // پاک‌سازی آیتم‌های ناخواسته قبل از فیش (مگر صریحاً درخواست شده باشند)
+    try {
+      var wantArrears = !!(body && (body.applyDecreeArrears === true || body.decreeArrears === true));
+      (data.employees || []).forEach(function (emp) {
+        if (!emp || !Array.isArray(emp.customItems)) return;
+        emp.customItems = emp.customItems.filter(function (ci) {
+          if (!ci) return false;
+          var n = String(ci.name || '');
+          // معوقه حکم خودکار — فقط با فلگ صریح
+          if (!wantArrears && (n === 'معوقه حکم' || n.indexOf('معوقه اضافه‌کار') === 0 || n.indexOf('معوقه اضافه') === 0)) return false;
+          // کسر بیمه تکمیلی: فقط اگر روی کارت واقعاً فعال است
+          if (/بیمه\s*تکمیلی/.test(n) && (ci.isDeduction || /کسر/.test(n))) {
+            var hasFlag = !!(emp.suppInsurance || emp.suppInsuranceDeduct || emp.suppInsuranceDeductCount > 0 || emp.bimeTakmili);
+            var hasFamilySupp = false;
+            try {
+              if (Array.isArray(emp.family)) {
+                hasFamilySupp = emp.family.some(function (f) { return f && (f.suppInsurance || f.bimeTakmili || f.supplementary); });
+              }
+            } catch (eF) {}
+            if (!hasFlag && !hasFamilySupp) return false;
+          }
+          return true;
+        });
+      });
+    } catch (eStrip) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
   } catch (e) {
     var errMsg = String((e && e.message) || e || 'unknown');
