@@ -806,13 +806,13 @@ try {
   if (d.shortfallAllowanceHours != null && d.shortfallAllowanceHours !== '') shortAllowH = Number(d.shortfallAllowanceHours);
   else if (d.absenceAllowanceHours != null && d.absenceAllowanceHours !== '') shortAllowH = Number(d.absenceAllowanceHours);
   else {
-    var s = data.settings || {};
-    var ss = s.shortfallSettings || {};
+    var _stg = data.settings || {};
+    var ss = _stg.shortfallSettings || {};
     var sAllow = null;
     if (ss.allowanceHours != null && ss.allowanceHours !== '') sAllow = ss.allowanceHours;
-    else if (s.shortfallAllowanceHours != null && s.shortfallAllowanceHours !== '') sAllow = s.shortfallAllowanceHours;
-    else if (s.shortfallHours != null && s.shortfallHours !== '') sAllow = s.shortfallHours;
-    else if (s.monthlyShortfallAllowanceHours != null && s.monthlyShortfallAllowanceHours !== '') sAllow = s.monthlyShortfallAllowanceHours;
+    else if (_stg.shortfallAllowanceHours != null && _stg.shortfallAllowanceHours !== '') sAllow = _stg.shortfallAllowanceHours;
+    else if (_stg.shortfallHours != null && _stg.shortfallHours !== '') sAllow = _stg.shortfallHours;
+    else if (_stg.monthlyShortfallAllowanceHours != null && _stg.monthlyShortfallAllowanceHours !== '') sAllow = _stg.monthlyShortfallAllowanceHours;
     try {
       var eg = String((emp && emp.group) || '').trim();
       var byG = ss.byGroup;
