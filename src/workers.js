@@ -1230,7 +1230,7 @@ async function handlePayroll(request, user, env) {
       Object.keys(data.monthlyData[key]).forEach(function (code) {
         if (code === '_meta') return;
         const row = data.monthlyData[key][code];
-        if (!row) return;
+        if (!row || typeof row !== 'object') return;
         // اگر workDays صفر/خالی است از کلید جایگزین بخوان
         if (!(Number(row.workDays) > 0) && data.monthlyData[altKey] && data.monthlyData[altKey][code]) {
           const r2 = data.monthlyData[altKey][code];
@@ -1242,65 +1242,28 @@ async function handlePayroll(request, user, env) {
             try { applyAbsenceToQtyFlatItems(data, year, month, code, row); } catch (eAbs) {}
           }
         } catch (eP) {}
-        // همیشه قبل از حقوق: excess = max(0, کل کسر ساعتی − سقف کسر ساعت)
+        // excess = max(0, کل کسر ساعتی − سقف) — فقط فرمول ساده، بدون بازمحاسبه سنگین از تردد
         try {
           var empR = (data.employees || []).find(function (e) { return e && String(e.code) === String(code); });
-          // اگر hourlyAbsenceHours خالی است و تردد داریم، از apply کامل پر کن
-          var hasAbs = isFinite(Number(row.hourlyAbsenceHours)) && Number(row.hourlyAbsenceHours) > 0;
-          if (!hasAbs && typeof applyShortfallCeilingToMonthRow === 'function') {
-            try { applyShortfallCeilingToMonthRow(data, year, month, code, row); } catch (eFull) {}
-          } else if (typeof applyShortfallCeilingToMonthRow === 'function') {
-            // حتی اگر مقدار هست، سقف را با تنظیمات فعلی دوباره اعمال کن
-            try {
-              row._fromTimesheet = true; // از مقدار موجود استفاده شود
-              applyShortfallCeilingToMonthRow(data, year, month, code, row);
-            } catch (eFull2) {
-              var allowHR = (typeof resolveShortfallAllowanceHours === 'function')
-                ? resolveShortfallAllowanceHours(data, empR)
-                : Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
-              if (!isFinite(allowHR) || allowHR < 0) allowHR = 0;
-              var totalHR = Number(row.hourlyAbsenceHours);
-              if (!isFinite(totalHR) || totalHR < 0) totalHR = 0;
-              row.shortfallAllowanceHours = allowHR;
-              row.excessAbsenceHours = Math.max(0, Math.round((totalHR - allowHR) * 100) / 100);
-            }
-          } else {
-            var allowHR2 = (typeof resolveShortfallAllowanceHours === 'function')
-              ? resolveShortfallAllowanceHours(data, empR)
-              : Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
-            if (!isFinite(allowHR2) || allowHR2 < 0) allowHR2 = 0;
-            var totalHR2 = Number(row.hourlyAbsenceHours);
-            if (!isFinite(totalHR2) || totalHR2 < 0) totalHR2 = 0;
-            row.shortfallAllowanceHours = allowHR2;
-            row.excessAbsenceHours = Math.max(0, Math.round((totalHR2 - allowHR2) * 100) / 100);
-          }
+          var allowHR = 0;
+          try {
+            if (typeof resolveShortfallAllowanceHours === 'function') allowHR = resolveShortfallAllowanceHours(data, empR);
+            else allowHR = Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
+          } catch (eAll) { allowHR = Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0) || 0; }
+          if (!isFinite(allowHR) || allowHR < 0) allowHR = 0;
+          var totalHR = Number(row.hourlyAbsenceHours);
+          if (!isFinite(totalHR) || totalHR < 0) totalHR = 0;
+          row.shortfallAllowanceHours = allowHR;
+          row.excessAbsenceHours = Math.max(0, Math.round((totalHR - allowHR) * 100) / 100);
         } catch (eSfPay) {}
-      });
-      // اگر کارمندی در monthlyData نیست ولی در employees هست، ردیف خالی با سقف بساز تا موتور بداند
-      (data.employees || []).forEach(function (empP) {
-        if (!empP || empP.status === 'inactive') return;
-        var cP = String(empP.code);
-        if (!data.monthlyData[key][cP]) data.monthlyData[key][cP] = {};
-        var rowP = data.monthlyData[key][cP];
-        if (rowP.hourlyAbsenceHours == null || rowP.hourlyAbsenceHours === '') {
-          // بدون داده تایم‌شیت: صفر؛ سقف را بنویس تا موتور یکسان رفتار کند
-          if (rowP.hourlyAbsenceHours == null) rowP.hourlyAbsenceHours = 0;
-        }
-        try {
-          var allowHP = (typeof resolveShortfallAllowanceHours === 'function')
-            ? resolveShortfallAllowanceHours(data, empP)
-            : Number((data.settings && data.settings.monthlyShortfallAllowanceHours) || 0);
-          if (!isFinite(allowHP) || allowHP < 0) allowHP = 0;
-          var totalHP = Number(rowP.hourlyAbsenceHours) || 0;
-          rowP.shortfallAllowanceHours = allowHP;
-          rowP.excessAbsenceHours = Math.max(0, Math.round((totalHP - allowHP) * 100) / 100);
-        } catch (eSf2) {}
       });
     } catch (ePD) {}
     out = makeEngine(data).runMonth(year, month, { skipLoanSE: !!body.skipLoanSE });
   } catch (e) {
-    console.log(JSON.stringify({ event: 'payroll_error', user: user, message: String(e && e.message) }));
-    return jsonResponse({ ok: false, error: 'calculation_failed' }, 500);
+    var errMsg = String((e && e.message) || e || 'unknown');
+    var errStack = String((e && e.stack) || '').slice(0, 500);
+    console.log(JSON.stringify({ event: 'payroll_error', user: user, message: errMsg, stack: errStack }));
+    return jsonResponse({ ok: false, error: 'calculation_failed', message: errMsg }, 500);
   }
   if (out && typeof out === 'object') {
     out.contractWarnings = contractWarnings;
