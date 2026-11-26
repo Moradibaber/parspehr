@@ -1338,6 +1338,14 @@ async function handlePayroll(request, user, env) {
     // پاک‌سازی آیتم‌های ناخواسته قبل از فیش (مگر صریحاً درخواست شده باشند)
     try {
       var wantArrears = !!(body && (body.applyDecreeArrears === true || body.decreeArrears === true));
+      if (wantArrears) {
+        data._applyDecreeArrears = true;
+        if (!data.settings) data.settings = {};
+        data.settings.applyDecreeArrears = true;
+      } else {
+        data._applyDecreeArrears = false;
+        if (data.settings) data.settings.applyDecreeArrears = false;
+      }
       (data.employees || []).forEach(function (emp) {
         if (!emp || !Array.isArray(emp.customItems)) return;
         emp.customItems = emp.customItems.filter(function (ci) {
