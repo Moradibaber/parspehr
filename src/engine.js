@@ -895,6 +895,25 @@ if (a.tax) taxBase += val;
 if (!ci.name) return;
 // مدت آیتم: همیشه / یک ماه / … — خارج از بازه محاسبه نشود
 if (!isCustomItemActive(ci, year, month)) return;
+// —— فیلتر سخت: معوقه حکم و بیمه تکمیلی ناخواسته وارد فیش نشوند ——
+try {
+  var _ciN = String(ci.name || '').replace(/\u200c/g, '').replace(/\s+/g, ' ').trim();
+  // معوقه حکم / معوقه اضافه‌کار حکم — فقط با فلگ صریح settings/data
+  if (/^معوقه\s*حکم/.test(_ciN) || /^معوقه\s*اضافه/.test(_ciN)) {
+    var _wantArr = !!(data && data.settings && (data.settings.applyDecreeArrears === true || data._applyDecreeArrears === true));
+    if (!_wantArr) return;
+  }
+  // کسر بیمه تکمیلی: فقط اگر روی کارت/خانواده واقعاً علامت خورده
+  if (/بیمه\s*تکمیلی/.test(_ciN) && (!!ci.isDeduction || /^کسر/.test(_ciN) || /کسر/.test(_ciN))) {
+    var _hasSupp = !!(emp.suppInsurance || emp.suppInsuranceDeduct || (Number(emp.suppInsuranceDeductCount) > 0) || emp.bimeTakmili || emp.supplementaryInsurance);
+    if (!_hasSupp && Array.isArray(emp.family)) {
+      _hasSupp = emp.family.some(function (f) {
+        return f && (f.suppInsurance || f.bimeTakmili || f.supplementary || f.supplementaryInsurance);
+      });
+    }
+    if (!_hasSupp) return;
+  }
+} catch (eSkipCi) {}
 const flags = findAllowanceFlags(ci.name);
 const asDeduction = !!ci.isDeduction || isNameDeductionItem(ci.name);
 const asArrears = isNameArrearsItem(ci.name);
