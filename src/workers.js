@@ -929,12 +929,12 @@ async function enrichCalcDataFromStore(env, data) {
       if (!e || e.code == null) return;
       const s = byCode[String(e.code)];
       if (!s) return;
-      if (s.family) e.family = s.family;
-      if (s.suppInsurance) e.suppInsurance = s.suppInsurance;
+      if (s.family && !e.family) e.family = s.family;
+      if (s.suppInsurance && (e.suppInsurance == null)) e.suppInsurance = s.suppInsurance;
       if (s.childrenEligibleCount != null) e.childrenEligibleCount = s.childrenEligibleCount;
       if (s.children != null && (e.children == null || e.children === '')) e.children = s.children;
-      if (s.suppInsuranceDeductCount != null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
-      if (s.suppInsuranceDeduct != null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
+      if (s.suppInsuranceDeductCount != null && e.suppInsuranceDeductCount == null) e.suppInsuranceDeductCount = s.suppInsuranceDeductCount;
+      if (s.suppInsuranceDeduct != null && e.suppInsuranceDeduct == null) e.suppInsuranceDeduct = s.suppInsuranceDeduct;
       // بیمه تکمیلی: فقط اگر روی کارت/داده کلاینت از قبل هست، مبلغ را هم‌تراز کن.
       // هرگز آیتم جدید از سرور به فیش اضافه نکن (اگر کارت خالی است، کسر نباید ظاهر شود).
       if (Array.isArray(s.customItems) && s.customItems.length && Array.isArray(e.customItems) && e.customItems.length) {
@@ -1391,9 +1391,9 @@ async function handlePayroll(request, user, env) {
         if (!emp || !Array.isArray(emp.customItems)) return;
         emp.customItems = emp.customItems.filter(function (ci) {
           if (!ci) return false;
-          var n = String(ci.name || '');
+          var n = String(ci.name || '').replace(/\u200c/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
           // معوقه حکم خودکار — فقط با فلگ صریح
-          if (!wantArrears && (n === 'معوقه حکم' || n.indexOf('معوقه اضافه‌کار') === 0 || n.indexOf('معوقه اضافه') === 0)) return false;
+          if (!wantArrears && (/^معوقه\s*حکم/.test(n) || /^معوقه\s*اضافه/.test(n))) return false;
           // کسر بیمه تکمیلی: فقط اگر روی کارت واقعاً فعال است
           if (/بیمه\s*تکمیلی/.test(n) && (ci.isDeduction || /کسر/.test(n))) {
             var hasFlag = !!(emp.suppInsurance || emp.suppInsuranceDeduct || emp.suppInsuranceDeductCount > 0 || emp.bimeTakmili);
@@ -1448,7 +1448,7 @@ async function handlePayroll(request, user, env) {
         var newItems = [];
         items.forEach(function (it) {
           if (!it) return;
-          var nm = String(it.name || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+          var nm = String(it.name || '').replace(/\u200c/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
           // حذف معوقه حکم
           if (nm.indexOf('معوقه حکم') >= 0 || nm.indexOf('معوقه اضافه') >= 0) {
             var am = Number(it.amount) || 0;
@@ -1470,14 +1470,8 @@ async function handlePayroll(request, user, env) {
             var oldQ = Number(it.qty);
             if (!(oldQ > 0)) oldQ = 22; // نمایش قبلی اشتباه
             if (oldQ !== lunchFromEntry && oldQ > 0) {
-              var oldAmt = Number(it.amount) || 0;
-              var newAmt = Math.round(oldAmt * (lunchFromEntry / oldQ));
-              it.amount = newAmt;
+              // مبلغ را اینجا دستکاری نکن (بیمه/مالیات بازمحاسبه نمی‌شد)؛ موتور از همان ورود داده حساب می‌کند. فقط برچسب تعداد.
               it.qty = lunchFromEntry;
-              // اختلاف مبلغ را در totalAllow جبران کن
-              if (r.totalAllow != null) r.totalAllow = Math.round((Number(r.totalAllow) || 0) + (newAmt - oldAmt));
-              if (r.gross != null) r.gross = Math.round((Number(r.gross) || 0) + (newAmt - oldAmt));
-              if (r.net != null) r.net = Math.round((Number(r.net) || 0) + (newAmt - oldAmt));
             } else if (!(Number(it.qty) > 0)) {
               it.qty = lunchFromEntry;
             }
