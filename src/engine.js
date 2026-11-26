@@ -899,8 +899,8 @@ if (!isCustomItemActive(ci, year, month)) return;
 try {
   var _ciN = String(ci.name || '').replace(/\u200c/g, '').replace(/\s+/g, ' ').trim();
   // معوقه حکم / معوقه اضافه‌کار حکم — فقط با فلگ صریح settings/data
-  if (/^معوقه\s*حکم/.test(_ciN) || /^معوقه\s*اضافه/.test(_ciN)) {
-    var _wantArr = !!(data && data.settings && (data.settings.applyDecreeArrears === true || data._applyDecreeArrears === true));
+  if (_ciN.indexOf('معوقه حکم') >= 0 || _ciN.indexOf('معوقه اضافه') >= 0 || /^معوقه\s*حکم/.test(_ciN) || /^معوقه\s*اضافه/.test(_ciN)) {
+    var _wantArr = !!(data && (data._applyDecreeArrears === true || (data.settings && data.settings.applyDecreeArrears === true)));
     if (!_wantArr) return;
   }
   // کسر بیمه تکمیلی: فقط اگر روی کارت/خانواده واقعاً علامت خورده
