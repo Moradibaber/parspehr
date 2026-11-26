@@ -636,22 +636,55 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
             if ((obj.settings.floatMinutes == null || obj.settings.floatMinutes === '') && prev.obj.settings.floatMinutes != null && prev.obj.settings.floatMinutes !== '') {
               obj.settings.floatMinutes = prev.obj.settings.floatMinutes;
             }
-            // سقف کسر ساعتی: ذخیرهٔ اصلی اپ نباید مقدار پورتال را پاک کند
-            ['monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (sk) {
-              if ((obj.settings[sk] == null || obj.settings[sk] === '') && prev.obj.settings[sk] != null && prev.obj.settings[sk] !== '') {
-                obj.settings[sk] = prev.obj.settings[sk];
+            // —— تنظیمات پورتال/حقوق که اپ اصلی نمی‌شناسد و نباید با ذخیره/رفرش پاک شوند ——
+            var PORTAL_KEEP_KEYS = [
+              'monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours',
+              'requestGraceDays', 'portalFloatMinutes', 'floatMinutes',
+              'leavePolicy', 'shortfallSettings'
+            ];
+            PORTAL_KEEP_KEYS.forEach(function (sk) {
+              var cur = obj.settings[sk];
+              var prv = prev.obj.settings[sk];
+              var empty = (cur == null || cur === '' || (typeof cur === 'object' && !Array.isArray(cur) && Object.keys(cur).length === 0));
+              if (empty && prv != null && prv !== '') {
+                obj.settings[sk] = (typeof prv === 'object') ? JSON.parse(JSON.stringify(prv)) : prv;
               }
             });
-            if ((!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') && prev.obj.settings.shortfallSettings && typeof prev.obj.settings.shortfallSettings === 'object') {
-              obj.settings.shortfallSettings = prev.obj.settings.shortfallSettings;
-            } else if (prev.obj.settings.shortfallSettings && typeof prev.obj.settings.shortfallSettings === 'object') {
-              if (!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') obj.settings.shortfallSettings = {};
-              if ((obj.settings.shortfallSettings.allowanceHours == null || obj.settings.shortfallSettings.allowanceHours === '')
-                  && prev.obj.settings.shortfallSettings.allowanceHours != null && prev.obj.settings.shortfallSettings.allowanceHours !== '') {
-                obj.settings.shortfallSettings.allowanceHours = prev.obj.settings.shortfallSettings.allowanceHours;
+            // leavePolicy: اگر کلاینت ناقص فرستاد، byGroup/byContractType قبلی را حفظ کن
+            if (prev.obj.settings.leavePolicy && typeof prev.obj.settings.leavePolicy === 'object') {
+              if (!obj.settings.leavePolicy || typeof obj.settings.leavePolicy !== 'object') {
+                obj.settings.leavePolicy = JSON.parse(JSON.stringify(prev.obj.settings.leavePolicy));
+              } else {
+                var pl = prev.obj.settings.leavePolicy;
+                var cl = obj.settings.leavePolicy;
+                ['byGroup', 'byContractType', 'defaultDays', 'annualDays'].forEach(function (lk) {
+                  if ((cl[lk] == null || cl[lk] === '' || (typeof cl[lk] === 'object' && Object.keys(cl[lk] || {}).length === 0)) && pl[lk] != null) {
+                    cl[lk] = JSON.parse(JSON.stringify(pl[lk]));
+                  }
+                });
+                // byGroup: کلیدهای قبلی را نگه دار مگر کلاینت صریحاً مقدار جدید داده
+                if (pl.byGroup && typeof pl.byGroup === 'object') {
+                  if (!cl.byGroup || typeof cl.byGroup !== 'object') cl.byGroup = {};
+                  Object.keys(pl.byGroup).forEach(function (gk) {
+                    if (cl.byGroup[gk] == null || cl.byGroup[gk] === '') cl.byGroup[gk] = pl.byGroup[gk];
+                  });
+                }
               }
-              if (!obj.settings.shortfallSettings.byGroup && prev.obj.settings.shortfallSettings.byGroup) {
-                obj.settings.shortfallSettings.byGroup = prev.obj.settings.shortfallSettings.byGroup;
+            }
+            // shortfallSettings.byGroup هم همین‌طور
+            if (prev.obj.settings.shortfallSettings && typeof prev.obj.settings.shortfallSettings === 'object') {
+              if (!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') {
+                obj.settings.shortfallSettings = JSON.parse(JSON.stringify(prev.obj.settings.shortfallSettings));
+              } else {
+                var ps = prev.obj.settings.shortfallSettings;
+                var cs = obj.settings.shortfallSettings;
+                if ((cs.allowanceHours == null || cs.allowanceHours === '') && ps.allowanceHours != null) cs.allowanceHours = ps.allowanceHours;
+                if (ps.byGroup && typeof ps.byGroup === 'object') {
+                  if (!cs.byGroup || typeof cs.byGroup !== 'object') cs.byGroup = {};
+                  Object.keys(ps.byGroup).forEach(function (gk) {
+                    if (cs.byGroup[gk] == null || cs.byGroup[gk] === '') cs.byGroup[gk] = ps.byGroup[gk];
+                  });
+                }
               }
             }
             if (prev.obj.settings.contractCalendars && typeof prev.obj.settings.contractCalendars === 'object') {
@@ -7318,6 +7351,7 @@ async function handleAdminShortfallSettings(request, who, env) {
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
+    try { await syncPortalPolicyToSettingsDoc(cfg, gd.obj); } catch (eSyn2) {}
     // ذخیره پایدار در سند settings تا همگام‌سازی اپ data آن را پاک نکند
     try {
       const gs = await storeGetSettingsDocFull(cfg);
@@ -10687,6 +10721,7 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     const put = await storePutData(cfg, gd.version, gd.obj, 'float-set:' + (who.name || 'admin'));
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
+    try { await syncPortalPolicyToSettingsDoc(cfg, gd.obj); } catch (eSyn) {}
     const tdef = (gd.obj.settings.contractTypesList || []).find(function (t) { return t.id === ct; });
     var _savedFm = parseFloatMinutesValue(gd.obj.settings.portalFloatMinutes, null);
     if (_savedFm == null) _savedFm = parseFloatMinutesValue(gd.obj.settings.floatMinutes, null);
@@ -10785,6 +10820,7 @@ async function handleAdminContractTypes(request, who, env) {
     const put = await storePutData(cfg, gd.version, gd.obj, who.name);
     if (put.fail) return storeFailResponse(put.fail);
     if (put.conflict) continue;
+    try { await syncPortalPolicyToSettingsDoc(cfg, gd.obj); } catch (eSyn2) {}
     return jsonResponse({ ok: true, contractTypesList: list, id: id, name: name });
   }
   return jsonResponse({ ok: false, error: 'conflict' }, 409);
