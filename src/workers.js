@@ -1383,6 +1383,89 @@ async function handlePayroll(request, user, env) {
     console.log(JSON.stringify({ event: 'payroll_error', user: user, message: errMsg, stack: errStack }));
     return jsonResponse({ ok: false, error: 'calculation_failed', message: errMsg }, 500);
   }
+  // ==== پالایش قطعی فیش (حتی اگر موتور قدیمی باشد) ====
+  try {
+    var _keyPay = year + '-' + month;
+    var _mdPay = (data.monthlyData && (data.monthlyData[_keyPay] || data.monthlyData[year + '-' + String(month).padStart(2, '0')])) || {};
+    if (out && Array.isArray(out.results)) {
+      out.results.forEach(function (r) {
+        if (!r) return;
+        var code = String(r.code || '');
+        var rowM = _mdPay[code] || {};
+        var qtyMap = (rowM.qty && typeof rowM.qty === 'object') ? rowM.qty : {};
+        // تعداد ناهار از ورود داده
+        var lunchFromEntry = 0;
+        Object.keys(qtyMap).forEach(function (qk) {
+          var qs = String(qk);
+          if (qs.indexOf('کمک هزینه ناهاری') >= 0 || /کمک\s*هزینه\s*ناه/.test(qs)) {
+            var qv = Number(qtyMap[qk]);
+            if (qv > 0) lunchFromEntry = qv;
+          }
+        });
+        if (!(lunchFromEntry > 0)) {
+          Object.keys(qtyMap).forEach(function (qk) {
+            if (/ناهار|نهار|اهاری/.test(String(qk))) {
+              var qv2 = Number(qtyMap[qk]);
+              if (qv2 > 0 && (!(lunchFromEntry > 0) || qv2 < lunchFromEntry)) lunchFromEntry = qv2;
+            }
+          });
+        }
+        var items = Array.isArray(r.itemDetails) ? r.itemDetails : [];
+        var removedAllow = 0, removedDed = 0;
+        var newItems = [];
+        items.forEach(function (it) {
+          if (!it) return;
+          var nm = String(it.name || '').replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim();
+          // حذف معوقه حکم
+          if (nm.indexOf('معوقه حکم') >= 0 || nm.indexOf('معوقه اضافه') >= 0) {
+            var am = Number(it.amount) || 0;
+            if (it.isDeduction) removedDed += am; else removedAllow += am;
+            return;
+          }
+          // حذف کسر بیمه تکمیلی مگر فلگ کارت
+          if (nm.indexOf('بیمه تکمیلی') >= 0 || nm.indexOf('بیمه‌تکمیلی') >= 0) {
+            var empR = (data.employees || []).find(function (e) { return e && String(e.code) === code; });
+            var hasS = empR && (empR.suppInsurance || empR.suppInsuranceDeduct || Number(empR.suppInsuranceDeductCount) > 0 || empR.bimeTakmili);
+            if (!hasS) {
+              var am2 = Number(it.amount) || 0;
+              if (it.isDeduction || /کسر/.test(nm)) removedDed += am2; else removedAllow += am2;
+              return;
+            }
+          }
+          // اصلاح تعداد/مبلغ ناهار طبق ورود داده
+          if (lunchFromEntry > 0 && /ناهار|نهار|اهاری/.test(nm) && !/کسر/.test(nm)) {
+            var oldQ = Number(it.qty);
+            if (!(oldQ > 0)) oldQ = 22; // نمایش قبلی اشتباه
+            if (oldQ !== lunchFromEntry && oldQ > 0) {
+              var oldAmt = Number(it.amount) || 0;
+              var newAmt = Math.round(oldAmt * (lunchFromEntry / oldQ));
+              it.amount = newAmt;
+              it.qty = lunchFromEntry;
+              // اختلاف مبلغ را در totalAllow جبران کن
+              if (r.totalAllow != null) r.totalAllow = Math.round((Number(r.totalAllow) || 0) + (newAmt - oldAmt));
+              if (r.gross != null) r.gross = Math.round((Number(r.gross) || 0) + (newAmt - oldAmt));
+              if (r.net != null) r.net = Math.round((Number(r.net) || 0) + (newAmt - oldAmt));
+            } else if (!(Number(it.qty) > 0)) {
+              it.qty = lunchFromEntry;
+            }
+          }
+          newItems.push(it);
+        });
+        r.itemDetails = newItems;
+        if (removedAllow) {
+          r.totalAllow = Math.round((Number(r.totalAllow) || 0) - removedAllow);
+          r.gross = Math.round((Number(r.gross) || 0) - removedAllow);
+          r.net = Math.round((Number(r.net) || 0) - removedAllow);
+        }
+        if (removedDed) {
+          r.totalDeductions = Math.round((Number(r.totalDeductions) || 0) - removedDed);
+          r.net = Math.round((Number(r.net) || 0) + removedDed);
+        }
+      });
+    }
+  } catch (ePost) {
+    try { console.log(JSON.stringify({ event: 'payslip_post_filter_error', message: String(ePost && ePost.message || ePost) })); } catch (eL) {}
+  }
   if (out && typeof out === 'object') {
     out.contractWarnings = contractWarnings;
     out.decreeArrears = decreeArrears;
