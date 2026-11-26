@@ -662,6 +662,18 @@ const b = calcVariablePay(newBasic, d, workDays);
 return { ot: b.ot - a.ot, night: b.night - a.night, shift: b.shift - a.shift, total: b.total - a.total, found: true };
 }
 
+// تعداد ناهار پیشنهادی خودکار (qtyAuto) نباید ۲۲ ثابت بماند: اگر تردد ثبت شده، سقف = min(تردد، کارکرد خالص)
+function _lunchAutoQty(d, name, qty, functionalDays) {
+  try {
+    if (!isLunchItemName(name) || !d || !d.qtyAuto) return qty;
+    var bare = String(name || '').replace(/^تعداد\s+/, '').trim();
+    var auto = d.qtyAuto[name] === true || d.qtyAuto[bare] === true || d.qtyAuto['تعداد ' + bare] === true;
+    if (!auto) return qty;
+    var pn = Number(d.punchDays || d.punch_days || 0);
+    if (pn > 0) return Math.min(pn, functionalDays > 0 ? functionalDays : pn);
+  } catch (e) {}
+  return qty;
+}
 function runMonth(year, month, opts) {
 opts = opts || {};
 const key = year + '-' + month;
@@ -897,7 +909,7 @@ if (!ci.name) return;
 if (!isCustomItemActive(ci, year, month)) return;
 // —— فیلتر سخت: معوقه حکم و بیمه تکمیلی ناخواسته وارد فیش نشوند ——
 try {
-  var _ciN = String(ci.name || '').replace(/\u200c/g, '').replace(/\s+/g, ' ').trim();
+  var _ciN = String(ci.name || '').replace(/\u200c/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim();
   // معوقه حکم / معوقه اضافه‌کار حکم — فقط با فلگ صریح settings/data
   if (_ciN.indexOf('معوقه حکم') >= 0 || _ciN.indexOf('معوقه اضافه') >= 0 || /^معوقه\s*حکم/.test(_ciN) || /^معوقه\s*اضافه/.test(_ciN)) {
     var _wantArr = !!(data && (data._applyDecreeArrears === true || (data.settings && data.settings.applyDecreeArrears === true)));
@@ -914,12 +926,16 @@ try {
     if (!_hasSupp) return;
   }
 } catch (eSkipCi) {}
-const flags = findAllowanceFlags(ci.name);
+let flags = findAllowanceFlags(ci.name);
 const asDeduction = !!ci.isDeduction || isNameDeductionItem(ci.name);
 const asArrears = isNameArrearsItem(ci.name);
+// معوقه: مشمول بیمه و مالیات نیست
+if (asArrears) flags = { ins: false, tax: false };
 let val = 0;
 let qtyUsed = null;
 let amt = Number(ci.amount) || 0;
+// مبلغ قدیمی ناهار ۵۷٬۰۰۰٬۰۰۰ → مبلغ جدید ۵۱٬۰۰۰٬۰۰۰
+if (isLunchItemName(ci.name) && amt === 57000000) amt = 51000000;
 // فرمول اختیاری روی آیتم (مثلاً: basicSalary0.1 یا workDays50000)
 if (ci.formula && String(ci.formula).trim()) {
 const fVal = evalSimpleFormula(ci.formula, {
@@ -989,6 +1005,7 @@ if (d.qty && typeof d.qty === 'object') {
   }
 }
 if (!isFinite(qty) || qty < 0) qty = 0;
+qty = _lunchAutoQty(d, ci.name, qty, functionalDays);
 // فقط اگر ورود داده خالی بود از کارکرد/تردد — هرگز functionalDays (۲۲) را جای ناهار نگذار
 if (!(qty > 0) && (typeof isLunchItemName === 'function' ? isLunchItemName(ci.name) : /ناهار|غذا|خوراک|غذایی/.test(String(ci.name || '')))) {
   var pN = Number(d.punchDays || d.punch_days || 0);
@@ -1045,6 +1062,7 @@ if (d.qty && typeof d.qty === 'object') {
   }
 }
 if (!isFinite(qty) || qty < 0) qty = 0;
+qty = _lunchAutoQty(d, ci.name, qty, functionalDays);
 const netDed = Math.max(0, Number(d.netDeductionDays != null ? d.netDeductionDays : d.absenceDays) || 0);
 const _isLunchFlat = /ناهار|نهار|غذا|خوراک/.test(String(ci.name || ''));
 if (!(qty > 0)) {
@@ -1101,6 +1119,9 @@ if (flags.tax) taxBase += val;
 // کسر بیمه تکمیلی از اعضای خانواده
 (function () {
 var cnt = getEmpSuppInsuranceCount(emp);
+// اگر آیتم بیمه تکمیلی روی کارت هست ولی در این ماه غیرفعال/خارج از مدت است، کسر نشود
+var _sI = (emp.customItems || []).filter(function (ci) { return ci && /بیمه\s*تکمیلی/.test(String(ci.name || '')); });
+if (_sI.length && !_sI.some(function (ci) { return isCustomItemActive(ci, year, month); })) cnt = 0;
 var unit = getSuppInsurancePerPerson();
 if (!(unit > 0)) {
 (emp.customItems || []).forEach(function (ci) {
