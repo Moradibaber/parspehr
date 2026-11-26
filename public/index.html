@@ -7118,6 +7118,13 @@ async function runCalculation() {
   const out = await callPayrollServer(year, month, !!window.__skipLoanSE, selCodes);
   if (!out) return false;
   applyPayrollResponse(key, out, selCodes);
+  if (!window.__calcSilent) {
+    var _calcMsgs = [];
+    if (!out.calcVer) _calcMsgs.push('سرور هنوز موتور قدیمی را اجرا می‌کند (calcVer در پاسخ نیست) — engine.js روی سرور به‌روز نشده.');
+    if (out.empErrors && out.empErrors.length) _calcMsgs.push('خطا در محاسبه کد: ' + out.empErrors.map(function(x){ return x.code + ' (' + x.message + ')'; }).join('، '));
+    if (selCodes) { var _got = {}; (out.results || []).forEach(function(r){ _got[String(r.code)] = 1; }); var _miss = []; selCodes.forEach(function(c){ if (!_got[String(c)]) _miss.push(c); }); if (_miss.length) _calcMsgs.push('برای این کدها نتیجه‌ای تولید نشد و فیش قبلی مانده است: ' + _miss.join('، ')); }
+    if (_calcMsgs.length) alert('⚠ هشدار محاسبه:\n' + _calcMsgs.join('\n'));
+  }
   const results = data.payrolls[key];
   saveToCache();
   renderPayrollResult(results);
