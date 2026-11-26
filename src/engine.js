@@ -686,6 +686,7 @@ const meta = data.monthlyData[key]._meta || {};
 let functionalDays = Number(meta.functionalDays) || Number(s.defaultFunctionalDays) || 22;
 if (functionalDays < 1) functionalDays = 22;
 const results = [];
+const empErrors = [];
 getActiveEmployees().forEach(emp => {
 try {
 const d = data.monthlyData[key][emp.code] || { workDays: 30, leaveDays: 0, otHours: 0, nightHours: 0, shiftType: 'none', shiftDays: 0, vars: {}, qty: {} };
@@ -1216,6 +1217,7 @@ bankName: emp.bankName||'', accountNumber: emp.accountNumber||'', insuranceNo: e
 taxPercent: Number(emp.taxPercent) || 100, exemption: exempt
 });
 } catch (eEmp) {
+try { empErrors.push({ code: emp && emp.code, message: String(eEmp && eEmp.message || eEmp) }); } catch (eE2) {}
 try { console.log(JSON.stringify({ event: 'payroll_emp_error', code: emp && emp.code, message: String(eEmp && eEmp.message || eEmp) })); } catch (eL) {}
 }
 });
@@ -1236,7 +1238,7 @@ loanUpdates.push({ code: emp.code, loanRemaining: emp.loanRemaining, loanLocked:
 results.forEach(function (r) { r.calcVer = '2026-11-27-a'; });
 applyTransferredAdjustmentsToResults(key, results);
 data.payrolls[key] = results;
-return { ok: true, results: results, loanUpdates: loanUpdates, workDayCaps: workDayCaps };
+return { ok: true, results: results, loanUpdates: loanUpdates, workDayCaps: workDayCaps, empErrors: empErrors, calcVer: '2026-11-27-a' };
 }
 
 function runEid(year, minDaily, leaveCeilingVal, includeSpecialDays) {
