@@ -5618,7 +5618,8 @@ function applyAbsenceToQtyFlatItems(obj, year, month, code, row) {
     if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
     if (missionFlatRule) baseQty -= Math.max(0, Number(row.missionDays) || 0);
   } else {
-    baseQty = Math.min(Number(row.workDays) || 0, ceiling) - deduct;
+    // غیبت (روز کاریِ بدون پانچ/پوشش) از سقف کارکرد خالص کم می‌شود؛ قبلاً نادیده گرفته می‌شد
+    baseQty = Math.min(Number(row.workDays) || 0, ceiling, ceiling - Math.max(0, absence)) - deduct;
     if (hourlyFlatRule) baseQty -= (Number(row.hourlyLeave) || 0) / 7.33;
   }
   finalQty = Math.max(0, Math.round(Math.min(ceiling, baseQty) * 100) / 100);
