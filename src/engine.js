@@ -1233,6 +1233,7 @@ loanUpdates.push({ code: emp.code, loanRemaining: emp.loanRemaining, loanLocked:
 }
 });
 }
+results.forEach(function (r) { r.calcVer = '2026-11-27-a'; });
 applyTransferredAdjustmentsToResults(key, results);
 data.payrolls[key] = results;
 return { ok: true, results: results, loanUpdates: loanUpdates, workDayCaps: workDayCaps };
