@@ -7205,6 +7205,7 @@ function generatePayslip(opts) {
   contEl().innerHTML = `
     <div class="payslip">
       <div class="payslip-header"><h2>فیش حقوقی</h2><p>${monthNames[m]} ${slipYearV}</p></div>
+      ${rec.calcVer === '2026-11-27-a' ? '' : '<div class="no-print" style="background:#fef2f2;color:#b91c1c;padding:8px;border-radius:8px;margin:8px 0;text-align:center;">⚠ این فیش با نسخه‌ی قدیمی محاسبه شده است؛ ماه را دوباره محاسبه کنید.</div>'}
       <table>
         <tr><td>کد</td><td>${emp.code}</td><td>نام</td><td>${emp.fullName}</td></tr>
         <tr><td>سمت</td><td>${rec.position||emp.position||'—'}</td><td>واحد</td><td>${rec.unit||emp.unit||'—'}</td></tr>
