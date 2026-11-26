@@ -10956,7 +10956,21 @@ function countExpected(emp, row, F, M) {
     // قانون: min( کارکرد خالص ، تردد + آیتم‌های بدون تیک )
     usedPunch = true;
     var pn = (isFinite(punchN) && punchN > 0) ? punchN : 0;
-    total = Math.min(F, pn + added);
+    var dedFlat = Math.max(0, mvNum(row.absenceDays));
+    if (rules.leaveDaysFlat) dedFlat += mvNum(row.leaveDays);
+    if (rules.hourlyLeaveFlat) dedFlat += mvNum(row.hourlyLeave) / H;
+    if (rules.missionDaysFlat) dedFlat += mvNum(row.missionDays);
+    getMonthlyVars(true).forEach(function(v) {
+      if (!v) return;
+      var uf = (v.deductQtyFlat !== undefined) ? !!v.deductQtyFlat : !!v.deductCounts;
+      if (!uf) return;
+      var fq = qtyByName(v.name), fv = mvNum((row.vars || {})[v.id]);
+      var vv = fq > 0 ? fq : fv;
+      if (v.unit === 'hour') vv = vv / H;
+      dedFlat += vv;
+    });
+    total = Math.min(F - dedFlat, pn + added);
+    if (dedFlat > 0) parts.push('کسر تیک‌دار/غیبت (−' + mvFmt(dedFlat) + ')');
     if (pn > 0) parts.push('تردد ' + mvFmt(pn));
     addParts.forEach(function(x) { parts.push(x); });
   } else {
