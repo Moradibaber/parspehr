@@ -10961,9 +10961,10 @@ function countExpected(emp, row, F, M) {
     addParts.forEach(function(x) { parts.push(x); });
   } else {
     // بدون تردد و بدون آیتم بدون‌تیک: کارکرد منهای تیک‌دارها
-    total = Math.min(workD, F);
+    var absD = Math.max(0, mvNum(row.absenceDays));
+    total = Math.min(workD, F, F - absD);
     usedPunch = false;
-    if (workD > 0) parts.push('کارکرد ' + mvFmt(total));
+    if (workD > 0) parts.push('کارکرد ' + mvFmt(Math.min(workD, F)) + (absD > 0 ? ' − غیبت ' + mvFmt(absD) : ''));
     else parts.push('بدون کارکرد');
     var take = function(label, days) {
       days = mvNum(days);
