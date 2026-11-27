@@ -838,14 +838,39 @@ async function storePutData(cfg, baseVersion, obj, updatedBy) {
               }
             }
             if (prev.obj.settings.requestWindows != null && obj.settings.requestWindows == null) obj.settings.requestWindows = prev.obj.settings.requestWindows;
-            if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
+            if (prev.obj.settings.leavePolicy && typeof prev.obj.settings.leavePolicy === 'object') {
               if (!obj.settings.leavePolicy) obj.settings.leavePolicy = {};
-              if (!obj.settings.leavePolicy.byContractType) obj.settings.leavePolicy.byContractType = {};
-              Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
-                if (obj.settings.leavePolicy.byContractType[ctId] == null) {
-                  obj.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+              if (prev.obj.settings.leavePolicy.byContractType) {
+                if (!obj.settings.leavePolicy.byContractType) obj.settings.leavePolicy.byContractType = {};
+                Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
+                  if (obj.settings.leavePolicy.byContractType[ctId] == null || obj.settings.leavePolicy.byContractType[ctId] === '') {
+                    obj.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                  }
+                });
+              }
+              if (prev.obj.settings.leavePolicy.byGroup) {
+                if (!obj.settings.leavePolicy.byGroup || typeof obj.settings.leavePolicy.byGroup !== 'object' || Object.keys(obj.settings.leavePolicy.byGroup).length === 0) {
+                  obj.settings.leavePolicy.byGroup = prev.obj.settings.leavePolicy.byGroup;
+                } else {
+                  Object.keys(prev.obj.settings.leavePolicy.byGroup).forEach(function (gk) {
+                    if (obj.settings.leavePolicy.byGroup[gk] == null || obj.settings.leavePolicy.byGroup[gk] === '') {
+                      obj.settings.leavePolicy.byGroup[gk] = prev.obj.settings.leavePolicy.byGroup[gk];
+                    }
+                  });
                 }
-              });
+              }
+              if (prev.obj.settings.leavePolicy.annualDays != null && (obj.settings.leavePolicy.annualDays == null || obj.settings.leavePolicy.annualDays === '')) {
+                obj.settings.leavePolicy.annualDays = prev.obj.settings.leavePolicy.annualDays;
+              }
+            }
+            // سقف کسر و مهلت ماه قبل روی data هم حفظ شوند
+            ['requestGraceDays', 'monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (sk) {
+              if ((obj.settings[sk] == null || obj.settings[sk] === '') && prev.obj.settings[sk] != null && prev.obj.settings[sk] !== '') {
+                obj.settings[sk] = prev.obj.settings[sk];
+              }
+            });
+            if (prev.obj.settings.shortfallSettings && (!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object')) {
+              obj.settings.shortfallSettings = prev.obj.settings.shortfallSettings;
             }
           }
         } catch (eCt) { /* non-fatal */ }
@@ -1776,14 +1801,35 @@ async function handleState(request, who, env, path) {
                 }
               }
               if (prev.obj.settings.requestWindows != null && incoming.settings.requestWindows == null) incoming.settings.requestWindows = prev.obj.settings.requestWindows;
-              if (prev.obj.settings.leavePolicy && prev.obj.settings.leavePolicy.byContractType) {
+              if (prev.obj.settings.leavePolicy && typeof prev.obj.settings.leavePolicy === 'object') {
                 if (!incoming.settings.leavePolicy) incoming.settings.leavePolicy = {};
-                if (!incoming.settings.leavePolicy.byContractType) incoming.settings.leavePolicy.byContractType = {};
-                Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
-                  if (incoming.settings.leavePolicy.byContractType[ctId] == null) {
-                    incoming.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                if (prev.obj.settings.leavePolicy.byContractType) {
+                  if (!incoming.settings.leavePolicy.byContractType) incoming.settings.leavePolicy.byContractType = {};
+                  Object.keys(prev.obj.settings.leavePolicy.byContractType).forEach(function (ctId) {
+                    if (incoming.settings.leavePolicy.byContractType[ctId] == null || incoming.settings.leavePolicy.byContractType[ctId] === '') {
+                      incoming.settings.leavePolicy.byContractType[ctId] = prev.obj.settings.leavePolicy.byContractType[ctId];
+                    }
+                  });
+                }
+                if (prev.obj.settings.leavePolicy.byGroup) {
+                  if (!incoming.settings.leavePolicy.byGroup || Object.keys(incoming.settings.leavePolicy.byGroup).length === 0) {
+                    incoming.settings.leavePolicy.byGroup = prev.obj.settings.leavePolicy.byGroup;
+                  } else {
+                    Object.keys(prev.obj.settings.leavePolicy.byGroup).forEach(function (gk) {
+                      if (incoming.settings.leavePolicy.byGroup[gk] == null || incoming.settings.leavePolicy.byGroup[gk] === '') {
+                        incoming.settings.leavePolicy.byGroup[gk] = prev.obj.settings.leavePolicy.byGroup[gk];
+                      }
+                    });
                   }
-                });
+                }
+              }
+              ['requestGraceDays', 'monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (sk) {
+                if ((incoming.settings[sk] == null || incoming.settings[sk] === '') && prev.obj.settings[sk] != null && prev.obj.settings[sk] !== '') {
+                  incoming.settings[sk] = prev.obj.settings[sk];
+                }
+              });
+              if (prev.obj.settings.shortfallSettings && (!incoming.settings.shortfallSettings || typeof incoming.settings.shortfallSettings !== 'object')) {
+                incoming.settings.shortfallSettings = prev.obj.settings.shortfallSettings;
               }
             }
             // حذف تکراری + برداشت از کارکنان
@@ -1799,6 +1845,78 @@ async function handleState(request, who, env, path) {
           const prevS = await storeGetSettingsDoc(cfg);
           if (incS && typeof incS === 'object' && prevS) {
             protectMonthlyVarsOnPut(prevS, incS);
+            // سیاست‌های پایدار: همگام‌سازی کلاینت نباید پاکشان کند
+            try {
+              if (prevS.requestGraceDays != null && prevS.requestGraceDays !== '') {
+                if (incS.requestGraceDays == null || incS.requestGraceDays === '') {
+                  incS.requestGraceDays = prevS.requestGraceDays;
+                }
+              }
+              if (prevS.monthlyShortfallAllowanceHours != null && prevS.monthlyShortfallAllowanceHours !== '') {
+                if (incS.monthlyShortfallAllowanceHours == null || incS.monthlyShortfallAllowanceHours === '') {
+                  incS.monthlyShortfallAllowanceHours = prevS.monthlyShortfallAllowanceHours;
+                  incS.shortfallAllowanceHours = prevS.monthlyShortfallAllowanceHours;
+                  incS.shortfallHours = prevS.monthlyShortfallAllowanceHours;
+                }
+              }
+              if (prevS.shortfallSettings && typeof prevS.shortfallSettings === 'object') {
+                if (!incS.shortfallSettings || typeof incS.shortfallSettings !== 'object') {
+                  incS.shortfallSettings = prevS.shortfallSettings;
+                } else {
+                  if ((incS.shortfallSettings.allowanceHours == null || incS.shortfallSettings.allowanceHours === '')
+                      && prevS.shortfallSettings.allowanceHours != null) {
+                    incS.shortfallSettings.allowanceHours = prevS.shortfallSettings.allowanceHours;
+                  }
+                  if (prevS.shortfallSettings.byGroup) {
+                    if (!incS.shortfallSettings.byGroup) incS.shortfallSettings.byGroup = {};
+                    Object.keys(prevS.shortfallSettings.byGroup).forEach(function (gk) {
+                      if (incS.shortfallSettings.byGroup[gk] == null || incS.shortfallSettings.byGroup[gk] === '') {
+                        incS.shortfallSettings.byGroup[gk] = prevS.shortfallSettings.byGroup[gk];
+                      }
+                    });
+                  }
+                }
+              }
+              if (prevS.leavePolicy && typeof prevS.leavePolicy === 'object') {
+                if (!incS.leavePolicy || typeof incS.leavePolicy !== 'object') {
+                  incS.leavePolicy = prevS.leavePolicy;
+                } else {
+                  if (prevS.leavePolicy.annualDays != null && (incS.leavePolicy.annualDays == null || incS.leavePolicy.annualDays === '')) {
+                    incS.leavePolicy.annualDays = prevS.leavePolicy.annualDays;
+                  }
+                  if (prevS.leavePolicy.carryMax != null && (incS.leavePolicy.carryMax == null || incS.leavePolicy.carryMax === '')) {
+                    incS.leavePolicy.carryMax = prevS.leavePolicy.carryMax;
+                  }
+                  if (prevS.leavePolicy.byContractType) {
+                    if (!incS.leavePolicy.byContractType) incS.leavePolicy.byContractType = {};
+                    Object.keys(prevS.leavePolicy.byContractType).forEach(function (ck) {
+                      if (incS.leavePolicy.byContractType[ck] == null || incS.leavePolicy.byContractType[ck] === '') {
+                        incS.leavePolicy.byContractType[ck] = prevS.leavePolicy.byContractType[ck];
+                      }
+                    });
+                  }
+                  if (prevS.leavePolicy.byGroup) {
+                    if (!incS.leavePolicy.byGroup || typeof incS.leavePolicy.byGroup !== 'object') {
+                      incS.leavePolicy.byGroup = prevS.leavePolicy.byGroup;
+                    } else if (Object.keys(incS.leavePolicy.byGroup).length === 0) {
+                      incS.leavePolicy.byGroup = prevS.leavePolicy.byGroup;
+                    } else {
+                      Object.keys(prevS.leavePolicy.byGroup).forEach(function (gk) {
+                        if (incS.leavePolicy.byGroup[gk] == null || incS.leavePolicy.byGroup[gk] === '') {
+                          incS.leavePolicy.byGroup[gk] = prevS.leavePolicy.byGroup[gk];
+                        }
+                      });
+                    }
+                  }
+                }
+              }
+              if (prevS.floatMinutes != null && prevS.floatMinutes !== '' && (incS.floatMinutes == null || incS.floatMinutes === '')) {
+                incS.floatMinutes = prevS.floatMinutes;
+              }
+              if (prevS.portalFloatMinutes != null && prevS.portalFloatMinutes !== '' && (incS.portalFloatMinutes == null || incS.portalFloatMinutes === '')) {
+                incS.portalFloatMinutes = prevS.portalFloatMinutes;
+              }
+            } catch (ePol) {}
             text = JSON.stringify(incS);
           }
         } catch (eMvp) { /* non-fatal — keep original text */ }
