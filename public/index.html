@@ -300,6 +300,53 @@
     #eidPayslipPrintArea table td, #eidPayslipPrintArea table th { display: table-cell !important; }
     #eidPayslipPrintArea .net-pay { display: block !important; }
     #eidPayslipPrintArea .payslip-header { display: block !important; }
+    /* چاپ فیش عیدی: فقط خود فیش */
+    #panel-eid .no-print,
+    #eidPayslipContainer .no-print,
+    #eidSheetFilters,
+    #eidResultArea,
+    #panel-eid .sheet-org-filters,
+    #panel-eid button,
+    #panel-eid .form-group,
+    #panel-eid .form-grid {
+      display: none !important;
+      visibility: hidden !important;
+      height: 0 !important;
+      overflow: hidden !important;
+    }
+    #eidPayslipContainer,
+    #eidPayslipPrintArea,
+    #eidPayslipPrintArea * {
+      visibility: visible !important;
+    }
+    #eidPayslipPrintArea {
+      display: block !important;
+      position: relative !important;
+      width: 100% !important;
+    }
+    #eidPayslipPrintArea .no-print {
+      display: none !important;
+      visibility: hidden !important;
+    }
+    /* هشدار قرارداد / بنر / راهنما */
+    #pspCalcContractBanner,
+    #panel-eid [style*="fed7aa"],
+    #panel-eid [style*="#fff7ed"],
+    #panel-eid [style*="fef3c7"],
+    #panel-eid [style*="fef2f2"] {
+      display: none !important;
+      visibility: hidden !important;
+      height: 0 !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+    }
+    /* لینک/متن هدرهای حکم و دکمه‌های کمکی در چاپ */
+    a[href*="decree"], button[onclick*="decree"],
+    [onclick*="هدر"] {
+      display: none !important;
+    }
     .payslip {
       max-width: 100% !important; page-break-inside: avoid; break-inside: avoid;
       margin: 0 !important; padding: 0 !important;
@@ -9088,6 +9135,16 @@ function generateEidPayslip() {
   }).join('');
 
   const contractLabel = emp.contractType === 'daily' ? 'روزمزد' : (emp.contractType === 'hourly' ? 'ساعتی' : 'عادی');
+  var settleMode = 'annual';
+  try {
+    var modeEl = document.getElementById('eidLeaveSettlementMode');
+    if (modeEl) settleMode = String(modeEl.value || 'annual');
+  } catch (eM) {}
+  var settleTitle = (settleMode === 'final') ? 'تسویه حساب نهایی' : 'تسویه حساب سالیانه';
+  var settleSub = (settleMode === 'final')
+    ? ('نوع محاسبه: تسویه حساب نهایی (تجمیع سال‌های باز) — سال مبنا ' + year)
+    : ('نوع محاسبه: تسویه حساب سالیانه — سال ' + year);
+  var slipMainTitle = 'فیش عیدی، سنوات و مرخصی — ' + settleTitle + ' ' + year;
 
   box.innerHTML = `
     <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;margin-bottom:12px;" class="eid-slip-layout">
@@ -9102,8 +9159,8 @@ function generateEidPayslip() {
       </div>
       <div class="payslip" id="eidPayslipPrintArea">
         <div class="payslip-header">
-          <h2>فیش عیدی، سنوات و مرخصی</h2>
-          <p>سال ${year}</p>
+          <h2>${slipMainTitle}</h2>
+          <p>${settleSub}</p>
         </div>
         <table>
           <tr><td>کد پرسنلی</td><td>${emp.code}</td><td>نام و نام خانوادگی</td><td>${emp.fullName}</td></tr>
