@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>سیستم حقوق و دستمزد پارسپهر</title>
+<title>سیستم حقوق و دستمزد پارسپهر</title>ش
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
   :root {
@@ -9335,8 +9335,7 @@ function printEidPayslipFinal() {
     '#eidPayslipPrintArea, #eidPayslipContainer, #eidPayslipContainer .eid-slip-layout, #panel-eid, #panel-eid .card, .panel.active, .container, body, html {',
     '  height: auto !important; max-height: none !important; overflow: visible !important;',
     '}'
-  ].join('
-');
+  ].join(String.fromCharCode(10));
 
   // اسکرول را موقتاً از والدها بردار
   var cleared = [];
