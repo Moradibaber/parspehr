@@ -291,6 +291,38 @@ async function storePutSettingsDoc(cfg, baseVersion, obj) {
 }
 
 /** data سند کارکنان است؛ leavePolicy و سیاست‌ها در سند settings هستند — باید ادغام شوند */
+
+/** همگام‌سازی پایدار تنظیمات پورتال به سند settings */
+async function syncPortalPolicyToSettingsDoc(cfg, dataObj) {
+  try {
+    if (!cfg || !dataObj || !dataObj.settings) return;
+    const gs = await storeGetSettingsDocFull(cfg);
+    if (gs.fail) return;
+    const sObj = gs.obj || {};
+    const s = dataObj.settings;
+    if (s.leavePolicy && typeof s.leavePolicy === 'object') {
+      sObj.leavePolicy = JSON.parse(JSON.stringify(s.leavePolicy));
+    }
+    if (s.requestGraceDays != null && s.requestGraceDays !== '') {
+      sObj.requestGraceDays = s.requestGraceDays;
+    }
+    if (s.monthlyShortfallAllowanceHours != null && s.monthlyShortfallAllowanceHours !== '') {
+      var n = Number(s.monthlyShortfallAllowanceHours);
+      sObj.monthlyShortfallAllowanceHours = n;
+      sObj.shortfallAllowanceHours = n;
+      sObj.shortfallHours = n;
+    }
+    if (s.shortfallSettings && typeof s.shortfallSettings === 'object') {
+      sObj.shortfallSettings = JSON.parse(JSON.stringify(s.shortfallSettings));
+    }
+    if (s.floatMinutes != null && s.floatMinutes !== '') sObj.floatMinutes = s.floatMinutes;
+    if (s.portalFloatMinutes != null && s.portalFloatMinutes !== '') sObj.portalFloatMinutes = s.portalFloatMinutes;
+    await storePutSettingsDoc(cfg, gs.version || 0, sObj);
+  } catch (e) {
+    try { console.log(JSON.stringify({ event: 'sync_policy_settings_fail', message: String(e && e.message || e) })); } catch (e2) {}
+  }
+}
+
 async function storeMergeSettingsIntoDataObj(cfg, obj) {
   if (!obj || typeof obj !== 'object') return obj;
   try {
@@ -302,21 +334,77 @@ async function storeMergeSettingsIntoDataObj(cfg, obj) {
       obj.settings.leavePolicy = sdoc.leavePolicy;
     }
     // سایر فیلدهای سیاست که فقط در settings هستند
-    ['requestGraceDays', 'currentYear', 'currentMonth', 'activeMonth', 'portalFloatMinutes', 'floatMinutes',
-     'monthlyShortfallAllowanceHours', 'shortfallAllowanceHours', 'shortfallHours'].forEach(function (k) {
+    // سیاست‌های پایدار: سند settings همیشه مرجع است (حتی اگر data صفر/خالی شده باشد)
+    if (sdoc.requestGraceDays != null && sdoc.requestGraceDays !== '') {
+      obj.settings.requestGraceDays = sdoc.requestGraceDays;
+    }
+    if (sdoc.portalFloatMinutes != null && sdoc.portalFloatMinutes !== '') {
+      obj.settings.portalFloatMinutes = sdoc.portalFloatMinutes;
+    }
+    if (sdoc.floatMinutes != null && sdoc.floatMinutes !== '') {
+      obj.settings.floatMinutes = sdoc.floatMinutes;
+    }
+    ['currentYear', 'currentMonth', 'activeMonth'].forEach(function (k) {
       if (sdoc[k] != null && sdoc[k] !== '' && (obj.settings[k] == null || obj.settings[k] === '')) obj.settings[k] = sdoc[k];
     });
-    // سقف کسر از سند settings همیشه اولویت دارد اگر مقدار معتبر دارد
     if (sdoc.monthlyShortfallAllowanceHours != null && sdoc.monthlyShortfallAllowanceHours !== '') {
       obj.settings.monthlyShortfallAllowanceHours = sdoc.monthlyShortfallAllowanceHours;
       obj.settings.shortfallAllowanceHours = sdoc.monthlyShortfallAllowanceHours;
       obj.settings.shortfallHours = sdoc.monthlyShortfallAllowanceHours;
+    } else if (sdoc.shortfallAllowanceHours != null && sdoc.shortfallAllowanceHours !== '') {
+      obj.settings.monthlyShortfallAllowanceHours = sdoc.shortfallAllowanceHours;
+      obj.settings.shortfallAllowanceHours = sdoc.shortfallAllowanceHours;
+      obj.settings.shortfallHours = sdoc.shortfallAllowanceHours;
     }
     if (sdoc.shortfallSettings && typeof sdoc.shortfallSettings === 'object') {
-      obj.settings.shortfallSettings = sdoc.shortfallSettings;
+      // ادغام byGroup: کلیدهای settings را نگه دار
+      if (!obj.settings.shortfallSettings || typeof obj.settings.shortfallSettings !== 'object') {
+        obj.settings.shortfallSettings = sdoc.shortfallSettings;
+      } else {
+        var ss = obj.settings.shortfallSettings;
+        if (sdoc.shortfallSettings.allowanceHours != null && sdoc.shortfallSettings.allowanceHours !== '') {
+          ss.allowanceHours = sdoc.shortfallSettings.allowanceHours;
+        }
+        if (sdoc.shortfallSettings.byGroup && typeof sdoc.shortfallSettings.byGroup === 'object') {
+          if (!ss.byGroup || typeof ss.byGroup !== 'object') ss.byGroup = {};
+          Object.keys(sdoc.shortfallSettings.byGroup).forEach(function (gk) {
+            if (ss.byGroup[gk] == null || ss.byGroup[gk] === '') ss.byGroup[gk] = sdoc.shortfallSettings.byGroup[gk];
+          });
+        }
+      }
     }
-    // اگر settings کامل‌تر است، leavePolicy را همیشه از settings بگیر
-    if (sdoc.leavePolicy) obj.settings.leavePolicy = sdoc.leavePolicy;
+    // leavePolicy: همیشه از settings اگر وجود دارد (مرجع پایدار)
+    if (sdoc.leavePolicy && typeof sdoc.leavePolicy === 'object') {
+      if (!obj.settings.leavePolicy || typeof obj.settings.leavePolicy !== 'object') {
+        obj.settings.leavePolicy = sdoc.leavePolicy;
+      } else {
+        var lpD = obj.settings.leavePolicy;
+        var lpS = sdoc.leavePolicy;
+        if (lpS.annualDays != null) lpD.annualDays = lpS.annualDays;
+        if (lpS.carryMax != null) lpD.carryMax = lpS.carryMax;
+        if (lpS.byContractType && typeof lpS.byContractType === 'object') {
+          if (!lpD.byContractType) lpD.byContractType = {};
+          Object.keys(lpS.byContractType).forEach(function (ck) {
+            if (lpD.byContractType[ck] == null || lpD.byContractType[ck] === '') {
+              lpD.byContractType[ck] = lpS.byContractType[ck];
+            }
+          });
+        }
+        if (lpS.byGroup && typeof lpS.byGroup === 'object') {
+          if (!lpD.byGroup) lpD.byGroup = {};
+          Object.keys(lpS.byGroup).forEach(function (gk) {
+            // اگر data خالی است از settings بگیر؛ اگر هر دو دارند settings مرجع پایدار
+            if (lpD.byGroup[gk] == null || lpD.byGroup[gk] === '') {
+              lpD.byGroup[gk] = lpS.byGroup[gk];
+            }
+          });
+          // اگر byGroup در data کاملاً خالی بود، کل را از settings بگیر
+          if (Object.keys(lpD.byGroup).length === 0 && Object.keys(lpS.byGroup).length > 0) {
+            lpD.byGroup = JSON.parse(JSON.stringify(lpS.byGroup));
+          }
+        }
+      }
+    }
   } catch (eM) {}
   return obj;
 }
@@ -7324,13 +7412,22 @@ async function handleAdminShortfallSettings(request, who, env) {
     if (!gd.obj.settings) gd.obj.settings = {};
     const v = r.body.monthlyShortfallAllowanceHours != null ? r.body.monthlyShortfallAllowanceHours
       : (r.body.shortfallAllowanceHours != null ? r.body.shortfallAllowanceHours : r.body.value);
-    if (v === '' || v == null) {
+    // پاک کردن فقط با فلگ صریح clear — خالی تصادفی نباید سقف را حذف کند
+    if ((v === '' || v == null) && r.body.clear === true) {
       delete gd.obj.settings.monthlyShortfallAllowanceHours;
       delete gd.obj.settings.shortfallAllowanceHours;
       delete gd.obj.settings.shortfallHours;
       if (gd.obj.settings.shortfallSettings && typeof gd.obj.settings.shortfallSettings === 'object') {
         delete gd.obj.settings.shortfallSettings.allowanceHours;
       }
+    } else if (v === '' || v == null) {
+      // بدون تغییر — مقدار قبلی بماند
+      return jsonResponse({
+        ok: true,
+        monthlyShortfallAllowanceHours: gd.obj.settings.monthlyShortfallAllowanceHours,
+        shortfallAllowanceHours: gd.obj.settings.shortfallAllowanceHours,
+        message: 'مقدار خالی؛ سقف قبلی حفظ شد'
+      });
     } else {
       const n = Number(v);
       if (!isFinite(n) || n < 0) return jsonResponse({ ok: false, error: 'bad_request', message: 'مقدار نامعتبر' }, 400);
@@ -10649,9 +10746,16 @@ async function handleAdminSetCurrentMonth(request, who, env) {
     gd.obj.settings.currentYear = year;
     gd.obj.settings.currentMonth = month;
     // همیشه ذخیره کن (حتی ۰) تا پیش‌فرض اجباری ۳ برنگردد
+    // فقط اگر مقدار معتبر فرستاده شد عوض کن — خالی/undefined نباید صفر کند
     if (Object.prototype.hasOwnProperty.call(r.body, 'requestGraceDays')) {
-      var gDays = parsePositiveIntFa(r.body.requestGraceDays, 0, 31);
-      gd.obj.settings.requestGraceDays = gDays;
+      var rawG = r.body.requestGraceDays;
+      if (rawG !== '' && rawG != null && String(rawG).trim() !== '') {
+        var gDays = parsePositiveIntFa(rawG, null, 31);
+        if (gDays != null && isFinite(gDays) && gDays >= 0) {
+          gd.obj.settings.requestGraceDays = gDays;
+        }
+      }
+      // اگر خالی فرستاد: مقدار قبلی را دست نزن
     }
     ensureContractCalendars(gd.obj);
     const ct = String(r.body.contractType || 'normal').trim() || 'normal';
