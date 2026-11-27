@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>سیستم حقوق و دستمزد پارسپهر</title>ش
+<title>سیستم حقوق و دستمزد پارسپهر</title>
 <style>
+  #yearWatermark{display:none!important;visibility:hidden!important;}
+
   @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
   :root {
     --primary: #0f766e; --primary-dark: #0d9488; --danger: #dc2626;
@@ -2819,7 +2821,8 @@ function applyYearTheme(year) {
     wm.style.cssText = 'position:fixed;bottom:12px;left:14px;font-size:2.2rem;opacity:0.14;pointer-events:none;z-index:50;user-select:none;';
     document.body.appendChild(wm);
   }
-  wm.textContent = t.wm + ' ' + y;
+  // واترمارک سال حذف شد (درخواست کاربر)
+  try { wm.style.display = 'none'; wm.textContent = ''; } catch (eWm) {}
   const appYear = document.getElementById('appYearLabel');
   if (appYear) appYear.textContent = String(y);
 }
