@@ -254,9 +254,6 @@
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
   .log-change { color: #64748b; margin-top: 4px; white-space: pre-wrap; }
   @media print {
-    .psp-help-tip, .psp-help-tip *, [data-help], [class*="psp-help"] {
-      display: none !important; visibility: hidden !important; opacity: 0 !important;
-    }
     @page { size: A4 portrait; margin: 6mm; }
     html, body {
       background: #fff !important; padding: 0 !important; margin: 0 !important;
@@ -333,10 +330,6 @@
     }
     /* هشدار قرارداد / بنر / راهنما */
     #pspCalcContractBanner,
-    .psp-help-tip,
-    .psp-help-tip *,
-    [data-help],
-    [class*="psp-help"],
     #panel-eid [style*="fed7aa"],
     #panel-eid [style*="#fff7ed"],
     #panel-eid [style*="fef3c7"],
@@ -344,12 +337,10 @@
       display: none !important;
       visibility: hidden !important;
       height: 0 !important;
-      max-height: 0 !important;
       overflow: hidden !important;
       margin: 0 !important;
       padding: 0 !important;
       border: none !important;
-      opacity: 0 !important;
     }
     /* لینک/متن هدرهای حکم و دکمه‌های کمکی در چاپ */
     a[href*="decree"], button[onclick*="decree"],
@@ -9135,36 +9126,13 @@ function generateEidPayslip() {
       '<span style="font-size:0.8rem;color:#64748b;">' + it.value + '</span></label>';
   }).join('');
 
-  // گروه‌بندی واضح برای چاپ: مرخصی / عیدی / سنوات / جمع
-  var sectionOf = {
-    workDays: 'کارکرد', leaveUsed: 'مرخصی', entitledLeave: 'مرخصی', remainingLeave: 'مرخصی', payableLeave: 'مرخصی',
-    decreeSum: 'مرخصی', leaveDailyWage: 'مرخصی', leavePay: 'مرخصی',
-    eidSubjectSum: 'عیدی', dailyWage: 'عیدی', eidGross: 'عیدی', eidTax: 'عیدی', eidNet: 'عیدی',
-    severance: 'سنوات', annualTaxAdj: 'سایر', totalPay: 'جمع'
-  };
-  var sectionOrder = ['کارکرد', 'مرخصی', 'عیدی', 'سنوات', 'سایر', 'جمع'];
-  var sectionTitle = {
-    'کارکرد': '— کارکرد —',
-    'مرخصی': '— مرخصی —',
-    'عیدی': '— عیدی —',
-    'سنوات': '— سنوات —',
-    'سایر': '— سایر —',
-    'جمع': '— جمع —'
-  };
-  var visibleItems = items.filter(function(it) { return checks[it.key] !== false; });
-  var bodyRows = '';
-  sectionOrder.forEach(function(sec) {
-    var rows = visibleItems.filter(function(it) { return (sectionOf[it.key] || 'سایر') === sec; });
-    if (!rows.length) return;
-    bodyRows += '<tr class="eid-sec-row"><td colspan="2" style="background:#ecfdf5;color:#0f766e;font-weight:800;text-align:center;padding:6px;">' + sectionTitle[sec] + '</td></tr>';
-    rows.forEach(function(it) {
-      var style = '';
-      if (it.neg) style = 'color:#dc2626;font-weight:700;';
-      else if (it.highlight) style = 'font-weight:700;color:#0f766e;';
-      else if (it.total) style = 'font-weight:800;background:#f0fdfa;color:#16a34a;font-size:1.05rem;';
-      bodyRows += '<tr><td style="text-align:right;">' + it.label + '</td><td style="text-align:left;' + style + '">' + it.value + '</td></tr>';
-    });
-  });
+  let bodyRows = items.filter(function(it) { return checks[it.key] !== false; }).map(function(it) {
+    let style = '';
+    if (it.neg) style = 'color:#dc2626;font-weight:700;';
+    else if (it.highlight) style = 'font-weight:700;color:#0f766e;';
+    else if (it.total) style = 'font-weight:800;background:#f0fdfa;color:#16a34a;font-size:1.05rem;';
+    return '<tr><td>' + it.label + '</td><td style="' + style + '">' + it.value + '</td></tr>';
+  }).join('');
 
   const contractLabel = emp.contractType === 'daily' ? 'روزمزد' : (emp.contractType === 'hourly' ? 'ساعتی' : 'عادی');
   var settleMode = 'annual';
