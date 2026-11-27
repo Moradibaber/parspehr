@@ -254,6 +254,9 @@
   .log-time { color: #0f766e; font-weight: 600; margin-left: 10px; }
   .log-change { color: #64748b; margin-top: 4px; white-space: pre-wrap; }
   @media print {
+    .psp-help-tip, .psp-help-tip *, [data-help], [class*="psp-help"] {
+      display: none !important; visibility: hidden !important; opacity: 0 !important;
+    }
     @page { size: A4 portrait; margin: 6mm; }
     html, body {
       background: #fff !important; padding: 0 !important; margin: 0 !important;
@@ -288,21 +291,97 @@
       display: none !important;
     }
     #eidResultArea { display: none !important; }
-    #eidPayslipContainer { display: block !important; margin: 0 !important; }
-    #eidPayslipPrintArea { display: block !important; width: 100% !important; max-width: 100% !important; }
-    #eidPayslipContainer .eid-slip-layout { display: block !important; }
-    #eidPayslipContainer .no-print { display: none !important; }
-    #eidPayslipPrintArea table { display: table !important; width: 100% !important; visibility: visible !important; }
-    #eidPayslipPrintArea table thead, #eidPayslipPrintArea table tbody, #eidPayslipPrintArea table tr, #eidPayslipPrintArea table td, #eidPayslipPrintArea table th {
-      display: table-row-group !important; visibility: visible !important;
+    /* —— چاپ نهایی فیش عیدی: فقط ناحیه فیش، بدون اسکرول و بریدگی —— */
+    #eidPayslipContainer {
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
     }
-    #eidPayslipPrintArea table tr { display: table-row !important; }
-    #eidPayslipPrintArea table td, #eidPayslipPrintArea table th { display: table-cell !important; }
-    #eidPayslipPrintArea .net-pay { display: block !important; }
-    #eidPayslipPrintArea .payslip-header { display: block !important; }
-    /* چاپ فیش عیدی: فقط خود فیش */
+    #eidPayslipContainer .eid-slip-layout {
+      display: block !important;
+      grid-template-columns: none !important;
+      gap: 0 !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    #eidPayslipContainer .no-print {
+      display: none !important;
+      visibility: hidden !important;
+      height: 0 !important;
+      overflow: hidden !important;
+    }
+    #eidPayslipPrintArea {
+      display: block !important;
+      position: static !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      visibility: visible !important;
+    }
+    #eidPayslipPrintArea * {
+      visibility: visible !important;
+      overflow: visible !important;
+      max-height: none !important;
+    }
+    #eidPayslipPrintArea .no-print {
+      display: none !important;
+      visibility: hidden !important;
+    }
+    #eidPayslipPrintArea .payslip-header {
+      display: block !important;
+      text-align: center !important;
+      margin-bottom: 8px !important;
+    }
+    #eidPayslipPrintArea .payslip-header h2 {
+      font-size: 14pt !important;
+      margin: 0 0 4px 0 !important;
+      color: #000 !important;
+    }
+    #eidPayslipPrintArea .payslip-header p {
+      font-size: 10pt !important;
+      margin: 0 !important;
+      color: #000 !important;
+    }
+    #eidPayslipPrintArea table {
+      display: table !important;
+      width: 100% !important;
+      border-collapse: collapse !important;
+      table-layout: fixed !important;
+      page-break-inside: auto !important;
+    }
+    #eidPayslipPrintArea thead { display: table-header-group !important; }
+    #eidPayslipPrintArea tbody { display: table-row-group !important; }
+    #eidPayslipPrintArea tr { display: table-row !important; page-break-inside: avoid !important; }
+    #eidPayslipPrintArea th,
+    #eidPayslipPrintArea td {
+      display: table-cell !important;
+      border: 1px solid #333 !important;
+      padding: 4px 6px !important;
+      font-size: 10pt !important;
+      color: #000 !important;
+      background: #fff !important;
+      vertical-align: middle !important;
+    }
+    #eidPayslipPrintArea .net-pay {
+      display: block !important;
+      margin-top: 10px !important;
+      padding: 8px !important;
+      font-size: 12pt !important;
+      font-weight: 800 !important;
+      text-align: center !important;
+      border: 1px solid #333 !important;
+      color: #000 !important;
+      background: #f5f5f5 !important;
+    }
     #panel-eid .no-print,
-    #eidPayslipContainer .no-print,
     #eidSheetFilters,
     #eidResultArea,
     #panel-eid .sheet-org-filters,
@@ -314,22 +393,17 @@
       height: 0 !important;
       overflow: hidden !important;
     }
-    #eidPayslipContainer,
-    #eidPayslipPrintArea,
-    #eidPayslipPrintArea * {
-      visibility: visible !important;
-    }
-    #eidPayslipPrintArea {
-      display: block !important;
-      position: relative !important;
-      width: 100% !important;
-    }
-    #eidPayslipPrintArea .no-print {
-      display: none !important;
-      visibility: hidden !important;
+    html, body, .container, .panel.active, .card, #panel-eid, #panel-eid .card {
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
     }
     /* هشدار قرارداد / بنر / راهنما */
     #pspCalcContractBanner,
+    .psp-help-tip,
+    .psp-help-tip *,
+    [data-help],
+    [class*="psp-help"],
     #panel-eid [style*="fed7aa"],
     #panel-eid [style*="#fff7ed"],
     #panel-eid [style*="fef3c7"],
@@ -337,10 +411,12 @@
       display: none !important;
       visibility: hidden !important;
       height: 0 !important;
+      max-height: 0 !important;
       overflow: hidden !important;
       margin: 0 !important;
       padding: 0 !important;
       border: none !important;
+      opacity: 0 !important;
     }
     /* لینک/متن هدرهای حکم و دکمه‌های کمکی در چاپ */
     a[href*="decree"], button[onclick*="decree"],
@@ -1419,7 +1495,7 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <button class="btn btn-primary" onclick="generateEidPayslip()">نمایش فیش عیدی / سنوات / مرخصی</button>
-          <button class="btn btn-outline" onclick="window.print()">چاپ فیش</button>
+          <button class="btn btn-outline" onclick="printEidPayslipFinal()">چاپ فیش</button>
         </div>
       </div>
       <div id="eidPayslipContainer" style="margin-bottom:16px;"></div>
@@ -9126,13 +9202,36 @@ function generateEidPayslip() {
       '<span style="font-size:0.8rem;color:#64748b;">' + it.value + '</span></label>';
   }).join('');
 
-  let bodyRows = items.filter(function(it) { return checks[it.key] !== false; }).map(function(it) {
-    let style = '';
-    if (it.neg) style = 'color:#dc2626;font-weight:700;';
-    else if (it.highlight) style = 'font-weight:700;color:#0f766e;';
-    else if (it.total) style = 'font-weight:800;background:#f0fdfa;color:#16a34a;font-size:1.05rem;';
-    return '<tr><td>' + it.label + '</td><td style="' + style + '">' + it.value + '</td></tr>';
-  }).join('');
+  // گروه‌بندی واضح برای چاپ: مرخصی / عیدی / سنوات / جمع
+  var sectionOf = {
+    workDays: 'کارکرد', leaveUsed: 'مرخصی', entitledLeave: 'مرخصی', remainingLeave: 'مرخصی', payableLeave: 'مرخصی',
+    decreeSum: 'مرخصی', leaveDailyWage: 'مرخصی', leavePay: 'مرخصی',
+    eidSubjectSum: 'عیدی', dailyWage: 'عیدی', eidGross: 'عیدی', eidTax: 'عیدی', eidNet: 'عیدی',
+    severance: 'سنوات', annualTaxAdj: 'سایر', totalPay: 'جمع'
+  };
+  var sectionOrder = ['کارکرد', 'مرخصی', 'عیدی', 'سنوات', 'سایر', 'جمع'];
+  var sectionTitle = {
+    'کارکرد': '— کارکرد —',
+    'مرخصی': '— مرخصی —',
+    'عیدی': '— عیدی —',
+    'سنوات': '— سنوات —',
+    'سایر': '— سایر —',
+    'جمع': '— جمع —'
+  };
+  var visibleItems = items.filter(function(it) { return checks[it.key] !== false; });
+  var bodyRows = '';
+  sectionOrder.forEach(function(sec) {
+    var rows = visibleItems.filter(function(it) { return (sectionOf[it.key] || 'سایر') === sec; });
+    if (!rows.length) return;
+    bodyRows += '<tr class="eid-sec-row"><td colspan="2" style="background:#ecfdf5;color:#0f766e;font-weight:800;text-align:center;padding:6px;">' + sectionTitle[sec] + '</td></tr>';
+    rows.forEach(function(it) {
+      var style = '';
+      if (it.neg) style = 'color:#dc2626;font-weight:700;';
+      else if (it.highlight) style = 'font-weight:700;color:#0f766e;';
+      else if (it.total) style = 'font-weight:800;background:#f0fdfa;color:#16a34a;font-size:1.05rem;';
+      bodyRows += '<tr><td style="text-align:right;">' + it.label + '</td><td style="text-align:left;' + style + '">' + it.value + '</td></tr>';
+    });
+  });
 
   const contractLabel = emp.contractType === 'daily' ? 'روزمزد' : (emp.contractType === 'hourly' ? 'ساعتی' : 'عادی');
   var settleMode = 'annual';
@@ -9147,7 +9246,7 @@ function generateEidPayslip() {
   var slipMainTitle = 'فیش عیدی، سنوات و مرخصی — ' + settleTitle + ' ' + year;
 
   box.innerHTML = `
-    <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;margin-bottom:12px;" class="eid-slip-layout">
+    <div class="eid-slip-layout" style="display:grid;grid-template-columns:280px 1fr;gap:16px;margin-bottom:12px;">
       <div class="no-print" style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f0fdfa;">
         <div style="font-weight:700;color:#0f766e;margin-bottom:8px;font-size:0.9rem;">آیتم‌های فیش (تیک = نمایش)</div>
         <div style="max-height:340px;overflow-y:auto;">${checkRows}</div>
@@ -9157,27 +9256,91 @@ function generateEidPayslip() {
           <button type="button" class="btn btn-primary btn-sm" onclick="generateEidPayslip()">اعمال</button>
         </div>
       </div>
-      <div class="payslip" id="eidPayslipPrintArea">
+      <div class="payslip" id="eidPayslipPrintArea" style="overflow:visible;max-height:none;height:auto;">
         <div class="payslip-header">
           <h2>${slipMainTitle}</h2>
           <p>${settleSub}</p>
         </div>
-        <table>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
           <tr><td>کد پرسنلی</td><td>${emp.code}</td><td>نام و نام خانوادگی</td><td>${emp.fullName}</td></tr>
           <tr><td>سمت</td><td>${emp.position || '—'}</td><td>واحد / محل کار</td><td>${(emp.unit || '—') + ' / ' + (emp.workplace || '—')}</td></tr>
           <tr><td>تاریخ استخدام</td><td>${emp.hireDate || '—'}</td><td>نوع قرارداد</td><td>${contractLabel}</td></tr>
         </table>
-        <table style="margin-top:12px;">
-          <thead><tr><th>شرح</th><th>مقدار / مبلغ (ریال)</th></tr></thead>
+        <table style="width:100%;border-collapse:collapse;margin-top:4px;">
+          <thead><tr><th style="width:55%;">شرح</th><th style="width:45%;">مقدار / مبلغ (ریال)</th></tr></thead>
           <tbody>${bodyRows}</tbody>
         </table>
         <div class="net-pay">خالص عیدی + سنوات + مرخصی${r.annualTaxAdj ? ' (با اصلاح مالیات تسویه)' : ''}: ${formatNumber(r.totalPay)} ریال</div>
-        <div class="footer-note">این فیش بر اساس شیت حکم و کارکرد سالانه محاسبه شده است.${r.annualTaxAdj ? '<br><b style="color:#0f766e;">شامل «' + (r.annualTaxAdjTitle || 'اصلاح مالیات سالانه (تسویه وسط سال)') + '»: ' + formatNumber(r.annualTaxAdj) + ' ریال (بدون محاسبه مجدد بیمه/مالیات)</b>' : ''}</div>
-        <div style="margin-top:14px;text-align:center;"><button class="btn btn-outline no-print" onclick="window.print()">چاپ</button></div>
+        <div class="footer-note no-print">این فیش بر اساس شیت حکم و کارکرد سالانه محاسبه شده است.${r.annualTaxAdj ? '<br><b style="color:#0f766e;">شامل «' + (r.annualTaxAdjTitle || 'اصلاح مالیات سالانه (تسویه وسط سال)') + '»: ' + formatNumber(r.annualTaxAdj) + ' ریال</b>' : ''}</div>
+        <div class="no-print" style="margin-top:14px;text-align:center;"><button type="button" class="btn btn-outline" onclick="printEidPayslipFinal()">چاپ نهایی</button></div>
       </div>
     </div>
   `;
 }
+
+function printEidPayslipFinal() {
+  var area = document.getElementById('eidPayslipPrintArea');
+  if (!area) {
+    try { window.print(); } catch (e) {}
+    return;
+  }
+  // کپی تمیز فیش در پنجره جدا — بدون اسکرول/راهنما/بریدگی
+  var html = area.innerHTML;
+  // حذف دکمه‌ها و no-print از داخل
+  var tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('.no-print, button').forEach(function(el) {
+    try { el.parentNode.removeChild(el); } catch (e) {}
+  });
+  html = tmp.innerHTML;
+  var css = [
+    '*{box-sizing:border-box;font-family:Tahoma,Arial,sans-serif;}',
+    'body{direction:rtl;margin:12mm;padding:0;color:#000;background:#fff;font-size:11pt;}',
+    'h2{margin:0 0 4px 0;font-size:15pt;text-align:center;}',
+    'p{margin:0 0 10px 0;font-size:10pt;text-align:center;color:#333;}',
+    'table{width:100%;border-collapse:collapse;margin:0 0 10px 0;table-layout:fixed;}',
+    'th,td{border:1px solid #333;padding:5px 7px;font-size:10pt;vertical-align:middle;}',
+    'th{background:#f3f4f6;font-weight:700;}',
+    '.net-pay{margin-top:12px;padding:10px;border:2px solid #333;text-align:center;font-weight:800;font-size:12pt;background:#f5f5f5;}',
+    '.payslip-header{text-align:center;margin-bottom:8px;}',
+    '.footer-note{display:none;}',
+    '@page{size:A4 portrait;margin:10mm;}'
+  ].join('');
+  var w = window.open('', '_blank', 'noopener,noreferrer');
+  if (!w) {
+    alert('پنجره چاپ مسدود شد. اجازه پاپ‌آپ را فعال کنید یا از Ctrl+P استفاده کنید.');
+    return;
+  }
+  w.document.open();
+  w.document.write('<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>فیش عیدی سنوات مرخصی</title><style>' + css + '</style></head><body>');
+  w.document.write(html);
+  w.document.write('</body></html>');
+  w.document.close();
+  // کمی صبر تا رندر شود
+  setTimeout(function() {
+    try { w.focus(); w.print(); } catch (e2) {}
+    try { setTimeout(function(){ w.close(); }, 500); } catch (e3) {}
+  }, 250);
+}
+
+
+/* کمک: مخفی کردن راهنما هنگام هر چاپ */
+(function(){
+  function hideHelpTips(){
+    try {
+      document.querySelectorAll('.psp-help-tip,[data-help],[class*="psp-help"]').forEach(function(el){
+        el.style.setProperty('display','none','important');
+        el.style.setProperty('visibility','hidden','important');
+      });
+      var b = document.getElementById('pspCalcContractBanner');
+      if (b) b.style.setProperty('display','none','important');
+    } catch(e) {}
+  }
+  window.addEventListener('beforeprint', hideHelpTips);
+  document.addEventListener('DOMContentLoaded', function(){
+    hideHelpTips();
+  });
+})();
 
 function toggleEidSlipItem(checkKey, key, checked) {
   if (!window._eidSlipChecks) window._eidSlipChecks = {};
