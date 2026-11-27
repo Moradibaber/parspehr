@@ -9280,67 +9280,104 @@ function generateEidPayslip() {
 
 function printEidPayslipFinal() {
   var area = document.getElementById('eidPayslipPrintArea');
-  if (!area) {
-    try { window.print(); } catch (e) {}
-    return;
-  }
-  // کپی تمیز فیش در پنجره جدا — بدون اسکرول/راهنما/بریدگی
-  var html = area.innerHTML;
-  // حذف دکمه‌ها و no-print از داخل
-  var tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  tmp.querySelectorAll('.no-print, button').forEach(function(el) {
-    try { el.parentNode.removeChild(el); } catch (e) {}
-  });
-  html = tmp.innerHTML;
-  var css = [
-    '*{box-sizing:border-box;font-family:Tahoma,Arial,sans-serif;}',
-    'body{direction:rtl;margin:12mm;padding:0;color:#000;background:#fff;font-size:11pt;}',
-    'h2{margin:0 0 4px 0;font-size:15pt;text-align:center;}',
-    'p{margin:0 0 10px 0;font-size:10pt;text-align:center;color:#333;}',
-    'table{width:100%;border-collapse:collapse;margin:0 0 10px 0;table-layout:fixed;}',
-    'th,td{border:1px solid #333;padding:5px 7px;font-size:10pt;vertical-align:middle;}',
-    'th{background:#f3f4f6;font-weight:700;}',
-    '.net-pay{margin-top:12px;padding:10px;border:2px solid #333;text-align:center;font-weight:800;font-size:12pt;background:#f5f5f5;}',
-    '.payslip-header{text-align:center;margin-bottom:8px;}',
-    '.footer-note{display:none;}',
-    '@page{size:A4 portrait;margin:10mm;}'
-  ].join('');
-  var w = window.open('', '_blank', 'noopener,noreferrer');
-  if (!w) {
-    alert('پنجره چاپ مسدود شد. اجازه پاپ‌آپ را فعال کنید یا از Ctrl+P استفاده کنید.');
-    return;
-  }
-  w.document.open();
-  w.document.write('<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>فیش عیدی سنوات مرخصی</title><style>' + css + '</style></head><body>');
-  w.document.write(html);
-  w.document.write('</body></html>');
-  w.document.close();
-  // کمی صبر تا رندر شود
-  setTimeout(function() {
-    try { w.focus(); w.print(); } catch (e2) {}
-    try { setTimeout(function(){ w.close(); }, 500); } catch (e3) {}
-  }, 250);
-}
+  if (!area) { try { window.print(); } catch (e) {} return; }
 
+  // مخفی کردن راهنما و بنر قرارداد
+  try {
+    document.querySelectorAll('.psp-help-tip,[data-help],[class*="psp-help"]').forEach(function(el) {
+      el.setAttribute('data-psp-print-hide', '1');
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+    });
+    var ban = document.getElementById('pspCalcContractBanner');
+    if (ban) { ban.setAttribute('data-psp-print-hide', '1'); ban.style.setProperty('display', 'none', 'important'); }
+  } catch (eH) {}
 
-/* کمک: مخفی کردن راهنما هنگام هر چاپ */
-(function(){
-  function hideHelpTips(){
+  // استایل موقت چاپ روی همین صفحه — بدون پاپ‌آپ و بدون اسکرول
+  var style = document.getElementById('pspEidPrintStyle');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'pspEidPrintStyle';
+    document.head.appendChild(style);
+  }
+  style.textContent = [
+    '@media print {',
+    '  @page { size: A4 portrait; margin: 10mm; }',
+    '  html, body { height: auto !important; max-height: none !important; overflow: visible !important; background: #fff !important; }',
+    '  body * { visibility: hidden !important; }',
+    '  #eidPayslipPrintArea, #eidPayslipPrintArea * { visibility: visible !important; }',
+    '  #eidPayslipPrintArea {',
+    '    position: absolute !important; left: 0 !important; top: 0 !important; right: 0 !important;',
+    '    width: 100% !important; max-width: 100% !important;',
+    '    height: auto !important; max-height: none !important;',
+    '    overflow: visible !important; margin: 0 !important; padding: 8mm !important;',
+    '    background: #fff !important; z-index: 99999 !important;',
+    '    display: block !important;',
+    '  }',
+    '  #eidPayslipPrintArea table { display: table !important; width: 100% !important; border-collapse: collapse !important; }',
+    '  #eidPayslipPrintArea thead { display: table-header-group !important; }',
+    '  #eidPayslipPrintArea tbody { display: table-row-group !important; }',
+    '  #eidPayslipPrintArea tr { display: table-row !important; page-break-inside: avoid !important; }',
+    '  #eidPayslipPrintArea th, #eidPayslipPrintArea td {',
+    '    display: table-cell !important; border: 1px solid #333 !important;',
+    '    padding: 4px 6px !important; font-size: 10pt !important; color: #000 !important; background: #fff !important;',
+    '  }',
+    '  #eidPayslipPrintArea .net-pay {',
+    '    display: block !important; margin-top: 10px !important; padding: 8px !important;',
+    '    border: 2px solid #333 !important; text-align: center !important; font-weight: 800 !important;',
+    '    font-size: 12pt !important; color: #000 !important; background: #f5f5f5 !important;',
+    '  }',
+    '  #eidPayslipPrintArea .payslip-header { display: block !important; text-align: center !important; }',
+    '  #eidPayslipPrintArea .no-print, #eidPayslipPrintArea button { display: none !important; visibility: hidden !important; }',
+    '  .psp-help-tip, [data-help], #pspCalcContractBanner, .no-print { display: none !important; visibility: hidden !important; }',
+    '}',
+    /* هنگام آماده‌سازی روی صفحه هم اسکرول را بردار */
+    '#eidPayslipPrintArea, #eidPayslipContainer, #eidPayslipContainer .eid-slip-layout, #panel-eid, #panel-eid .card, .panel.active, .container, body, html {',
+    '  height: auto !important; max-height: none !important; overflow: visible !important;',
+    '}'
+  ].join('
+');
+
+  // اسکرول را موقتاً از والدها بردار
+  var cleared = [];
+  try {
+    var el = area;
+    while (el && el !== document.documentElement) {
+      var cs = window.getComputedStyle(el);
+      if (cs.overflow !== 'visible' || cs.overflowY !== 'visible' || el.scrollHeight > el.clientHeight) {
+        cleared.push({ el: el, overflow: el.style.overflow, overflowY: el.style.overflowY, maxHeight: el.style.maxHeight, height: el.style.height });
+        el.style.setProperty('overflow', 'visible', 'important');
+        el.style.setProperty('overflow-y', 'visible', 'important');
+        el.style.setProperty('max-height', 'none', 'important');
+        el.style.setProperty('height', 'auto', 'important');
+      }
+      el = el.parentElement;
+    }
+  } catch (eC) {}
+
+  var restore = function() {
     try {
-      document.querySelectorAll('.psp-help-tip,[data-help],[class*="psp-help"]').forEach(function(el){
-        el.style.setProperty('display','none','important');
-        el.style.setProperty('visibility','hidden','important');
+      cleared.forEach(function(x) {
+        x.el.style.overflow = x.overflow || '';
+        x.el.style.overflowY = x.overflowY || '';
+        x.el.style.maxHeight = x.maxHeight || '';
+        x.el.style.height = x.height || '';
       });
-      var b = document.getElementById('pspCalcContractBanner');
-      if (b) b.style.setProperty('display','none','important');
-    } catch(e) {}
-  }
-  window.addEventListener('beforeprint', hideHelpTips);
-  document.addEventListener('DOMContentLoaded', function(){
-    hideHelpTips();
-  });
-})();
+    } catch (eR) {}
+  };
+
+  var onAfter = function() {
+    restore();
+    window.removeEventListener('afterprint', onAfter);
+  };
+  window.addEventListener('afterprint', onAfter);
+
+  setTimeout(function() {
+    try { window.print(); } catch (eP) {}
+    // fallback restore اگر afterprint نیامد
+    setTimeout(restore, 2000);
+  }, 100);
+}
 
 function toggleEidSlipItem(checkKey, key, checked) {
   if (!window._eidSlipChecks) window._eidSlipChecks = {};
