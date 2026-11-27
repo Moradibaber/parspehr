@@ -528,7 +528,13 @@
 
   <div class="panel" id="panel-customitems">
     <div class="card">
-      <div class="section-title">آیتم‌های سفارشی (مرجع)</div>
+      <div class="section-title" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;">
+        <span>آیتم‌های سفارشی (مرجع)</span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" id="btnAddCustomTemplate" class="btn btn-primary btn-sm" onclick="try{addCustomTemplateRow();}catch(e){alert(e);}">+ افزودن آیتم</button>
+          <button type="button" class="btn btn-success btn-sm" onclick="try{saveCustomTemplates(false);}catch(e){alert(e);}">ذخیره قالب‌ها</button>
+        </span>
+      </div>
       <p style="font-size:0.82rem;color:#64748b;margin-bottom:10px;">
         فقط <b>نام و تنظیمات</b> آیتم (بدون مبلغ). مبلغ در کارت کارمند یا ویرایش گروهی کارکنان وارد می‌شود.
         تغییر نام اینجا در کارکنان انتخاب‌شده و شیت‌های مرتبط اعمال می‌شود.
@@ -538,7 +544,7 @@
         <span>نام آیتم</span><span>نحوه ورود</span><span>ثابت</span><span>فعال</span><span>مدت</span><span></span>
       </div>
       <div id="customTemplatesList"></div>
-      <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="addCustomTemplateRow()">+ افزودن آیتم سفارشی</button>
+      <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" onclick="try{addCustomTemplateRow();}catch(e){alert(e);}">+ افزودن آیتم سفارشی</button>
 
       <div class="section-title" style="margin-top:18px;font-size:0.95rem;">اعمال به کارکنان — فیلتر و انتخاب نفرات</div>
       <p style="font-size:0.78rem;color:#64748b;margin-bottom:10px;">
@@ -3888,13 +3894,19 @@ function renameCustomItemEverywhere(oldName, newName) {
   } catch (e) {}
 }
 function addCustomTemplateRow() {
-  if (!data.customItemTemplates) data.customItemTemplates = [];
-  data.customItemTemplates.push({
-    name: '', entryType: 'workdays',
-    isFixed: false, duration: 'always', enabled: true, _prevName: ''
-  });
-  renderCustomTemplates();
+  try {
+    if (typeof data === 'undefined' || !data) { alert('داده بارگذاری نشده'); return; }
+    if (!Array.isArray(data.customItemTemplates)) data.customItemTemplates = [];
+    data.customItemTemplates.push({
+      name: '', entryType: 'workdays',
+      isFixed: false, duration: 'always', enabled: true, _prevName: ''
+    });
+    if (typeof renderCustomTemplates === 'function') renderCustomTemplates();
+  } catch (eAdd) {
+    try { alert('خطا در افزودن آیتم: ' + (eAdd && eAdd.message ? eAdd.message : eAdd)); } catch (e2) {}
+  }
 }
+try { window.addCustomTemplateRow = addCustomTemplateRow; } catch (eW) {}
 function removeCustomTemplateRow(idx) {
   data.customItemTemplates.splice(idx, 1);
   renderCustomTemplates();
