@@ -289,7 +289,17 @@
     }
     #eidResultArea { display: none !important; }
     #eidPayslipContainer { display: block !important; margin: 0 !important; }
-    #eidPayslipPrintArea { display: block !important; }
+    #eidPayslipPrintArea { display: block !important; width: 100% !important; max-width: 100% !important; }
+    #eidPayslipContainer .eid-slip-layout { display: block !important; }
+    #eidPayslipContainer .no-print { display: none !important; }
+    #eidPayslipPrintArea table { display: table !important; width: 100% !important; visibility: visible !important; }
+    #eidPayslipPrintArea table thead, #eidPayslipPrintArea table tbody, #eidPayslipPrintArea table tr, #eidPayslipPrintArea table td, #eidPayslipPrintArea table th {
+      display: table-row-group !important; visibility: visible !important;
+    }
+    #eidPayslipPrintArea table tr { display: table-row !important; }
+    #eidPayslipPrintArea table td, #eidPayslipPrintArea table th { display: table-cell !important; }
+    #eidPayslipPrintArea .net-pay { display: block !important; }
+    #eidPayslipPrintArea .payslip-header { display: block !important; }
     .payslip {
       max-width: 100% !important; page-break-inside: avoid; break-inside: avoid;
       margin: 0 !important; padding: 0 !important;
@@ -5548,10 +5558,59 @@ function saveEmployee(e) {
   }
 
   // ادمین: اعمال فوری — بدون پخش خودکار آیتم‌های مرجع (فقط با دکمه «اعمال به همه» در شیت سفارشی)
+  // حفظ سوابق کاری قبلی — ذخیره کارت نباید پاکشان کند
+  try {
+    var _priorKeys = ['priorExpY','priorExpM','priorExpD','expFromWork','expFromHire','totalExpWork','totalExpHire'];
+    var _codeSave = String(emp.code || '');
+    var _loc = {};
+    try { _loc = JSON.parse(localStorage.getItem('pspSenPrior_'+_codeSave) || localStorage.getItem('pspSenPrior_'+(editId||'')) || '{}') || {}; } catch (eL) { _loc = {}; }
+    var _exPer = {};
+    try {
+      if (data.employeeExtras && data.employeeExtras[_codeSave] && data.employeeExtras[_codeSave].personal)
+        _exPer = data.employeeExtras[_codeSave].personal;
+      else if (editId && data.employeeExtras && data.employeeExtras[editId] && data.employeeExtras[editId].personal)
+        _exPer = data.employeeExtras[editId].personal;
+    } catch (eE) {}
+    _priorKeys.forEach(function(k) {
+      var el = document.getElementById('pspProf_' + k);
+      var v = null;
+      if (el && String(el.value || '').trim() !== '') v = String(el.value).trim();
+      else if (old && old[k] != null && String(old[k]).trim() !== '') v = String(old[k]).trim();
+      else if (_exPer[k] != null && String(_exPer[k]).trim() !== '') v = String(_exPer[k]).trim();
+      else if (k === 'priorExpY' && _loc.y != null && _loc.y !== '') v = String(_loc.y);
+      else if (k === 'priorExpM' && _loc.m != null && _loc.m !== '') v = String(_loc.m);
+      else if (k === 'priorExpD' && _loc.d != null && _loc.d !== '') v = String(_loc.d);
+      if (v != null) emp[k] = v;
+    });
+    try {
+      if (!data.employeeExtras) data.employeeExtras = {};
+      if (!data.employeeExtras[_codeSave]) data.employeeExtras[_codeSave] = {};
+      var p0 = data.employeeExtras[_codeSave].personal || {};
+      data.employeeExtras[_codeSave].personal = Object.assign({}, p0, {
+        priorExpY: emp.priorExpY || p0.priorExpY || '',
+        priorExpM: emp.priorExpM || p0.priorExpM || '',
+        priorExpD: emp.priorExpD || p0.priorExpD || ''
+      });
+      if (emp.priorExpY != null || emp.priorExpM != null || emp.priorExpD != null) {
+        localStorage.setItem('pspSenPrior_'+_codeSave, JSON.stringify({
+          y: Number(emp.priorExpY)||0, m: Number(emp.priorExpM)||0, d: Number(emp.priorExpD)||0, ts: Date.now()
+        }));
+      }
+    } catch (eSync) {}
+  } catch (ePrior) {}
+
   if (editId) {
     if (changeSummary) addChangeLog('ویرایش', emp.code, changeSummary);
     const idx = data.employees.findIndex(e => e.code === editId);
-    if (idx > -1) data.employees[idx] = emp;
+    if (idx > -1) {
+      var prevEmp = data.employees[idx];
+      if (prevEmp && typeof prevEmp === 'object') {
+        Object.keys(prevEmp).forEach(function(k) {
+          if (emp[k] === undefined) emp[k] = prevEmp[k];
+        });
+      }
+      data.employees[idx] = emp;
+    }
   } else {
     data.employees.push(emp);
     addChangeLog('افزودن', emp.code, changeSummary);
@@ -9031,8 +9090,8 @@ function generateEidPayslip() {
   const contractLabel = emp.contractType === 'daily' ? 'روزمزد' : (emp.contractType === 'hourly' ? 'ساعتی' : 'عادی');
 
   box.innerHTML = `
-    <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;margin-bottom:12px;">
-      <div style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f0fdfa;">
+    <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;margin-bottom:12px;" class="eid-slip-layout">
+      <div class="no-print" style="border:1px solid #ccfbf1;border-radius:10px;padding:12px;background:#f0fdfa;">
         <div style="font-weight:700;color:#0f766e;margin-bottom:8px;font-size:0.9rem;">آیتم‌های فیش (تیک = نمایش)</div>
         <div style="max-height:340px;overflow-y:auto;">${checkRows}</div>
         <div style="margin-top:10px;display:flex;gap:6px;">
