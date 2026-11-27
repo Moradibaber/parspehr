@@ -1347,7 +1347,15 @@
         </div>
       </div>
       <div id="eidSheetFilters" class="sheet-org-filters" style="margin-bottom:12px;"></div>
+      <div class="form-group no-print" style="margin-bottom:10px;max-width:280px;">
+        <label>فیلتر جدول نتایج (نام / کد)</label>
+        <input type="text" id="eidTableFilter" placeholder="جستجوی نام یا کد…" oninput="filterEidResultsTable()">
+      </div>
       <div class="no-print" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+        <div class="form-group" style="min-width:180px;">
+          <label>جستجوی نام / کد</label>
+          <input type="text" id="eidEmpFilter" placeholder="نام یا کد…" style="min-width:160px;" oninput="filterEidSlipEmployees()">
+        </div>
         <div class="form-group" style="min-width:220px;">
           <label>کارمند برای فیش عیدی / سنوات / مرخصی</label>
           <select id="eidSlipEmployee" style="min-width:200px;"></select>
@@ -4397,6 +4405,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       if (data.eidResults && data.eidResults[document.getElementById('eidYear').value]) {
         renderEidResults(data.eidResults[document.getElementById('eidYear').value]);
       }
+      try { if (typeof populateEidSlipEmployees === 'function') populateEidSlipEmployees(); } catch (eEid) {}
     }
     if (btn.dataset.tab==='annualtax') {
       document.getElementById('annualTaxYear').value = data.settings.currentYear || 1405;
@@ -8896,12 +8905,67 @@ function transferAnnualTaxDiffs() {
   alert('منتقل شد به ' + targetKey + '.\nپس از «اجرای محاسبه» آن ماه، مبالغ در فیش دیده می‌شود.');
 }
 
+
+function filterEidResultsTable() {
+  try {
+    var q = String((document.getElementById('eidTableFilter') || {}).value || '').trim().toLowerCase()
+      .replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; });
+    var area = document.getElementById('eidResultArea');
+    if (!area) return;
+    area.querySelectorAll('tbody tr').forEach(function(tr) {
+      var t = String(tr.textContent || '').toLowerCase()
+        .replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; });
+      tr.style.display = (!q || t.indexOf(q) >= 0) ? '' : 'none';
+    });
+  } catch (e) {}
+}
+
 function populateEidSlipEmployees() {
   const sel = document.getElementById('eidSlipEmployee');
   if (!sel) return;
-  sel.innerHTML = getActiveEmployees().map(e =>
-    '<option value="' + e.code + '">' + e.fullName + ' (' + e.code + ')</option>'
-  ).join('');
+  const year = Number((document.getElementById('eidYear') || {}).value) || 1405;
+  const prev = sel.value;
+  const q = String((document.getElementById('eidEmpFilter') || {}).value || '').trim().toLowerCase()
+    .replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; });
+  // ترجیح: نفرات نتیجه‌ی محاسبه همین سال؛ اگر نبود همه فعال‌ها
+  let list = [];
+  const results = (data.eidResults && data.eidResults[year]) || [];
+  if (results.length) {
+    const byCode = {};
+    results.forEach(function(r) {
+      if (!r || r.code == null) return;
+      byCode[String(r.code)] = r;
+    });
+    list = getActiveEmployees().filter(function(e) { return byCode[String(e.code)]; });
+    // اگر هنوز خالی بود، از خود results بساز
+    if (!list.length) {
+      list = results.map(function(r) {
+        const e = (data.employees || []).find(function(x) { return String(x.code) === String(r.code); });
+        return e || { code: r.code, fullName: r.fullName || r.code };
+      });
+    }
+  } else {
+    list = getActiveEmployees();
+  }
+  if (q) {
+    list = list.filter(function(e) {
+      const hay = String((e.fullName || '') + ' ' + (e.code || '')).toLowerCase()
+        .replace(/[۰-۹]/g, function(d){ return '0123456789'['۰۱۲۳۴۵۶۷۸۹'.indexOf(d)]; });
+      return hay.indexOf(q) >= 0;
+    });
+  }
+  sel.innerHTML = list.map(function(e) {
+    return '<option value="' + e.code + '">' + (e.fullName || '') + ' (' + e.code + ')</option>';
+  }).join('');
+  if (!sel.innerHTML) {
+    sel.innerHTML = '<option value="">— کسی یافت نشد —</option>';
+  }
+  if (prev && Array.prototype.some.call(sel.options, function(o){ return o.value === prev; })) {
+    sel.value = prev;
+  }
+}
+function filterEidSlipEmployees() {
+  try { populateEidSlipEmployees(); } catch (e) {}
 }
 
 
